@@ -1,0 +1,82 @@
+cabal-version: 3.4
+name:          yare
+version:       0.1.0.0
+synopsis:      yare: cardano app
+license:       MIT
+author:        Unisay
+maintainer:    Unisay@users.noreply.github.com
+category:      Web
+build-type:    Simple
+
+common opts
+  default-language:   Haskell2010
+  default-extensions:
+    NoImplicitPrelude
+    AllowAmbiguousTypes
+    BlockArguments
+    DataKinds
+    DerivingStrategies
+    ImportQualifiedPost
+    LambdaCase
+    NamedFieldPuns
+    OverloadedStrings
+    PatternSynonyms
+    RecordWildCards
+    ScopedTypeVariables
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    UnicodeSyntax
+    ViewPatterns
+
+  ghc-options:
+    -Weverything -Wno-unused-packages -Wno-unsafe -Wno-safe
+    -Wno-unticked-promoted-constructors -Wno-missing-safe-haskell-mode
+    -Wno-missing-import-lists -fprint-explicit-foralls
+    -fprint-explicit-kinds
+
+  build-depends:
+    , base    ^>=4.14
+    , path    ^>=0.9.2
+    , relude  ^>=1.2
+
+library
+  import:          opts
+  hs-source-dirs:  lib
+  build-depends:
+    , cardano-api                    ^>=8.2
+    , cardano-client                 ^>=0.2
+    , cardano-ledger-byron           ^>=1.0.0.2
+    , cardano-ledger-core            ^>=1.2
+    , cborg                          ^>=0.2.9
+    , contra-tracer                  ^>=0.1.0.1
+    , ouroboros-consensus            ^>=0.7
+    , ouroboros-consensus-cardano    ^>=0.6
+    , ouroboros-consensus-diffusion  ^>=0.6
+    , ouroboros-consensus-protocol   ^>=0.5.0.2
+    , ouroboros-network              ^>=0.8.1.1
+    , ouroboros-network-framework    ^>=0.6.0.1
+    , pretty-show                    ^>=1.10
+    , string-interpolate             ^>=0.3.2.1
+    , Win32-network                  ^>=0.1.1.1
+
+  exposed-modules: Yare.Client
+
+executable yare
+  import:         opts
+  hs-source-dirs: exe
+  main-is:        Main.hs
+  build-depends:
+    , optparse-applicative  ^>=0.18.1
+    , path-io               ^>=1.7
+    , with-utf8             ^>=1.0.2.4
+    , yare
+
+  ghc-options:    -threaded -rtsopts -Wall
+
+test-suite yare-test
+  import:         opts
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Main.hs
+  build-depends:  yare
