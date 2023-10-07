@@ -2,21 +2,23 @@
 
 module Yare.Client (main) where
 
-import Relude
+import Relude hiding (atomically)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
-import Cardano.Client.Subscription
-  ( ConnectionId
-  , LocalAddress
-  , MuxTrace
-  , WithMuxBearer
-  , subscribe
+import Cardano.Client.Subscription (subscribe)
+import Control.Concurrent.Class.MonadSTM.TQueue
+  ( TQueue
+  , newTQueueIO
+  , writeTQueue
   )
-import Cardano.Ledger.Crypto (StandardCrypto)
-import Codec.CBOR.Term qualified as CBOR
+import Control.Monad.Class.MonadAsync (concurrently_)
+import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
+import Control.Monad.Morph (MFunctor (hoist))
+import Control.Monad.Oops (Variant)
+import Control.Monad.Oops qualified as Oops
 import Control.Tracer (Tracer, debugTracer, nullTracer)
 import Ouroboros.Consensus.Block.Abstract (CodecConfig)
-import Ouroboros.Consensus.Cardano (CardanoBlock)
+import Ouroboros.Consensus.Cardano.Block (EraMismatch)
 import Ouroboros.Consensus.Cardano.Node (protocolClientInfoCardano)
 import Ouroboros.Consensus.Network.NodeToClient
   ( Codecs' (..)
@@ -34,41 +36,82 @@ import Ouroboros.Network.Magic (NetworkMagic (..))
 import Ouroboros.Network.Mux (MuxPeer (..), RunMiniProtocol (..))
 import Ouroboros.Network.NodeToClient
   ( ClientSubscriptionParams (..)
-  , ErrorPolicyTrace
-  , Handshake
   , NetworkSubscriptionTracers (..)
   , NodeToClientProtocols (..)
-  , NodeToClientVersion
-  , SubscriptionTrace
-  , TraceSendRecv
-  , WithAddr
   , chainSyncPeerNull
   , localSnocket
-  , localStateQueryPeerNull
   , localTxMonitorPeerNull
   , localTxSubmissionPeerNull
   , networkErrorPolicies
   , withIOManager
   )
-import Ouroboros.Network.Snocket qualified as Snocket
-import Path (Abs, File, Path, toFilePath)
+import Ouroboros.Network.Protocol.LocalStateQuery.Client qualified as LSQ
+import String.ANSI (faint)
+import Text.ANSI (red)
+import Text.Pretty.Simple (pPrint)
+import Yare.Data.NodeSocket (NodeSocket, nodeSocketLocalAddress)
+import Yare.LSQ (QueryCont (..), localStateQueryHandler, queryLedgerTip)
+import Yare.LSQ qualified as LSQ
+import Yare.Types (Block)
 
-type Block = CardanoBlock StandardCrypto
+--------------------------------------------------------------------------------
 
-main ∷ Path Abs File → IO Void
-main nodeSocketPath = withIOManager \ioManager →
+main ∷ NodeSocket → IO ()
+main nodeSocket = do
+  localStateQueryQ ← newTQueueIO
+  concurrently_
+    do runLocalStateQueries localStateQueryQ
+    do stayConnectedToNode nodeSocket localStateQueryQ
+
+runLocalStateQueries ∷ TQueue IO (QueryCont IO) → IO ()
+runLocalStateQueries q = do
+  atomically . writeTQueue q $
+    QueryCont (hoist handleErrors queryLedgerTip) \case
+      Left failure →
+        crash $ "Local state query failed to acquire state: " <> show failure
+      Right ns →
+        pPrint ns
+ where
+  crash ∷ MonadIO m ⇒ Text → m a
+  crash err = liftIO $ exitFailure <* putTextLn (red err)
+
+  handleErrors
+    ∷ ExceptT
+        ( Variant
+            [ EraMismatch
+            , LSQ.UnknownEraIndex
+            , LSQ.NoLedgerTipQueryInByronEra
+            ]
+        )
+        IO
+        a
+    → IO a
+  handleErrors =
+    ( Oops.catch \(err ∷ EraMismatch) →
+        crash $ "Local state query mismatch: " <> show err
+    )
+      >>> ( Oops.catch \(err ∷ LSQ.UnknownEraIndex) →
+              crash $ "Local state query unknown era: " <> show err
+          )
+      >>> ( Oops.catch \(err ∷ LSQ.NoLedgerTipQueryInByronEra) →
+              crash $ "No ledger tip query in Byron era: " <> show err
+          )
+      >>> Oops.runOops
+
+stayConnectedToNode ∷ NodeSocket → TQueue IO (QueryCont IO) → IO Void
+stayConnectedToNode nodeSocket localStateQueryQ = withIOManager \ioManager →
   subscribe
     (localSnocket ioManager)
     mainnet
     (supportedNodeToClientVersions (Proxy @Block))
     NetworkSubscriptionTracers
-      { nsMuxTracer = muxTracer
-      , nsHandshakeTracer = handshakeTracer
-      , nsErrorPolicyTracer = errorPolicyTracer
-      , nsSubscriptionTracer = subscriptionTracer
+      { nsMuxTracer = showTracer
+      , nsHandshakeTracer = showTracer
+      , nsErrorPolicyTracer = showTracer
+      , nsSubscriptionTracer = runIdentity >$< showTracer
       }
     ClientSubscriptionParams
-      { cspAddress = Snocket.localAddressFromPath (toFilePath nodeSocketPath)
+      { cspAddress = nodeSocketLocalAddress nodeSocket
       , cspConnectionAttemptDelay = Nothing
       , cspErrorPolicies =
           networkErrorPolicies <> consensusErrorPolicy (Proxy @Block)
@@ -81,10 +124,15 @@ main nodeSocketPath = withIOManager \ioManager →
                   MuxPeer nullTracer cChainSyncCodec chainSyncPeerNull
             , localTxSubmissionProtocol =
                 InitiatorProtocolOnly $
-                  MuxPeer nullTracer cTxSubmissionCodec localTxSubmissionPeerNull
+                  MuxPeer
+                    nullTracer
+                    cTxSubmissionCodec
+                    localTxSubmissionPeerNull
             , localStateQueryProtocol =
                 InitiatorProtocolOnly $
-                  MuxPeer nullTracer cStateQueryCodec localStateQueryPeerNull
+                  MuxPeer showTracer cStateQueryCodec $
+                    LSQ.localStateQueryClientPeer $
+                      localStateQueryHandler localStateQueryQ
             , localTxMonitorProtocol =
                 InitiatorProtocolOnly $
                   MuxPeer nullTracer cTxMonitorCodec localTxMonitorPeerNull
@@ -96,20 +144,5 @@ main nodeSocketPath = withIOManager \ioManager →
     let byronEpochSlots = EpochSlots 21600
      in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)
 
-  errorPolicyTracer ∷ Tracer IO (WithAddr LocalAddress ErrorPolicyTrace)
-  errorPolicyTracer = show >$< debugTracer
-
-  muxTracer ∷ (Show peer) ⇒ Tracer IO (WithMuxBearer peer MuxTrace)
-  muxTracer = show >$< debugTracer
-
-  subscriptionTracer ∷ Tracer IO (Identity (SubscriptionTrace LocalAddress))
-  subscriptionTracer = show . runIdentity >$< debugTracer
-
-  handshakeTracer
-    ∷ Tracer
-        IO
-        ( WithMuxBearer
-            (ConnectionId LocalAddress)
-            (TraceSendRecv (Handshake NodeToClientVersion CBOR.Term))
-        )
-  handshakeTracer = show >$< debugTracer
+  showTracer ∷ Show a ⇒ Tracer IO a
+  showTracer = faint . show >$< debugTracer

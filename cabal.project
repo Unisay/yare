@@ -16,3 +16,7 @@ packages: yare.cabal
 
 package cardano-crypto-praos
   flags: -external-libsodium-vrf
+
+constraints:
+  -- https://github.com/nikita-volkov/deferred-folds/issues/6
+  deferred-folds < 0.9.18.4

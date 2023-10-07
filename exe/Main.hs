@@ -19,15 +19,16 @@ import Options.Applicative
 import Path (File, SomeBase (..), parseSomeFile)
 import Path.IO qualified as Path
 import Yare.Client qualified as Yare
+import Yare.Data.NodeSocket (NodeSocket (..))
 
 main ∷ IO ()
 main = withUtf8 do
   Args {nodeSocketPath} ← parseArguments
-  nodeSocketFile ←
-    case nodeSocketPath of
+  nodeSocket ←
+    NodeSocket <$> case nodeSocketPath of
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
-  void $ Yare.main nodeSocketFile
+  void $ Yare.main nodeSocket
 
 newtype Args = Args {nodeSocketPath ∷ SomeBase File}
 
