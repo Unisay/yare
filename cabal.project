@@ -20,3 +20,9 @@ package cardano-crypto-praos
 constraints:
   -- https://github.com/nikita-volkov/deferred-folds/issues/6
   deferred-folds < 0.9.18.4
+
+source-repository-package
+  type: git
+  location: https://github.com/IntersectMBO/cardano-addresses.git
+  tag: bd67b976842addea6ab6436d5008f7a932b69862
+  subdir: core

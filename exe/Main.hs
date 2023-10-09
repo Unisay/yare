@@ -19,7 +19,7 @@ import Options.Applicative
 import Path (File, SomeBase (..), parseSomeFile)
 import Path.IO qualified as Path
 import Yare.Client qualified as Yare
-import Yare.Data.NodeSocket (NodeSocket (..))
+import Yare.Data.Node.Socket (NodeSocket (..))
 
 main ∷ IO ()
 main = withUtf8 do

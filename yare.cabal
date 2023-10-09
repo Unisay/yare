@@ -23,11 +23,14 @@ common opts
     FlexibleInstances
     GeneralizedNewtypeDeriving
     ImportQualifiedPost
+    KindSignatures
     LambdaCase
     MultiParamTypeClasses
     NamedFieldPuns
+    NumericUnderscores
     OverloadedStrings
     PatternSynonyms
+    PolyKinds
     RankNTypes
     RecordWildCards
     ScopedTypeVariables
@@ -53,6 +56,7 @@ library
   import:          opts
   hs-source-dirs:  lib
   build-depends:
+    , cardano-addresses              ^>=3.12
     , cardano-client                 ^>=0.2
     , cardano-ledger-byron           ^>=1.0.0.2
     , cardano-ledger-core            ^>=1.2
@@ -77,8 +81,10 @@ library
     , Win32-network                  ^>=0.1.1.1
 
   exposed-modules:
+    Yare.ChainSync
     Yare.Client
-    Yare.Data.NodeSocket
+    Yare.Data.Node.Interface
+    Yare.Data.Node.Socket
     Yare.LSQ
     Yare.Types
 

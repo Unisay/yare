@@ -5,25 +5,23 @@ module Yare.Client (main) where
 import Relude hiding (atomically)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
-import Cardano.Client.Subscription (subscribe)
-import Control.Concurrent.Class.MonadSTM.TQueue
-  ( TQueue
-  , newTQueueIO
-  , writeTQueue
-  )
+import Cardano.Client.Subscription (WithMuxBearer, subscribe)
+import Codec.CBOR.Term qualified as CBOR
+import Control.Concurrent.Class.MonadSTM.TQueue (TQueue, writeTQueue)
 import Control.Monad.Class.MonadAsync (concurrently_)
 import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
 import Control.Monad.Morph (MFunctor (hoist))
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Control.Tracer (Tracer, debugTracer, nullTracer)
-import Ouroboros.Consensus.Block.Abstract (CodecConfig)
+import Ouroboros.Consensus.Block.Abstract (CodecConfig, Point)
 import Ouroboros.Consensus.Cardano.Block (EraMismatch)
 import Ouroboros.Consensus.Cardano.Node (protocolClientInfoCardano)
+import Ouroboros.Consensus.Ledger.Query (Query)
 import Ouroboros.Consensus.Network.NodeToClient
   ( Codecs' (..)
   , cTxSubmissionCodec
-  , defaultCodecs
+  , clientCodecs
   )
 import Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy)
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
@@ -32,36 +30,49 @@ import Ouroboros.Consensus.Node.NetworkProtocolVersion
 import Ouroboros.Consensus.Node.ProtocolInfo (pClientInfoCodecConfig)
 import Ouroboros.Consensus.Protocol.Praos.Translate ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
+import Ouroboros.Network.Block (Tip)
 import Ouroboros.Network.Magic (NetworkMagic (..))
 import Ouroboros.Network.Mux (MuxPeer (..), RunMiniProtocol (..))
 import Ouroboros.Network.NodeToClient
   ( ClientSubscriptionParams (..)
+  , ConnectionId
+  , ErrorPolicyTrace
+  , Handshake
+  , LocalAddress
   , NetworkSubscriptionTracers (..)
   , NodeToClientProtocols (..)
-  , chainSyncPeerNull
+  , NodeToClientVersion
+  , SubscriptionTrace
+  , TraceSendRecv
+  , WithAddr
   , localSnocket
   , localTxMonitorPeerNull
   , localTxSubmissionPeerNull
   , networkErrorPolicies
   , withIOManager
   )
+import Ouroboros.Network.Protocol.ChainSync.Client qualified as CS
+import Ouroboros.Network.Protocol.ChainSync.Type (ChainSync)
 import Ouroboros.Network.Protocol.LocalStateQuery.Client qualified as LSQ
-import String.ANSI (faint)
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (LocalStateQuery)
+import String.ANSI (blackBg, faint)
 import Text.ANSI (red)
 import Text.Pretty.Simple (pPrint)
-import Yare.Data.NodeSocket (NodeSocket, nodeSocketLocalAddress)
-import Yare.LSQ (QueryCont (..), localStateQueryHandler, queryLedgerTip)
+import Yare.ChainSync (chainSyncClient)
+import Yare.Data.Node.Interface (NodeInterface (..), newNodeInterfaceIO)
+import Yare.Data.Node.Socket (NodeSocket, nodeSocketLocalAddress)
+import Yare.LSQ (QueryCont (..), localStateQueryClient, queryLedgerTip)
 import Yare.LSQ qualified as LSQ
-import Yare.Types (Block)
+import Yare.Types (Block, IxedByBlock (..))
 
 --------------------------------------------------------------------------------
 
 main ∷ NodeSocket → IO ()
 main nodeSocket = do
-  localStateQueryQ ← newTQueueIO
+  nodeInterface ← newNodeInterfaceIO
   concurrently_
-    do runLocalStateQueries localStateQueryQ
-    do stayConnectedToNode nodeSocket localStateQueryQ
+    do runLocalStateQueries (localStateQueryQ nodeInterface)
+    do stayConnectedToNode nodeSocket nodeInterface
 
 runLocalStateQueries ∷ TQueue IO (QueryCont IO) → IO ()
 runLocalStateQueries q = do
@@ -69,8 +80,14 @@ runLocalStateQueries q = do
     QueryCont (hoist handleErrors queryLedgerTip) \case
       Left failure →
         crash $ "Local state query failed to acquire state: " <> show failure
-      Right ns →
-        pPrint ns
+      Right ns → case ns of
+        IxedByBlockByron p → pPrint p
+        IxedByBlockShelley p → pPrint p
+        IxedByBlockAllegra p → pPrint p
+        IxedByBlockMary p → pPrint p
+        IxedByBlockAlonzo p → pPrint p
+        IxedByBlockBabbage p → pPrint p
+        IxedByBlockConway p → pPrint p
  where
   crash ∷ MonadIO m ⇒ Text → m a
   crash err = liftIO $ exitFailure <* putTextLn (red err)
@@ -98,17 +115,17 @@ runLocalStateQueries q = do
           )
       >>> Oops.runOops
 
-stayConnectedToNode ∷ NodeSocket → TQueue IO (QueryCont IO) → IO Void
-stayConnectedToNode nodeSocket localStateQueryQ = withIOManager \ioManager →
+stayConnectedToNode ∷ NodeSocket → NodeInterface IO → IO Void
+stayConnectedToNode nodeSocket NodeInterface {..} = withIOManager \ioManager →
   subscribe
     (localSnocket ioManager)
     mainnet
     (supportedNodeToClientVersions (Proxy @Block))
     NetworkSubscriptionTracers
-      { nsMuxTracer = showTracer
-      , nsHandshakeTracer = showTracer
-      , nsErrorPolicyTracer = showTracer
-      , nsSubscriptionTracer = runIdentity >$< showTracer
+      { nsMuxTracer = nullTracer
+      , nsHandshakeTracer = handshakeTracer
+      , nsErrorPolicyTracer = errorPolicyTracer
+      , nsSubscriptionTracer = subscriptionTracer
       }
     ClientSubscriptionParams
       { cspAddress = nodeSocketLocalAddress nodeSocket
@@ -117,25 +134,21 @@ stayConnectedToNode nodeSocket localStateQueryQ = withIOManager \ioManager →
           networkErrorPolicies <> consensusErrorPolicy (Proxy @Block)
       }
     \nodeToClientVer blockVer _connectionId →
-      let Codecs {..} = defaultCodecs codecConfig blockVer nodeToClientVer
+      let Codecs {..} = clientCodecs codecConfig blockVer nodeToClientVer
        in NodeToClientProtocols
             { localChainSyncProtocol =
-                InitiatorProtocolOnly $
-                  MuxPeer nullTracer cChainSyncCodec chainSyncPeerNull
+                InitiatorProtocolOnly . MuxPeer lcsTracer cChainSyncCodec $
+                  CS.chainSyncClientPeer chainSyncClient
             , localTxSubmissionProtocol =
-                InitiatorProtocolOnly $
-                  MuxPeer
-                    nullTracer
-                    cTxSubmissionCodec
-                    localTxSubmissionPeerNull
+                InitiatorProtocolOnly . MuxPeer nullTracer cTxSubmissionCodec $
+                  localTxSubmissionPeerNull
             , localStateQueryProtocol =
-                InitiatorProtocolOnly $
-                  MuxPeer showTracer cStateQueryCodec $
-                    LSQ.localStateQueryClientPeer $
-                      localStateQueryHandler localStateQueryQ
+                InitiatorProtocolOnly . MuxPeer lsqTracer cStateQueryCodec $
+                  LSQ.localStateQueryClientPeer $
+                    localStateQueryClient localStateQueryQ
             , localTxMonitorProtocol =
-                InitiatorProtocolOnly $
-                  MuxPeer nullTracer cTxMonitorCodec localTxMonitorPeerNull
+                InitiatorProtocolOnly . MuxPeer nullTracer cTxMonitorCodec $
+                  localTxMonitorPeerNull
             }
  where
   mainnet = NetworkMagic 1
@@ -144,5 +157,30 @@ stayConnectedToNode nodeSocket localStateQueryQ = withIOManager \ioManager →
     let byronEpochSlots = EpochSlots 21600
      in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)
 
-  showTracer ∷ Show a ⇒ Tracer IO a
-  showTracer = faint . show >$< debugTracer
+  lcsTracer
+    ∷ Tracer IO (TraceSendRecv (ChainSync Block (Point Block) (Tip Block))) =
+      nullTracer -- showTracer "LCS"
+  lsqTracer
+    ∷ Tracer
+        IO
+        (TraceSendRecv (LocalStateQuery Block (Point Block) (Query Block))) =
+      showTracer "LSQ"
+
+  handshakeTracer
+    ∷ Tracer
+        IO
+        ( WithMuxBearer
+            (ConnectionId LocalAddress)
+            (TraceSendRecv (Handshake NodeToClientVersion CBOR.Term))
+        )
+  handshakeTracer = showTracer "HS_"
+
+  errorPolicyTracer ∷ Tracer IO (WithAddr LocalAddress ErrorPolicyTrace) =
+    showTracer "Err"
+
+  subscriptionTracer ∷ Tracer IO (Identity (SubscriptionTrace LocalAddress)) =
+    runIdentity >$< showTracer "SUB"
+
+  showTracer ∷ Show a ⇒ String → Tracer IO a
+  showTracer prefix =
+    faint . ((blackBg (" " <> prefix <> " ") <> " ") <>) . show >$< debugTracer

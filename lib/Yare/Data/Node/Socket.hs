@@ -1,4 +1,4 @@
-module Yare.Data.NodeSocket
+module Yare.Data.Node.Socket
   ( NodeSocket (..)
   , nodeSocketLocalAddress
   ) where

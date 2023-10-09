@@ -5,7 +5,7 @@ module Yare.LSQ
   , QueryCont (..)
   , queryCurrentEra
   , queryLedgerTip
-  , localStateQueryHandler
+  , localStateQueryClient
 
     -- * Errors
   , UnknownEraIndex (..)
@@ -21,7 +21,6 @@ import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Morph (MFunctor (..), hoist)
 import Control.Monad.Oops (CouldBe, Variant)
 import Control.Monad.Oops qualified as Oops
-import Generics.SOP (NS (..))
 import Ouroboros.Consensus.Cardano.Block
   ( BlockQuery (..)
   , CardanoQueryResult
@@ -41,14 +40,14 @@ import Ouroboros.Network.Block (Point)
 import Ouroboros.Network.Protocol.LocalStateQuery.Client qualified as LSQ
 import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as LSQ
 import Text.Show (show)
-import Yare.Types
+import Yare.Types (Block, Era (..), IxedByBlock (..), StdBlocks)
 
-localStateQueryHandler
+localStateQueryClient
   ∷ ∀ m a
    . MonadSTM m
   ⇒ TQueue m (QueryCont m)
   → LSQ.LocalStateQueryClient Block (Point Block) (Query Block) m a
-localStateQueryHandler queryQ = LSQ.LocalStateQueryClient idleState
+localStateQueryClient queryQ = LSQ.LocalStateQueryClient idleState
  where
   idleState ∷ m (LSQ.ClientStIdle Block (Point Block) (Query Block) m a)
   idleState = LSQ.SendMsgAcquire Nothing <$> acquiringState
@@ -133,23 +132,23 @@ queryLedgerTip
      , e `CouldBe` EraMismatch
      , e `CouldBe` NoLedgerTipQueryInByronEra
      )
-  ⇒ LsqM m (NS Point StdBlocks)
+  ⇒ LsqM m (IxedByBlock Point)
 queryLedgerTip =
   queryCurrentEra >>= \case
     Byron →
       lift $ Oops.throw NoLedgerTipQueryInByronEra
     Shelley →
-      liftStdBlockShelley <$> query (QueryIfCurrentShelley Shelley.GetLedgerTip)
+      IxedByBlockShelley <$> query (QueryIfCurrentShelley Shelley.GetLedgerTip)
     Allegra →
-      liftStdBlockAllegra <$> query (QueryIfCurrentAllegra Shelley.GetLedgerTip)
+      IxedByBlockAllegra <$> query (QueryIfCurrentAllegra Shelley.GetLedgerTip)
     Mary →
-      liftStdBlockMary <$> query (QueryIfCurrentMary Shelley.GetLedgerTip)
+      IxedByBlockMary <$> query (QueryIfCurrentMary Shelley.GetLedgerTip)
     Alonzo →
-      liftStdBlockAlonzo <$> query (QueryIfCurrentAlonzo Shelley.GetLedgerTip)
+      IxedByBlockAlonzo <$> query (QueryIfCurrentAlonzo Shelley.GetLedgerTip)
     Babbage →
-      liftStdBlockBabbage <$> query (QueryIfCurrentBabbage Shelley.GetLedgerTip)
+      IxedByBlockBabbage <$> query (QueryIfCurrentBabbage Shelley.GetLedgerTip)
     Conway → do
-      liftStdBlockConway <$> query (QueryIfCurrentConway Shelley.GetLedgerTip)
+      IxedByBlockConway <$> query (QueryIfCurrentConway Shelley.GetLedgerTip)
  where
   query ∷ BlockQuery Block (CardanoQueryResult StandardCrypto a) → LsqM m a
   query q =

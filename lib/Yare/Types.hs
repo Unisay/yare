@@ -1,31 +1,31 @@
 module Yare.Types
   ( Block
+  , IxedByBlock (..)
+  , ChainPoint
+  , ChainTip
 
     -- * Standard blocks
   , StdBlock
   , StdBlocks
-  , liftStdBlockByron
-  , liftStdBlockShelley
-  , liftStdBlockAllegra
-  , liftStdBlockMary
-  , liftStdBlockAlonzo
-  , liftStdBlockBabbage
-  , liftStdBlockConway
   --
   , QueryResult
   , StdShelleyBlocks
   , Era (..)
   ) where
 
-import Relude
+-- These 3 imports are required as they bring instances into scope.
+import Ouroboros.Consensus.Cardano.Node ()
+import Ouroboros.Consensus.Protocol.Praos.Translate ()
+import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 
-import Generics.SOP (NS (..))
+import Data.Kind (Type)
+import Ouroboros.Consensus.Block (Point)
 import Ouroboros.Consensus.Byron.Ledger (ByronBlock)
 import Ouroboros.Consensus.Cardano.Block
-  ( CardanoBlock
-  , CardanoEras
+  ( CardanoEras
   , CardanoQueryResult
   , CardanoShelleyEras
+  , HardForkBlock
   , StandardAllegra
   , StandardAlonzo
   , StandardBabbage
@@ -37,6 +37,7 @@ import Ouroboros.Consensus.Cardano.Block
 import Ouroboros.Consensus.Protocol.Praos (Praos)
 import Ouroboros.Consensus.Protocol.TPraos (TPraos)
 import Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
+import Ouroboros.Network.Block (Tip)
 
 type QueryResult = CardanoQueryResult StandardCrypto
 
@@ -45,7 +46,11 @@ data Era = Byron | Shelley | Allegra | Mary | Alonzo | Babbage | Conway
 --------------------------------------------------------------------------------
 -- Block type aliases ----------------------------------------------------------
 
-type Block = CardanoBlock StandardCrypto
+type Block = HardForkBlock (CardanoEras StandardCrypto)
+
+type ChainPoint = Point Block
+
+type ChainTip = Tip Block
 
 type StdBlocks = CardanoEras StandardCrypto
 
@@ -60,26 +65,11 @@ type family StdBlock (era ∷ Era) where
   StdBlock Babbage = ShelleyBlock (Praos StandardCrypto) StandardBabbage
   StdBlock Conway = ShelleyBlock (Praos StandardCrypto) StandardConway
 
---------------------------------------------------------------------------------
--- Lift StdBlocks --------------------------------------------------------------
-
-liftStdBlockByron ∷ f ByronBlock → NS f StdBlocks
-liftStdBlockByron = Z
-
-liftStdBlockShelley ∷ f (StdBlock Shelley) → NS f StdBlocks
-liftStdBlockShelley = S . Z
-
-liftStdBlockAllegra ∷ f (StdBlock Allegra) → NS f StdBlocks
-liftStdBlockAllegra = S . S . Z
-
-liftStdBlockMary ∷ f (StdBlock Mary) → NS f StdBlocks
-liftStdBlockMary = S . S . S . Z
-
-liftStdBlockAlonzo ∷ f (StdBlock Alonzo) → NS f StdBlocks
-liftStdBlockAlonzo = S . S . S . S . Z
-
-liftStdBlockBabbage ∷ f (StdBlock Babbage) → NS f StdBlocks
-liftStdBlockBabbage = S . S . S . S . S . Z
-
-liftStdBlockConway ∷ f (StdBlock Conway) → NS f StdBlocks
-liftStdBlockConway = S . S . S . S . S . S . Z
+data IxedByBlock (f ∷ Type → Type)
+  = IxedByBlockByron (f (StdBlock Byron))
+  | IxedByBlockShelley (f (StdBlock Shelley))
+  | IxedByBlockAllegra (f (StdBlock Allegra))
+  | IxedByBlockMary (f (StdBlock Mary))
+  | IxedByBlockAlonzo (f (StdBlock Alonzo))
+  | IxedByBlockBabbage (f (StdBlock Babbage))
+  | IxedByBlockConway (f (StdBlock Conway))
