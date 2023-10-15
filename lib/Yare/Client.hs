@@ -1,4 +1,4 @@
-{-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -Wno-missing-local-signatures #-}
 
 module Yare.Client (main) where
 
@@ -6,14 +6,17 @@ import Relude hiding (atomically)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.Client.Subscription (WithMuxBearer, subscribe)
+import Cardano.Mnemonic (MkMnemonicError)
 import Codec.CBOR.Term qualified as CBOR
 import Control.Concurrent.Class.MonadSTM.TQueue (TQueue, writeTQueue)
-import Control.Monad.Class.MonadAsync (concurrently_)
+import Control.Monad.Class.MonadAsync (Concurrently (..))
 import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
 import Control.Monad.Morph (MFunctor (hoist))
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Control.Tracer (Tracer, debugTracer, nullTracer)
+import Data.Tagged (Tagged)
+import Network.Wai.Handler.Warp qualified as Warp
 import Ouroboros.Consensus.Block.Abstract (CodecConfig, Point)
 import Ouroboros.Consensus.Cardano.Block (EraMismatch)
 import Ouroboros.Consensus.Cardano.Node (protocolClientInfoCardano)
@@ -55,29 +58,47 @@ import Ouroboros.Network.Protocol.ChainSync.Client qualified as CS
 import Ouroboros.Network.Protocol.ChainSync.Type (ChainSync)
 import Ouroboros.Network.Protocol.LocalStateQuery.Client qualified as LSQ
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (LocalStateQuery)
+import Path (Abs, File, Path)
 import String.ANSI (blackBg, faint)
 import Text.ANSI (red)
 import Text.Pretty.Simple (pPrint)
-import Yare.ChainSync (chainSyncClient)
-import Yare.Data.Node.Interface (NodeInterface (..), newNodeInterfaceIO)
-import Yare.Data.Node.Socket (NodeSocket, nodeSocketLocalAddress)
-import Yare.LSQ (QueryCont (..), localStateQueryClient, queryLedgerTip)
+import Yare.Addresses (Error (..))
+import Yare.Addresses qualified as Addresses
+import Yare.Chain.Block (HFBlock, IxedByBlock (..))
+import Yare.Chain.Point (ChainPoint)
+import Yare.Http.Server qualified as Http
+import Yare.LSQ (QueryCont (..), queryLedgerTip)
 import Yare.LSQ qualified as LSQ
-import Yare.Types (Block, IxedByBlock (..))
+import Yare.Node.Clients (NodeClients (..), mkNodeClients)
+import Yare.Node.Interface (NodeInterface (..), newNodeInterfaceIO)
+import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
+import Yare.Utxo.State (initialState)
+import Yare.Storage (ioRefStorage)
 
 --------------------------------------------------------------------------------
 
-main ∷ NodeSocket → IO ()
-main nodeSocket = do
-  nodeInterface ← newNodeInterfaceIO
-  concurrently_
-    do runLocalStateQueries (localStateQueryQ nodeInterface)
-    do stayConnectedToNode nodeSocket nodeInterface
+main
+  ∷ NodeSocket
+  → NetworkMagic
+  → Tagged "mnemonic" (Path Abs File)
+  → Maybe ChainPoint
+  → IO ()
+main nodeSocket netMagic mnemonicFile syncFrom = withHandledErrors do
+  addresses ← Addresses.deriveFromMnemonic netMagic mnemonicFile
+  storage ← ioRefStorage <$> newIORef initialState
+  nodeIface ← liftIO $ newNodeInterfaceIO addresses storage
+  let nodeClients = mkNodeClients nodeIface syncFrom
+
+  void . liftIO . runConcurrently . foldMap Concurrently $
+    [ runLocalStateQueries (localStateQueryQ nodeIface)
+    , Warp.run 8080 (Http.application storage)
+    , absurd <$> stayConnectedToNode nodeSocket netMagic nodeClients
+    ]
 
 runLocalStateQueries ∷ TQueue IO (QueryCont IO) → IO ()
 runLocalStateQueries q = do
   atomically . writeTQueue q $
-    QueryCont (hoist handleErrors queryLedgerTip) \case
+    QueryCont (hoist handleQueryErrors queryLedgerTip) \case
       Left failure →
         crash $ "Local state query failed to acquire state: " <> show failure
       Right ns → case ns of
@@ -88,82 +109,54 @@ runLocalStateQueries q = do
         IxedByBlockAlonzo p → pPrint p
         IxedByBlockBabbage p → pPrint p
         IxedByBlockConway p → pPrint p
+
+stayConnectedToNode ∷ NodeSocket → NetworkMagic → NodeClients → IO Void
+stayConnectedToNode nodeSocket netMagic NodeClients {..} =
+  withIOManager \ioManager →
+    subscribe
+      (localSnocket ioManager)
+      netMagic
+      (supportedNodeToClientVersions (Proxy @HFBlock))
+      NetworkSubscriptionTracers
+        { nsMuxTracer = nullTracer
+        , nsHandshakeTracer = handshakeTracer
+        , nsErrorPolicyTracer = errorPolicyTracer
+        , nsSubscriptionTracer = subscriptionTracer
+        }
+      ClientSubscriptionParams
+        { cspAddress = nodeSocketLocalAddress nodeSocket
+        , cspConnectionAttemptDelay = Nothing
+        , cspErrorPolicies =
+            networkErrorPolicies <> consensusErrorPolicy (Proxy @HFBlock)
+        }
+      \nodeToClientVer blockVer _connectionId →
+        let Codecs {..} = clientCodecs codecConfig blockVer nodeToClientVer
+         in NodeToClientProtocols
+              { localChainSyncProtocol =
+                  InitiatorProtocolOnly . MuxPeer lcsTracer cChainSyncCodec $
+                    CS.chainSyncClientPeer chainSync
+              , localTxSubmissionProtocol =
+                  InitiatorProtocolOnly . MuxPeer nullTracer cTxSubmissionCodec $
+                    localTxSubmissionPeerNull
+              , localStateQueryProtocol =
+                  InitiatorProtocolOnly . MuxPeer lsqTracer cStateQueryCodec $
+                    LSQ.localStateQueryClientPeer localState
+              , localTxMonitorProtocol =
+                  InitiatorProtocolOnly $
+                    MuxPeer nullTracer cTxMonitorCodec localTxMonitorPeerNull
+              }
  where
-  crash ∷ MonadIO m ⇒ Text → m a
-  crash err = liftIO $ exitFailure <* putTextLn (red err)
-
-  handleErrors
-    ∷ ExceptT
-        ( Variant
-            [ EraMismatch
-            , LSQ.UnknownEraIndex
-            , LSQ.NoLedgerTipQueryInByronEra
-            ]
-        )
-        IO
-        a
-    → IO a
-  handleErrors =
-    ( Oops.catch \(err ∷ EraMismatch) →
-        crash $ "Local state query mismatch: " <> show err
-    )
-      >>> ( Oops.catch \(err ∷ LSQ.UnknownEraIndex) →
-              crash $ "Local state query unknown era: " <> show err
-          )
-      >>> ( Oops.catch \(err ∷ LSQ.NoLedgerTipQueryInByronEra) →
-              crash $ "No ledger tip query in Byron era: " <> show err
-          )
-      >>> Oops.runOops
-
-stayConnectedToNode ∷ NodeSocket → NodeInterface IO → IO Void
-stayConnectedToNode nodeSocket NodeInterface {..} = withIOManager \ioManager →
-  subscribe
-    (localSnocket ioManager)
-    mainnet
-    (supportedNodeToClientVersions (Proxy @Block))
-    NetworkSubscriptionTracers
-      { nsMuxTracer = nullTracer
-      , nsHandshakeTracer = handshakeTracer
-      , nsErrorPolicyTracer = errorPolicyTracer
-      , nsSubscriptionTracer = subscriptionTracer
-      }
-    ClientSubscriptionParams
-      { cspAddress = nodeSocketLocalAddress nodeSocket
-      , cspConnectionAttemptDelay = Nothing
-      , cspErrorPolicies =
-          networkErrorPolicies <> consensusErrorPolicy (Proxy @Block)
-      }
-    \nodeToClientVer blockVer _connectionId →
-      let Codecs {..} = clientCodecs codecConfig blockVer nodeToClientVer
-       in NodeToClientProtocols
-            { localChainSyncProtocol =
-                InitiatorProtocolOnly . MuxPeer lcsTracer cChainSyncCodec $
-                  CS.chainSyncClientPeer chainSyncClient
-            , localTxSubmissionProtocol =
-                InitiatorProtocolOnly . MuxPeer nullTracer cTxSubmissionCodec $
-                  localTxSubmissionPeerNull
-            , localStateQueryProtocol =
-                InitiatorProtocolOnly . MuxPeer lsqTracer cStateQueryCodec $
-                  LSQ.localStateQueryClientPeer $
-                    localStateQueryClient localStateQueryQ
-            , localTxMonitorProtocol =
-                InitiatorProtocolOnly . MuxPeer nullTracer cTxMonitorCodec $
-                  localTxMonitorPeerNull
-            }
- where
-  mainnet = NetworkMagic 1
-
-  codecConfig ∷ CodecConfig Block =
+  codecConfig ∷ CodecConfig HFBlock =
     let byronEpochSlots = EpochSlots 21600
      in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)
 
   lcsTracer
-    ∷ Tracer IO (TraceSendRecv (ChainSync Block (Point Block) (Tip Block))) =
+    ∷ Tracer IO (TraceSendRecv (ChainSync HFBlock (Point HFBlock) (Tip HFBlock))) =
       nullTracer -- showTracer "LCS"
   lsqTracer
     ∷ Tracer
         IO
-        (TraceSendRecv (LocalStateQuery Block (Point Block) (Query Block))) =
+        (TraceSendRecv (LocalStateQuery HFBlock (Point HFBlock) (Query HFBlock))) =
       showTracer "LSQ"
 
   handshakeTracer
@@ -184,3 +177,64 @@ stayConnectedToNode nodeSocket NodeInterface {..} = withIOManager \ioManager →
   showTracer ∷ Show a ⇒ String → Tracer IO a
   showTracer prefix =
     faint . ((blackBg (" " <> prefix <> " ") <> " ") <>) . show >$< debugTracer
+
+--------------------------------------------------------------------------------
+-- Error handling --------------------------------------------------------------
+
+withHandledErrors
+  ∷ ExceptT (Variant [Addresses.Error, MkMnemonicError 8]) IO ()
+  → IO ()
+withHandledErrors =
+  crashOnAddressesError
+    >>> crashOnMnemonicError
+    >>> Oops.runOops
+
+crashOnAddressesError
+  ∷ ExceptT (Variant (Addresses.Error : e)) IO ()
+  → ExceptT (Variant e) IO ()
+crashOnAddressesError = Oops.catch \(NetworkMagicNoTag magic) → do
+  crash $ "Failed to determine a network tag for magic: " <> show magic
+
+crashOnMnemonicError
+  ∷ ExceptT (Variant (MkMnemonicError 8 : e)) IO ()
+  → ExceptT (Variant e) IO ()
+crashOnMnemonicError = Oops.catch \(err ∷ MkMnemonicError 8) →
+  crash $ "Failed to parse mnemonic file: " <> show err
+
+handleQueryErrors
+  ∷ ExceptT
+      ( Variant
+          [ EraMismatch
+          , LSQ.UnknownEraIndex
+          , LSQ.NoLedgerTipQueryInByronEra
+          ]
+      )
+      IO
+      a
+  → IO a
+handleQueryErrors =
+  crashOnEraMismatch
+    >>> crashOnUnknownEraIndex
+    >>> crashOnNoLedgerTipQuery
+    >>> Oops.runOops
+
+crashOnEraMismatch
+  ∷ ExceptT (Variant (EraMismatch : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnEraMismatch = Oops.catch \(err ∷ EraMismatch) →
+  crash $ "Local state query mismatch: " <> show err
+
+crashOnUnknownEraIndex
+  ∷ ExceptT (Variant (LSQ.UnknownEraIndex : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnUnknownEraIndex = Oops.catch \(err ∷ LSQ.UnknownEraIndex) →
+  crash $ "Local state query unknown era: " <> show err
+
+crashOnNoLedgerTipQuery
+  ∷ ExceptT (Variant (LSQ.NoLedgerTipQueryInByronEra : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnNoLedgerTipQuery = Oops.catch \(err ∷ LSQ.NoLedgerTipQueryInByronEra) →
+  crash $ "No ledger tip query in Byron era: " <> show err
+
+crash ∷ MonadIO m ⇒ Text → m a
+crash err = liftIO $ exitFailure <* putTextLn (red err)

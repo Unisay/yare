@@ -13,28 +13,34 @@ common opts
   default-extensions:
     NoImplicitPrelude
     AllowAmbiguousTypes
+    ApplicativeDo
     BlockArguments
     DataKinds
     DeriveAnyClass
     DeriveFunctor
+    DeriveGeneric
     DerivingStrategies
     ExistentialQuantification
     FlexibleContexts
     FlexibleInstances
+    GADTs
     GeneralizedNewtypeDeriving
     ImportQualifiedPost
+    InstanceSigs
     KindSignatures
     LambdaCase
     MultiParamTypeClasses
     NamedFieldPuns
     NumericUnderscores
     OverloadedStrings
+    PartialTypeSignatures
     PatternSynonyms
     PolyKinds
     RankNTypes
     RecordWildCards
     ScopedTypeVariables
     StandaloneDeriving
+    TupleSections
     TypeApplications
     TypeFamilies
     TypeOperators
@@ -45,25 +51,42 @@ common opts
     -Weverything -Wno-unused-packages -Wno-unsafe -Wno-safe
     -Wno-unticked-promoted-constructors -Wno-missing-safe-haskell-mode
     -Wno-missing-import-lists -fprint-explicit-foralls
-    -fprint-explicit-kinds
 
   build-depends:
     , base    ^>=4.14
     , path    ^>=0.9.2
     , relude  ^>=1.2
+    , tagged  ^>=0.8.8
 
 library
   import:          opts
   hs-source-dirs:  lib
   build-depends:
+    , aeson                          ^>=2.1.2.1
+    , base16-bytestring              ^>=1.0.2
+    , bytestring                     ^>=0.10.12
     , cardano-addresses              ^>=3.12
+    , cardano-api                    ^>=8.7
     , cardano-client                 ^>=0.2
+    , cardano-crypto-class           ^>=2.1.1
+    , cardano-crypto-wrapper         ^>=1.5.1
+    , cardano-ledger-allegra         ^>=1.1.1
+    , cardano-ledger-alonzo          ^>=1.2.1
+    , cardano-ledger-api             ^>=1.2
+    , cardano-ledger-babbage         ^>=1.2
+    , cardano-ledger-binary          ^>=1.1.1
     , cardano-ledger-byron           ^>=1.0.0.2
+    , cardano-ledger-conway          ^>=1.2
     , cardano-ledger-core            ^>=1.2
+    , cardano-ledger-mary            ^>=1.2
+    , cardano-ledger-shelley         ^>=1.2
+    , cardano-slotting               ^>=0.1.1.1
+    , cardano-strict-containers      ^>=0.1.2.1
     , cborg                          ^>=0.2.9
     , contra-tracer                  ^>=0.1.0.1
     , generics-sop                   ^>=0.5.1.3
     , io-classes                     ^>=1.1
+    , microlens                      ^>=0.4.13.1
     , mmorph                         ^>=1.2
     , mtl                            ^>=2.2.2
     , oops                           ^>=0.2.0.1
@@ -76,26 +99,47 @@ library
     , ouroboros-network-framework    ^>=0.6.0.1
     , ouroboros-network-protocols    ^>=0.5.1
     , pretty-simple                  ^>=4.1.2
+    , servant                        ^>=0.20.1
+    , servant-server                 ^>=0.20
     , string-interpolate             ^>=0.3.2.1
     , text-ansi                      ^>=0.2.1.1
+    , wai                            ^>=3.2.3
+    , wai-extra                      ^>=3.1.13
+    , warp                           ^>=3.3.29
     , Win32-network                  ^>=0.1.1.1
 
   exposed-modules:
-    Yare.ChainSync
+    Yare.Address
+    Yare.Addresses
+    Yare.Chain.Block
+    Yare.Chain.Era
+    Yare.Chain.Follower
+    Yare.Chain.Point
+    Yare.Chain.Sync
+    Yare.Chain.Tx
+    Yare.Chain.Types
     Yare.Client
-    Yare.Data.Node.Interface
-    Yare.Data.Node.Socket
+    Yare.Http.Server
+    Yare.Http.Types
     Yare.LSQ
-    Yare.Types
+    Yare.Mnemonic
+    Yare.Node.Clients
+    Yare.Node.Interface
+    Yare.Node.Socket
+    Yare.Storage
+    Yare.Utxo
+    Yare.Utxo.State
 
 executable yare
   import:         opts
   hs-source-dirs: exe
   main-is:        Main.hs
   build-depends:
-    , optparse-applicative  ^>=0.18.1
-    , path-io               ^>=1.7
-    , with-utf8             ^>=1.0.2.4
+    , cardano-addresses      ^>=3.12
+    , optparse-applicative   ^>=0.18.1
+    , ouroboros-network-api  ^>=0.5
+    , path-io                ^>=1.7
+    , with-utf8              ^>=1.0.2.4
     , yare
 
   ghc-options:    -threaded -rtsopts -Wall

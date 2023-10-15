@@ -2,6 +2,7 @@ module Main (main) where
 
 import Relude
 
+import Data.Tagged (Tagged (..))
 import Main.Utf8 (withUtf8)
 import Options.Applicative
   ( Parser
@@ -16,21 +17,38 @@ import Options.Applicative
   , option
   , progDesc
   )
+import Options.Applicative.Help.Pretty (vsep)
+import Ouroboros.Network.Magic (NetworkMagic (NetworkMagic))
 import Path (File, SomeBase (..), parseSomeFile)
 import Path.IO qualified as Path
+import Yare.Chain.Types (ChainPoint, parseChainPoint)
 import Yare.Client qualified as Yare
-import Yare.Data.Node.Socket (NodeSocket (..))
+import Yare.Node.Socket (NodeSocket (..))
 
 main ∷ IO ()
 main = withUtf8 do
-  Args {nodeSocketPath} ← parseArguments
+  Args {networkMagic, nodeSocketPath, mnemonicPath, syncFrom} ← parseArguments
   nodeSocket ←
     NodeSocket <$> case nodeSocketPath of
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
-  void $ Yare.main nodeSocket
+  mnemonicFile ←
+    case mnemonicPath of
+      Path.Abs a → pure a
+      Path.Rel r → Path.makeAbsolute r
+  void $
+    Yare.main
+      nodeSocket
+      networkMagic
+      (Tagged @"mnemonic" mnemonicFile)
+      syncFrom
 
-newtype Args = Args {nodeSocketPath ∷ SomeBase File}
+data Args = Args
+  { nodeSocketPath ∷ SomeBase File
+  , networkMagic ∷ NetworkMagic
+  , mnemonicPath ∷ SomeBase File
+  , syncFrom ∷ Maybe ChainPoint
+  }
 
 parseArguments ∷ IO Args
 parseArguments =
@@ -40,14 +58,56 @@ parseArguments =
       (fullDesc <> progDesc "Yare")
 
 options ∷ Parser Args
-options = Args <$> nodeSocketPathOption
+options =
+  Args
+    <$> nodeSocketPathOption
+    <*> networkMagicOption
+    <*> mnemonicFileOption
+    <*> optional syncFromChainPoint
  where
-  nodeSocketPathOption =
+  nodeSocketPathOption ∷ Parser (SomeBase File) =
     option
       (eitherReader (first displayException . parseSomeFile))
       ( fold
           [ metavar "CARDANO_NODE_SOCKET_PATH"
           , long "node-socket"
-          , helpDoc . Just $ "Path to the Cardano Node socket file."
+          , helpDoc $ Just "Path to the Cardano Node socket file."
+          ]
+      )
+  networkMagicOption ∷ Parser NetworkMagic =
+    option
+      (eitherReader (bimap toString NetworkMagic . readEither))
+      ( fold
+          [ metavar "NETWORK_MAGIC"
+          , long "network-magic"
+          , helpDoc . Just $
+              "A magic number used to discriminate \
+              \between different Cardano networks. "
+          ]
+      )
+  mnemonicFileOption ∷ Parser (SomeBase File) =
+    option
+      (eitherReader (first displayException . parseSomeFile))
+      ( fold
+          [ metavar "MNEMONIC_FILE"
+          , long "mnemonic-file"
+          , helpDoc $
+              Just
+                "Path to a file with mnemonic phrase \
+                \(space separated list of 24 BIP-39 dictionary words)."
+          ]
+      )
+
+  syncFromChainPoint ∷ Parser ChainPoint =
+    option
+      (eitherReader parseChainPoint)
+      ( fold
+          [ metavar "BLOCK_HASH:SLOT_NO"
+          , long "sync-from-chain-point"
+          , helpDoc . Just . vsep $
+              [ "Sync from the given chain point."
+              , "Example: 'b0b33e2980f01dcee60c8884ee46a3a601b945055eadd1f01b\
+                \a1c24c8f9e7fc5:41683132'"
+              ]
           ]
       )

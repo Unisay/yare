@@ -14,4 +14,8 @@ dev-run:
   wait
 
 run:
-  cabal run yare -- --node-socket $CARDANO_NODE_SOCKET_PATH
+  cabal run yare -- \
+    --node-socket $CARDANO_NODE_SOCKET_PATH \
+    --network-magic 1 \
+    --mnemonic-file test/data/mnemonic24.txt \
+    --sync-from-chain-point 'b0b33e2980f01dcee60c8884ee46a3a601b945055eadd1f01ba1c24c8f9e7fc5:41683132'

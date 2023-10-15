@@ -1,8 +1,13 @@
-module Yare.Keys (genMnemonic, paymentAdressesWithKeys) where
+module Yare.Address
+  ( externalPaymentAdressesKeys
+  , internalPaymentAdressesKeys
+  , AddressWithKey (..)
+  , toLedgerAddress
+  ) where
 
 import Relude
 
-import Cardano.Address (Address, NetworkTag (..))
+import Cardano.Address (Address, NetworkTag (..), unAddress)
 import Cardano.Address.Derivation
   ( Depth (AccountK, PaymentK)
   , DerivationType (Hardened, Soft)
@@ -23,23 +28,23 @@ import Cardano.Address.Style.Shelley
   , Shelley
   , paymentAddress
   )
-import Cardano.Mnemonic
-  ( Mnemonic
-  , SomeMnemonic (..)
-  , entropyToMnemonic
-  , genEntropy
-  )
-
-genMnemonic ∷ IO (Mnemonic 24)
-genMnemonic = entropyToMnemonic <$> genEntropy @256
+import Cardano.Ledger.Address qualified as Ledger
+import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
+import Yare.Chain.Types (LedgerAddress)
 
 data AddressWithKey = AddressWithKey
   { address ∷ Address
   , key ∷ Shelley PaymentK XPrv
   }
 
-paymentAdressesWithKeys ∷ NetworkTag → Mnemonic 24 → [AddressWithKey]
-paymentAdressesWithKeys networkTag mnemonic =
+externalPaymentAdressesKeys ∷ NetworkTag → Mnemonic 24 → [AddressWithKey]
+externalPaymentAdressesKeys = paymentAddressesKeys UTxOExternal
+
+internalPaymentAdressesKeys ∷ NetworkTag → Mnemonic 24 → [AddressWithKey]
+internalPaymentAdressesKeys = paymentAddressesKeys UTxOInternal
+
+paymentAddressesKeys ∷ Role → NetworkTag → Mnemonic 24 → [AddressWithKey]
+paymentAddressesKeys role networkTag mnemonic =
   paymentKeyIxs <&> makePaymentAddressWithKey
  where
   paymentKeyIxs ∷ [Index (AddressIndexDerivationType Shelley) PaymentK] =
@@ -58,10 +63,13 @@ paymentAdressesWithKeys networkTag mnemonic =
     credential ∷ Credential PaymentK =
       PaymentFromExtendedKey (toXPub <$> paymentKey)
     paymentKey ∷ Shelley PaymentK XPrv =
-      deriveAddressPrivateKey deriveShelleyAccountKey UTxOExternal paymentAddrIx
+      deriveAddressPrivateKey deriveShelleyAccountKey role paymentAddrIx
      where
       deriveShelleyAccountKey ∷ Shelley AccountK XPrv =
         deriveAccountPrivateKey masterKey accountIx
        where
         accountIx ∷ Index 'Hardened 'AccountK = minBound
         masterKey = genMasterKeyFromMnemonic (SomeMnemonic mnemonic) mempty
+
+toLedgerAddress ∷ Address → Maybe LedgerAddress
+toLedgerAddress address = Ledger.deserialiseAddr (unAddress address)
