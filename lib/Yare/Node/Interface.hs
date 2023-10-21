@@ -9,10 +9,9 @@ import Ouroboros.Network.Block (Point)
 import Relude (IO, pure)
 import Yare.Addresses (Addresses)
 import Yare.Chain.Block (Block)
-import Yare.Chain.Follower (ChainFollower, newChainFollower)
+import Yare.Chain.Follower (ChainFollower, ChainState, newChainFollower)
 import Yare.LSQ (QueryCont)
 import Yare.Storage (Storage)
-import Yare.Utxo.State (UtxoState)
 
 data NodeInterface m = NodeInterface
   { localStateQueryQ ∷ TQueue m (QueryCont m)
@@ -20,7 +19,7 @@ data NodeInterface m = NodeInterface
   , chainFollower ∷ ChainFollower m
   }
 
-newNodeInterfaceIO ∷ Addresses → Storage IO UtxoState → IO (NodeInterface IO)
+newNodeInterfaceIO ∷ Addresses → Storage IO ChainState → IO (NodeInterface IO)
 newNodeInterfaceIO addresses storage = do
   localStateQueryQ ← newTQueueIO
   chainTip ← newEmptyTMVarIO

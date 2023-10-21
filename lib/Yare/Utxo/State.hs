@@ -29,7 +29,7 @@ import Yare.Chain.Tx
   , blockTransactions
   , transactionViewUtxo
   )
-import Yare.Chain.Types (ChainTip, LedgerAddress)
+import Yare.Chain.Types (LedgerAddress)
 import Yare.Utxo (Utxo, utxoEntries)
 
 data UtxoState = UtxoState
@@ -41,8 +41,8 @@ data UtxoState = UtxoState
 initialState ∷ UtxoState
 initialState = UtxoState {nonFinalState = mempty, finalState = mempty}
 
-indexBlock ∷ Addresses → HFBlock → ChainTip → UtxoState → UtxoState
-indexBlock addresses block tip s = s'
+indexBlock ∷ Addresses → HFBlock → UtxoState → UtxoState
+indexBlock addresses block s = s'
  where
   s' = foldr forEachTx id (blockTransactions block) s
   forEachTx tx nextUpdate = nextUpdate . indexTx addresses chainPoint tx

@@ -65,6 +65,7 @@ import Text.Pretty.Simple (pPrint)
 import Yare.Addresses (Error (..))
 import Yare.Addresses qualified as Addresses
 import Yare.Chain.Block (HFBlock, IxedByBlock (..))
+import Yare.Chain.Follower (initialChainState)
 import Yare.Chain.Point (ChainPoint)
 import Yare.Http.Server qualified as Http
 import Yare.LSQ (QueryCont (..), queryLedgerTip)
@@ -72,7 +73,6 @@ import Yare.LSQ qualified as LSQ
 import Yare.Node.Clients (NodeClients (..), mkNodeClients)
 import Yare.Node.Interface (NodeInterface (..), newNodeInterfaceIO)
 import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
-import Yare.Utxo.State (initialState)
 import Yare.Storage (ioRefStorage)
 
 --------------------------------------------------------------------------------
@@ -85,7 +85,7 @@ main
   → IO ()
 main nodeSocket netMagic mnemonicFile syncFrom = withHandledErrors do
   addresses ← Addresses.deriveFromMnemonic netMagic mnemonicFile
-  storage ← ioRefStorage <$> newIORef initialState
+  storage ← ioRefStorage <$> newIORef initialChainState
   nodeIface ← liftIO $ newNodeInterfaceIO addresses storage
   let nodeClients = mkNodeClients nodeIface syncFrom
 

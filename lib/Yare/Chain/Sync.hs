@@ -61,8 +61,8 @@ chainSyncClient chainFollower knownChainPoints = ChainSyncClient do
         { recvMsgRollForward = \block tip → ChainSyncClient do
             onNewBlock chainFollower block tip
             pure requestNext
-        , recvMsgRollBackward = \point _tip → ChainSyncClient do
-            onRollback chainFollower point
+        , recvMsgRollBackward = \point tip → ChainSyncClient do
+            onRollback chainFollower point tip
             pure requestNext
         }
 
