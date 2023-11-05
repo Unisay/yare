@@ -358,22 +358,6 @@
         "type": "github"
       }
     },
-    "easy-dhall-nix": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1681943375,
-        "narHash": "sha256-gLWlMqkg0YKnRntOqU1CUcvb6by/ysvFS6IOdQh2Ipw=",
-        "owner": "justinwoo",
-        "repo": "easy-dhall-nix",
-        "rev": "7f365c1daf7f7fde3827800ace2621cffa7bed6b",
-        "type": "github"
-      },
-      "original": {
-        "owner": "justinwoo",
-        "repo": "easy-dhall-nix",
-        "type": "github"
-      }
-    },
     "em": {
       "flake": false,
       "locked": {
@@ -1488,7 +1472,6 @@
         "aiken-lang": "aiken-lang",
         "cardano-node": "cardano-node",
         "devenv": "devenv",
-        "easy-dhall-nix": "easy-dhall-nix",
         "iohkNix": "iohkNix_2",
         "nixpkgs": "nixpkgs_12",
         "systems": "systems_4"

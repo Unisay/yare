@@ -6,10 +6,6 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     systems.url = "github:nix-systems/default";
     iohkNix.url = "github:input-output-hk/iohk-nix";
-    easy-dhall-nix = {
-      url = "github:justinwoo/easy-dhall-nix";
-      flake = false;
-    };
   };
 
   nixConfig = {
@@ -18,21 +14,17 @@
     extra-substituters = "https://devenv.cachix.org";
   };
 
-  outputs = { self, nixpkgs, devenv, easy-dhall-nix, systems, cardano-node
+  outputs = { self, nixpkgs, devenv, systems, cardano-node
     , aiken-lang, iohkNix, ... }@inputs:
     let forEachSystem = nixpkgs.lib.genAttrs (import systems);
     in {
       devShells = forEachSystem (system:
         let
-          dhallOverlay = (final: prev: {
-            dhallPackages = prev.callPackage easy-dhall-nix { };
-          });
           pkgs = import nixpkgs {
             inherit system;
-            overlays = [ iohkNix.overlays.crypto dhallOverlay ];
+            overlays = [ iohkNix.overlays.crypto ];
           };
           hpkgs = pkgs.haskellPackages;
-          dpkgs = pkgs.dhallPackages;
         in {
           default = devenv.lib.mkShell {
             inherit inputs pkgs;
@@ -45,8 +37,6 @@
                 hpkgs.cabal-fmt
                 hpkgs.fourmolu
                 hpkgs.hlint
-                dpkgs.dhall-simple
-                dpkgs.dhall-lsp-simple
                 pkgs.just
                 pkgs.libsodium-vrf
                 pkgs.pkg-config # otherwise patched crypto libs won't be found
