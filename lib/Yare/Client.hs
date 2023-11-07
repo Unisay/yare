@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-missing-local-signatures #-}
-
 module Yare.Client (main) where
 
 import Relude hiding (atomically)
@@ -74,6 +72,7 @@ import Yare.Node.Clients (NodeClients (..), mkNodeClients)
 import Yare.Node.Interface (NodeInterface (..), newNodeInterfaceIO)
 import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
 import Yare.Storage (ioRefStorage)
+import Network.Wai.Middleware.Cors ( simpleCors )
 
 --------------------------------------------------------------------------------
 
@@ -91,7 +90,7 @@ main nodeSocket netMagic mnemonicFile syncFrom = withHandledErrors do
 
   void . liftIO . runConcurrently . foldMap Concurrently $
     [ runLocalStateQueries (localStateQueryQ nodeIface)
-    , Warp.run 8080 (Http.application storage)
+    , Warp.run 9999 (simpleCors (Http.application storage))
     , absurd <$> stayConnectedToNode nodeSocket netMagic nodeClients
     ]
 

@@ -1,3 +1,4 @@
+.envrc-local
 .devenv
 cabal.project.local
 dist-newstyle

@@ -5,16 +5,15 @@ module Yare.Http.Types
 
 import Relude
 
-import Cardano.Address qualified as CA
-import Cardano.Ledger.Address qualified as L
 import Data.Aeson (ToJSON (..), object, pairs, (.=))
 import Data.Aeson.Encoding (pairStr)
 import Data.Aeson.Encoding qualified as Json
 import Data.Map.Strict qualified as Map
 import Ouroboros.Network.Block qualified as NB
-import Yare.Chain.Types (LedgerAddress)
 import Yare.Chain.Types qualified as Y
 import Yare.Utxo qualified as Y
+import Cardano.Api (valueToList, AssetId (..))
+import Data.Aeson qualified as Aeson
 
 --------------------------------------------------------------------------------
 -- UTXO ------------------------------------------------------------------------
@@ -28,18 +27,13 @@ instance ToJSON Utxo where
       object
         [ "txIn" .= txIn
         , "address" .= toJSON addr
-        , "value" .= toJSON value
+        , "value" .= map (bimap assetIdToJSON toJSON) (valueToList value)
         ]
-  toEncoding (Utxo utxo) =
-    Json.list identity $
-      Map.toList (Y.utxoEntries utxo) <&> \(txIn, (addr, value)) →
-        pairs $
-          pairStr "txIn" (toEncoding txIn)
-            <> pairStr "address" (toEncoding (addressBech32 addr))
-            <> pairStr "value" (toEncoding value)
-
-addressBech32 ∷ LedgerAddress → Text
-addressBech32 = CA.bech32 . CA.unsafeMkAddress . L.serialiseAddr
+   where
+    assetIdToJSON :: AssetId -> Aeson.Value
+    assetIdToJSON = \case
+      AdaAssetId -> Aeson.String "lovelace"
+      AssetId policyId assetName -> toJSON (policyId, assetName)
 
 --------------------------------------------------------------------------------
 -- Chain Tip -------------------------------------------------------------------

@@ -20,14 +20,15 @@ application = Servant.serve (Proxy @YareApi) . server
  where
   server storage = serveUtxo storage :<|> serveTip storage
 
-type YareApi =
-  "utxo" :> Get '[JSON] Http.Utxo
+type YareApi = "api" :>
+  ( "utxo" :> Get '[JSON] Http.Utxo
     :<|> "tip" :> Get '[JSON] Http.ChainTip
+  )
 
 serveUtxo ∷ Storage IO ChainState → Servant.Handler Http.Utxo
 serveUtxo storage = do
   s ← liftIO $ readState storage
-  let utxo = Utxo.fromEntries (Map.toList (spendableUtxoEntries (utxoState s)))
+  let utxo = Utxo.fromList (Map.toList (spendableUtxoEntries (utxoState s)))
   pure $ Http.Utxo utxo
 
 serveTip ∷ Storage IO ChainState → Servant.Handler Http.ChainTip

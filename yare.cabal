@@ -104,6 +104,7 @@ library
     , string-interpolate             ^>=0.3.2.1
     , text-ansi                      ^>=0.2.1.1
     , wai                            ^>=3.2.3
+    , wai-cors                       ^>=0.2.7
     , wai-extra                      ^>=3.1.13
     , warp                           ^>=3.3.29
     , Win32-network                  ^>=0.1.1.1

@@ -1,13 +1,13 @@
 module Yare.Utxo
   ( Utxo
   , utxoEntries
-  , fromEntries
+  , fromList
   , spendableTxInputs
   , spendableValues
   , totalValue
   ) where
 
-import Relude
+import Relude hiding (fromList)
 
 import Cardano.Api (TxIn, Value)
 import Data.Map.Strict qualified as Map
@@ -20,8 +20,8 @@ newtype Utxo = Utxo (Map TxIn (LedgerAddress, Value))
 utxoEntries ∷ Utxo → Map TxIn (LedgerAddress, Value)
 utxoEntries (Utxo entries) = entries
 
-fromEntries ∷ [(TxIn, (LedgerAddress, Value))] → Utxo
-fromEntries = Utxo . Map.fromList
+fromList ∷ [(TxIn, (LedgerAddress, Value))] → Utxo
+fromList = Utxo . Map.fromList
 
 spendableTxInputs ∷ Utxo → Set TxIn
 spendableTxInputs = Map.keysSet . spendableValues
