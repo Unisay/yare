@@ -1,9 +1,13 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use const" #-}
 module Yare.Client (main) where
 
 import Relude hiding (atomically)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.Client.Subscription (WithMuxBearer, subscribe)
+import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Mnemonic (MkMnemonicError)
 import Codec.CBOR.Term qualified as CBOR
 import Control.Concurrent.Class.MonadSTM.TQueue (TQueue, writeTQueue)
@@ -13,10 +17,12 @@ import Control.Monad.Morph (MFunctor (hoist))
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Control.Tracer (Tracer, debugTracer, nullTracer)
+import Data.ByteString.Lazy qualified as BSL
 import Data.Tagged (Tagged)
 import Network.Wai.Handler.Warp qualified as Warp
+import Network.Wai.Middleware.Cors (simpleCors)
 import Ouroboros.Consensus.Block.Abstract (CodecConfig, Point)
-import Ouroboros.Consensus.Cardano.Block (EraMismatch)
+import Ouroboros.Consensus.Cardano.Block (CardanoBlock, EraMismatch)
 import Ouroboros.Consensus.Cardano.Node (protocolClientInfoCardano)
 import Ouroboros.Consensus.Ledger.Query (Query)
 import Ouroboros.Consensus.Network.NodeToClient
@@ -26,14 +32,14 @@ import Ouroboros.Consensus.Network.NodeToClient
   )
 import Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy)
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
-  ( supportedNodeToClientVersions
+  ( HasNetworkProtocolVersion (..)
+  , supportedNodeToClientVersions
   )
 import Ouroboros.Consensus.Node.ProtocolInfo (pClientInfoCodecConfig)
-import Ouroboros.Consensus.Protocol.Praos.Translate ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Network.Block (Tip)
 import Ouroboros.Network.Magic (NetworkMagic (..))
-import Ouroboros.Network.Mux (MuxPeer (..), RunMiniProtocol (..))
+import Ouroboros.Network.Mux (MuxMode (..), RunMiniProtocol (..), mkMiniProtocolCbFromPeer)
 import Ouroboros.Network.NodeToClient
   ( ClientSubscriptionParams (..)
   , ConnectionId
@@ -72,7 +78,6 @@ import Yare.Node.Clients (NodeClients (..), mkNodeClients)
 import Yare.Node.Interface (NodeInterface (..), newNodeInterfaceIO)
 import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
 import Yare.Storage (ioRefStorage)
-import Network.Wai.Middleware.Cors ( simpleCors )
 
 --------------------------------------------------------------------------------
 
@@ -128,23 +133,33 @@ stayConnectedToNode nodeSocket netMagic NodeClients {..} =
         , cspErrorPolicies =
             networkErrorPolicies <> consensusErrorPolicy (Proxy @HFBlock)
         }
-      \nodeToClientVer blockVer _connectionId →
-        let Codecs {..} = clientCodecs codecConfig blockVer nodeToClientVer
-         in NodeToClientProtocols
-              { localChainSyncProtocol =
-                  InitiatorProtocolOnly . MuxPeer lcsTracer cChainSyncCodec $
-                    CS.chainSyncClientPeer chainSync
-              , localTxSubmissionProtocol =
-                  InitiatorProtocolOnly . MuxPeer nullTracer cTxSubmissionCodec $
-                    localTxSubmissionPeerNull
-              , localStateQueryProtocol =
-                  InitiatorProtocolOnly . MuxPeer lsqTracer cStateQueryCodec $
-                    LSQ.localStateQueryClientPeer localState
-              , localTxMonitorProtocol =
-                  InitiatorProtocolOnly $
-                    MuxPeer nullTracer cTxMonitorCodec localTxMonitorPeerNull
-              }
+      protocols
  where
+  protocols
+    ∷ NodeToClientVersion
+    → BlockNodeToClientVersion (CardanoBlock StandardCrypto)
+    → NodeToClientProtocols 'InitiatorMode LocalAddress BSL.ByteString IO () Void
+  protocols nodeToClientVer blockVer =
+    let Codecs {cChainSyncCodec, cTxSubmissionCodec, cStateQueryCodec, cTxMonitorCodec} =
+          clientCodecs codecConfig blockVer nodeToClientVer
+     in NodeToClientProtocols
+          { localChainSyncProtocol =
+              InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+                (lcsTracer, cChainSyncCodec, CS.chainSyncClientPeer chainSync)
+          , localTxSubmissionProtocol =
+              InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+                (nullTracer, cTxSubmissionCodec, localTxSubmissionPeerNull)
+          , localStateQueryProtocol =
+              InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+                ( lsqTracer
+                , cStateQueryCodec
+                , LSQ.localStateQueryClientPeer localState
+                )
+          , localTxMonitorProtocol =
+              InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+                (nullTracer, cTxMonitorCodec, localTxMonitorPeerNull)
+          }
+
   codecConfig ∷ CodecConfig HFBlock =
     let byronEpochSlots = EpochSlots 21600
      in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)

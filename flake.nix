@@ -1,7 +1,7 @@
 {
   inputs = {
     aiken-lang.url = "github:aiken-lang/aiken";
-    cardano-node.url = "github:input-output-hk/cardano-node?ref=8.1.2";
+    cardano-node.url = "github:input-output-hk/cardano-node?ref=8.12.2";
     devenv.url = "github:cachix/devenv";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     systems.url = "github:nix-systems/default";
@@ -31,25 +31,25 @@
             modules = [({
               # https://devenv.sh/reference/options/
               packages = [
-                aiken-lang.packages.${system}.aiken
                 cardano-node.packages.${system}.cardano-cli
                 cardano-node.packages.${system}.cardano-node
                 hpkgs.cabal-fmt
                 hpkgs.fourmolu
                 hpkgs.hlint
+                pkgs.blst
+                pkgs.figlet
                 pkgs.just
                 pkgs.libsodium-vrf
-                pkgs.pkg-config # otherwise patched crypto libs won't be found
                 pkgs.secp256k1
               ];
 
               languages.haskell = {
                 enable = true;
-                package = pkgs.haskell.compiler.ghc8107;
+                package = pkgs.haskell.compiler.ghc965;
               };
 
               enterShell = ''
-                echo "Yare"
+                figlet Yare
               '';
             })];
           };

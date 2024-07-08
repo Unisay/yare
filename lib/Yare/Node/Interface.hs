@@ -5,6 +5,7 @@ module Yare.Node.Interface
 
 import Control.Concurrent.Class.MonadSTM.TMVar (TMVar, newEmptyTMVarIO)
 import Control.Concurrent.Class.MonadSTM.TQueue (TQueue, newTQueueIO)
+import Data.Kind (Type)
 import Ouroboros.Network.Block (Point)
 import Relude (IO, pure)
 import Yare.Addresses (Addresses)
@@ -13,7 +14,7 @@ import Yare.Chain.Follower (ChainFollower, ChainState, newChainFollower)
 import Yare.LSQ (QueryCont)
 import Yare.Storage (Storage)
 
-data NodeInterface m = NodeInterface
+data NodeInterface (m ∷ Type → Type) = NodeInterface
   { localStateQueryQ ∷ TQueue m (QueryCont m)
   , chainTip ∷ TMVar m (Point Block)
   , chainFollower ∷ ChainFollower m

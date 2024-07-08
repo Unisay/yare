@@ -10,7 +10,7 @@ import Relude
 
 -- These 3 imports are required as they bring required instances into scope.
 import Ouroboros.Consensus.Cardano.Node ()
-import Ouroboros.Consensus.Protocol.Praos.Translate ()
+-- import Ouroboros.Consensus.Protocol.Praos.Translate ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 
 import Cardano.Api (TxIn (..), Value)

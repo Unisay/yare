@@ -17,7 +17,7 @@ import Yare.Storage (Storage (modifyStorage))
 import Yare.Utxo.State (UtxoState)
 import Yare.Utxo.State qualified as UtxoState
 
-data ChainFollower m = ChainFollower
+data ChainFollower (m ∷ Type → Type) = ChainFollower
   { onNewBlock ∷ HFBlock → ChainTip → m ()
   , onRollback ∷ ChainPoint → ChainTip → m ()
   }

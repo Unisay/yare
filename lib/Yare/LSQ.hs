@@ -34,7 +34,8 @@ import Ouroboros.Consensus.HardFork.Combinator.Ledger.Query
   ( QueryHardFork (GetCurrentEra)
   )
 import Ouroboros.Consensus.Ledger.Query (Query (..))
-import Ouroboros.Consensus.Protocol.Praos.Translate ()
+
+-- import Ouroboros.Consensus.Protocol.Praos.Translate ()
 import Ouroboros.Consensus.Shelley.Ledger.Query qualified as Shelley
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Network.Block (Point)
@@ -52,7 +53,7 @@ localStateQueryClient
 localStateQueryClient queryQ = LSQ.LocalStateQueryClient idleState
  where
   idleState ∷ m (LSQ.ClientStIdle HFBlock (Point HFBlock) (Query HFBlock) m a)
-  idleState = LSQ.SendMsgAcquire Nothing <$> acquiringState
+  idleState = LSQ.SendMsgAcquire LSQ.VolatileTip <$> acquiringState
 
   acquiringState
     ∷ m (LSQ.ClientStAcquiring HFBlock (Point HFBlock) (Query HFBlock) m a)
@@ -81,7 +82,7 @@ localStateQueryClient queryQ = LSQ.LocalStateQueryClient idleState
       LsqQuery q → pure do
         LSQ.SendMsgQuery q LSQ.ClientStQuerying {recvMsgResult = k}
 
-data LsqM (m ∷ Type → Type) a
+data LsqM (m ∷ Type → Type) (a ∷ Type)
   = LsqQuery (Query (HardForkBlock Blocks) a)
   | LsqLift (m a)
   | ∀ r. LsqBind (LsqM m r) (r → LsqM m a)
@@ -124,9 +125,8 @@ queryCurrentEra =
       6 → pure Conway
       _ → lift $ Oops.throw (UnknownEraIndex idx)
 
-data QueryCont m
+data QueryCont (m :: Type -> Type)
   = ∀ r. QueryCont (LsqM m r) (Either LSQ.AcquireFailure r → m ())
-
 
 queryLedgerTip
   ∷ ∀ m e

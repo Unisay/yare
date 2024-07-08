@@ -1,3 +1,5 @@
+{-# LANGUAGE StandaloneKindSignatures #-}
+
 module Yare.Http.Server
   ( YareApi
   , application
@@ -20,10 +22,12 @@ application = Servant.serve (Proxy @YareApi) . server
  where
   server storage = serveUtxo storage :<|> serveTip storage
 
-type YareApi = "api" :>
-  ( "utxo" :> Get '[JSON] Http.Utxo
-    :<|> "tip" :> Get '[JSON] Http.ChainTip
-  )
+type YareApi ∷ Type
+type YareApi =
+  "api"
+    :> ( "utxo" :> Get '[JSON] Http.Utxo
+          :<|> "tip" :> Get '[JSON] Http.ChainTip
+       )
 
 serveUtxo ∷ Storage IO ChainState → Servant.Handler Http.Utxo
 serveUtxo storage = do

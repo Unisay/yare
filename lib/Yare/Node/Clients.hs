@@ -6,7 +6,7 @@ module Yare.Node.Clients
 import Relude hiding (atomically)
 
 import Ouroboros.Consensus.Ledger.Query (Query)
-import Ouroboros.Consensus.Protocol.Praos.Translate ()
+-- import Ouroboros.Consensus.Protocol.Praos.Translate ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Network.Protocol.ChainSync.Client (ChainSyncClient)
 import Ouroboros.Network.Protocol.LocalStateQuery.Client (LocalStateQueryClient)

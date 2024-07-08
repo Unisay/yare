@@ -23,37 +23,35 @@ import Relude
 import Cardano.Api (TxId, TxIn)
 import Cardano.Api qualified as CA
 import Cardano.Api.Byron qualified as CAB
-import Cardano.Api.Shelley
-  ( Lovelace (..)
-  , fromMaryValue
-  , fromShelleyLovelace
-  , lovelaceToValue
-  )
+import Cardano.Api.Shelley (fromMaryValue, lovelaceToValue)
 import Cardano.Api.Shelley qualified as CAS
 import Cardano.Chain.Block (ABlockOrBoundary (..), blockTxPayload)
-import Cardano.Chain.Common (lovelaceToInteger)
+import Cardano.Chain.Common (unsafeGetLovelace)
 import Cardano.Chain.UTxO (taTx, unTxPayload)
 import Cardano.Chain.UTxO qualified as Byron
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Crypto.Hashing qualified as ByronHashing
+import Cardano.Ledger.Address (decompactAddr)
 import Cardano.Ledger.Allegra.TxBody (AllegraTxBody)
 import Cardano.Ledger.Alonzo (AlonzoTxBody, AlonzoTxOut)
 import Cardano.Ledger.Alonzo.Tx (AlonzoTx)
 import Cardano.Ledger.Api
   ( Addr (AddrBootstrap)
   , BootstrapAddress (..)
-  , addrTxOutL
   , bodyTxL
   , inputsTxBodyL
   , outputsTxBodyL
   , valueTxOutL
   )
 import Cardano.Ledger.Babbage (BabbageTxBody, BabbageTxOut)
-import Cardano.Ledger.Block (bbody, txid)
+import Cardano.Ledger.Block (bbody)
+import Cardano.Ledger.Coin (word64ToCoin)
 import Cardano.Ledger.Conway.TxBody (ConwayTxBody)
-import Cardano.Ledger.Core (fromTxSeq)
+import Cardano.Ledger.Core (addrEitherTxOutL, coinTxOutL, fromTxSeq)
 import Cardano.Ledger.Mary (MaryTxBody)
 import Cardano.Ledger.Shelley (ShelleyTx, ShelleyTxBody, ShelleyTxOut)
+import Cardano.Ledger.Shelley.Core (txIdTxBody)
+import Cardano.Ledger.Shelley.TxOut (addrEitherShelleyTxOutL)
 import Lens.Micro (folded, to, (^.), (^..))
 import Ouroboros.Consensus.Byron.Ledger (ByronBlock, byronBlockRaw)
 import Ouroboros.Consensus.Cardano.Block
@@ -91,7 +89,7 @@ import Yare.Chain.Era
 import Yare.Chain.Types (LedgerAddress)
 
 -- Type family that maps an era to the corresponding Tx type.
-type family TxForEra (era ∷ Era) where
+type family TxForEra (era ∷ Era) ∷ Type where
   TxForEra Byron = Byron.Tx
   TxForEra Shelley = ShelleyTx (ShelleyEra StandardCrypto)
   TxForEra Allegra = ShelleyTx (AllegraEra StandardCrypto)
@@ -128,7 +126,7 @@ byEraConway = IxedByEraConway . Tx
 --------------------------------------------------------------------------------
 -- Tx body ---------------------------------------------------------------------
 
-type family TxBodyForEra (era ∷ Era) where
+type family TxBodyForEra (era ∷ Era) ∷ Type where
   TxBodyForEra Byron = Byron.Tx
   TxBodyForEra Shelley = ShelleyTxBody (ShelleyEra StandardCrypto)
   TxBodyForEra Allegra = AllegraTxBody (AllegraEra StandardCrypto)
@@ -142,7 +140,7 @@ newtype TxBody (era ∷ Era) = TxBody (TxBodyForEra era)
 --------------------------------------------------------------------------------
 -- Tx outputs ------------------------------------------------------------------
 
-type family TxOutForEra (era ∷ Era) where
+type family TxOutForEra (era ∷ Era) ∷ Type where
   TxOutForEra Byron = Byron.TxOut
   TxOutForEra Shelley = ShelleyTxOut (ShelleyEra StandardCrypto)
   TxOutForEra Allegra = ShelleyTxOut (AllegraEra StandardCrypto)
@@ -203,7 +201,7 @@ transactionViewUtxo =
                   AddrBootstrap (BootstrapAddress (Byron.txOutAddress txOut))
               , txOutViewUtxoValue =
                   lovelaceToValue
-                    (Lovelace (lovelaceToInteger (Byron.txOutValue txOut)))
+                    (word64ToCoin (unsafeGetLovelace (Byron.txOutValue txOut)))
               }
       , eraFunShelley = mkTxOutViewUtxoSingleAsset
       , eraFunAllegra = mkTxOutViewUtxoSingleAsset
@@ -217,15 +215,21 @@ transactionViewUtxo =
       NoIdx
         TxOutViewUtxo
           { txOutViewUtxoIndex = txOutIndex
-          , txOutViewUtxoAddress = txOut ^. addrTxOutL
+          , txOutViewUtxoAddress =
+              case txOut ^. addrEitherShelleyTxOutL of
+                Left addr → addr
+                Right compactAddr → decompactAddr compactAddr
           , txOutViewUtxoValue =
-              lovelaceToValue (fromShelleyLovelace (txOut ^. valueTxOutL))
+              lovelaceToValue (txOut ^. coinTxOutL)
           }
     mkTxOutViewUtxoMultiAsset (TxOut txOutIndex txOut) =
       NoIdx
         TxOutViewUtxo
           { txOutViewUtxoIndex = txOutIndex
-          , txOutViewUtxoAddress = txOut ^. addrTxOutL
+          , txOutViewUtxoAddress =
+              case txOut ^. addrEitherTxOutL of
+                Left addr → addr
+                Right compactAddr → decompactAddr compactAddr
           , txOutViewUtxoValue = fromMaryValue (txOut ^. valueTxOutL)
           }
 
@@ -272,12 +276,12 @@ idEraFun =
         case Crypto.hashFromBytesShort shortHash of
           Just apiHash → NoIdx $ CA.TxId apiHash
           Nothing → error $ "Error converting Byron era TxId: " <> show txId
-    , eraFunShelley = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txid tx
-    , eraFunAllegra = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txid tx
-    , eraFunMary = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txid tx
-    , eraFunAlonzo = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txid tx
-    , eraFunBabbage = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txid tx
-    , eraFunConway = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txid tx
+    , eraFunShelley = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txIdTxBody tx
+    , eraFunAllegra = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txIdTxBody tx
+    , eraFunMary = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txIdTxBody tx
+    , eraFunAlonzo = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txIdTxBody tx
+    , eraFunBabbage = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txIdTxBody tx
+    , eraFunConway = \(TxBody tx) → NoIdx . CAS.fromShelleyTxId $ txIdTxBody tx
     }
 
 inputsEraFun ∷ EraFun TxBody (Compose [] (NoIdx TxIn))

@@ -17,12 +17,8 @@ packages: yare.cabal
 package cardano-crypto-praos
   flags: -external-libsodium-vrf
 
-constraints:
-  -- https://github.com/nikita-volkov/deferred-folds/issues/6
-  deferred-folds < 0.9.18.4
-
 source-repository-package
   type: git
   location: https://github.com/IntersectMBO/cardano-addresses.git
-  tag: 389e252b29a8140c255d2ebbdc83888e5d922dfe
+  tag: dc0bfdcccf0ff2c3ea1d5db7855d4414a0cd888b
   subdir: core

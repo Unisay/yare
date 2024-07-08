@@ -28,7 +28,7 @@ import Cardano.Address.Style.Shelley
   , Shelley
   , paymentAddress
   )
-import Cardano.Ledger.Address qualified as Ledger
+import Cardano.Ledger.Api.Tx.Address qualified as Ledger
 import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
 import Yare.Chain.Types (LedgerAddress)
 
@@ -72,4 +72,4 @@ paymentAddressesKeys role networkTag mnemonic =
         masterKey = genMasterKeyFromMnemonic (SomeMnemonic mnemonic) mempty
 
 toLedgerAddress ∷ Address → Maybe LedgerAddress
-toLedgerAddress address = Ledger.deserialiseAddr (unAddress address)
+toLedgerAddress address = Ledger.decodeAddr (unAddress address)

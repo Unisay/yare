@@ -54,9 +54,9 @@ chainSyncClient chainFollower knownChainPoints = ChainSyncClient do
         }
 
   requestNext ∷ ClientStIdle HFBlock ChainPoint ChainTip m a
-  requestNext = SendMsgRequestNext next (sleepSeconds 3 $> next)
-   where
-    next =
+  requestNext =
+    SendMsgRequestNext
+      pass
       ClientStNext
         { recvMsgRollForward = \block tip → ChainSyncClient do
             onNewBlock chainFollower block tip
