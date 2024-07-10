@@ -17,8 +17,10 @@ module Yare.Chain.Era
 import Control.Category (Category (..))
 import Relude hiding (id, (.))
 
+type Era ∷ Type
 data Era = Byron | Shelley | Allegra | Mary | Alonzo | Babbage | Conway
 
+type IxedByEra ∷ (Era → Type) → Type
 data IxedByEra (f ∷ Era → Type) where
   IxedByEraByron ∷ f Byron → IxedByEra f
   IxedByEraShelley ∷ f Shelley → IxedByEra f
@@ -28,7 +30,8 @@ data IxedByEra (f ∷ Era → Type) where
   IxedByEraBabbage ∷ f Babbage → IxedByEra f
   IxedByEraConway ∷ f Conway → IxedByEra f
 
-newtype NoIdx f (e ∷ k) = NoIdx {unwrapNoIdx ∷ f}
+type NoIdx ∷ ∀ k. Type → k → Type
+newtype NoIdx f e = NoIdx {unwrapNoIdx ∷ f}
 
 runIxedByEra ∷ IxedByEra (NoIdx f) → f
 runIxedByEra = \case
@@ -40,7 +43,8 @@ runIxedByEra = \case
   IxedByEraBabbage (NoIdx f) → f
   IxedByEraConway (NoIdx f) → f
 
-data EraFun (f ∷ Era → Type) (g ∷ Era → Type) = EraFun
+type EraFun ∷ (Era → Type) → (Era → Type) → Type
+data EraFun f g = EraFun
   { eraFunByron ∷ f Byron → g Byron
   , eraFunShelley ∷ f Shelley → g Shelley
   , eraFunAllegra ∷ f Allegra → g Allegra

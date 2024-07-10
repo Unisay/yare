@@ -89,7 +89,8 @@ import Yare.Chain.Era
 import Yare.Chain.Types (LedgerAddress)
 
 -- Type family that maps an era to the corresponding Tx type.
-type family TxForEra (era ∷ Era) ∷ Type where
+type TxForEra ∷ Era → Type
+type family TxForEra era ∷ Type where
   TxForEra Byron = Byron.Tx
   TxForEra Shelley = ShelleyTx (ShelleyEra StandardCrypto)
   TxForEra Allegra = ShelleyTx (AllegraEra StandardCrypto)
@@ -100,7 +101,8 @@ type family TxForEra (era ∷ Era) ∷ Type where
 
 -- Newtype wrapper around the TxForEra type family to allow partial application,
 -- as type families cannot be partially applied.
-newtype Tx (era ∷ Era) = Tx {unwrapTx ∷ TxForEra era}
+type Tx ∷ Era → Type
+newtype Tx era = Tx {unwrapTx ∷ TxForEra era}
 
 byEraByron ∷ TxForEra Byron → IxedByEra Tx
 byEraByron = IxedByEraByron . Tx
@@ -126,7 +128,8 @@ byEraConway = IxedByEraConway . Tx
 --------------------------------------------------------------------------------
 -- Tx body ---------------------------------------------------------------------
 
-type family TxBodyForEra (era ∷ Era) ∷ Type where
+type TxBodyForEra ∷ Era → Type
+type family TxBodyForEra era ∷ Type where
   TxBodyForEra Byron = Byron.Tx
   TxBodyForEra Shelley = ShelleyTxBody (ShelleyEra StandardCrypto)
   TxBodyForEra Allegra = AllegraTxBody (AllegraEra StandardCrypto)
@@ -135,12 +138,14 @@ type family TxBodyForEra (era ∷ Era) ∷ Type where
   TxBodyForEra Babbage = BabbageTxBody (BabbageEra StandardCrypto)
   TxBodyForEra Conway = ConwayTxBody (ConwayEra StandardCrypto)
 
-newtype TxBody (era ∷ Era) = TxBody (TxBodyForEra era)
+type TxBody ∷ Era → Type
+newtype TxBody era = TxBody (TxBodyForEra era)
 
 --------------------------------------------------------------------------------
 -- Tx outputs ------------------------------------------------------------------
 
-type family TxOutForEra (era ∷ Era) ∷ Type where
+type TxOutForEra ∷ Era → Type
+type family TxOutForEra era ∷ Type where
   TxOutForEra Byron = Byron.TxOut
   TxOutForEra Shelley = ShelleyTxOut (ShelleyEra StandardCrypto)
   TxOutForEra Allegra = ShelleyTxOut (AllegraEra StandardCrypto)
@@ -149,7 +154,8 @@ type family TxOutForEra (era ∷ Era) ∷ Type where
   TxOutForEra Babbage = BabbageTxOut (BabbageEra StandardCrypto)
   TxOutForEra Conway = BabbageTxOut (ConwayEra StandardCrypto)
 
-data TxOut (era ∷ Era) = TxOut
+type TxOut ∷ Era → Type
+data TxOut era = TxOut
   { txOutIndex ∷ CA.TxIx
   , unwrapTxOut ∷ TxOutForEra era
   }
@@ -158,6 +164,7 @@ data TxOut (era ∷ Era) = TxOut
 -- Tx views  -------------------------------------------------------------------
 
 -- | Tx view for the purpose of tracking unspent tx outputs (UTxO)
+type TxViewUtxo ∷ Type
 data TxViewUtxo = TxViewUtxo
   { txViewId ∷ TxId
   , txViewInputs ∷ [TxIn]
@@ -166,6 +173,7 @@ data TxViewUtxo = TxViewUtxo
   deriving stock (Eq, Show)
 
 -- | Tx output view for the purpose of tracking unspent tx outputs (UTxO)
+type TxOutViewUtxo ∷ Type
 data TxOutViewUtxo = TxOutViewUtxo
   { txOutViewUtxoIndex ∷ CA.TxIx
   , txOutViewUtxoAddress ∷ LedgerAddress

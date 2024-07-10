@@ -43,6 +43,7 @@ main = withUtf8 do
       (Tagged @"mnemonic" mnemonicFile)
       syncFrom
 
+type Args :: Type
 data Args = Args
   { nodeSocketPath ∷ SomeBase File
   , networkMagic ∷ NetworkMagic

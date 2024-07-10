@@ -16,6 +16,7 @@ import Yare.Chain.Types (ChainPoint, ChainTip)
 import Yare.LSQ (localStateQueryClient)
 import Yare.Node.Interface (NodeInterface (..))
 
+type NodeClients :: Type
 data NodeClients = NodeClients
   { chainSync ∷ ChainSyncClient HFBlock ChainPoint ChainTip IO ()
   , localState ∷ LocalStateQueryClient HFBlock ChainPoint (Query HFBlock) IO ()

@@ -14,6 +14,7 @@ import Ouroboros.Network.Block (Point (..))
 import Ouroboros.Network.Point (Block (..))
 import Yare.Chain.Block (HFBlock)
 
+type ChainPoint ∷ Type
 type ChainPoint = Point HFBlock
 
 parseChainPoint ∷ String → Either String ChainPoint

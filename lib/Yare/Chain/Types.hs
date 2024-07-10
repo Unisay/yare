@@ -1,5 +1,3 @@
-{-# LANGUAGE StandaloneKindSignatures #-}
-
 module Yare.Chain.Types
   ( ChainTip
   , ChainPoint

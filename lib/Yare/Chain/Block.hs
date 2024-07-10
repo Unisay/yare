@@ -29,6 +29,7 @@ import Ouroboros.Consensus.Shelley.Eras
 import Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
 import Yare.Chain.Era (Era (..))
 
+type Blocks :: [Type]
 type Blocks =
   [ BlockForEra Byron
   , BlockForEra Shelley
@@ -39,11 +40,14 @@ type Blocks =
   , BlockForEra Conway
   ]
 
+type StdShelleyBlocks :: [Type]
 type StdShelleyBlocks = CardanoShelleyEras StandardCrypto
 
+type HFBlock :: Type
 type HFBlock = HardForkBlock Blocks
 
 -- | Type family that maps an era to the corresponding Block type.
+type BlockForEra ∷ Era → Type
 type family BlockForEra (era ∷ Era) where
   BlockForEra Byron =
     ByronBlock
@@ -62,8 +66,10 @@ type family BlockForEra (era ∷ Era) where
 
 -- Newtype wrapper around the type family to allow partial application,
 -- as type families cannot be partially applied.
+type Block :: Era → Type
 newtype Block (era ∷ Era) = Block (BlockForEra era)
 
+type IxedByBlock ∷ (Type → Type) → Type
 data IxedByBlock (f ∷ Type → Type)
   = IxedByBlockByron (f (BlockForEra Byron))
   | IxedByBlockShelley (f (BlockForEra Shelley))

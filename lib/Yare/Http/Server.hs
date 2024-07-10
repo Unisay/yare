@@ -1,5 +1,3 @@
-{-# LANGUAGE StandaloneKindSignatures #-}
-
 module Yare.Http.Server
   ( YareApi
   , application
