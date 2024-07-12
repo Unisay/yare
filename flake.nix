@@ -1,58 +1,52 @@
 {
+  description = "Nix Flake";
+
   inputs = {
-    aiken-lang.url = "github:aiken-lang/aiken";
-    cardano-node.url = "github:input-output-hk/cardano-node?ref=8.12.2";
-    devenv.url = "github:cachix/devenv";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    systems.url = "github:nix-systems/default";
-    iohkNix.url = "github:input-output-hk/iohk-nix";
+    iogx = {
+      url = "github:input-output-hk/iogx";
+      inputs.hackage.follows = "hackage";
+      inputs.CHaP.follows = "CHaP";
+      inputs.haskell-nix.follows = "haskell-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    nixpkgs.follows = "haskell-nix/nixpkgs";
+
+    hackage = {
+      url = "github:input-output-hk/hackage.nix";
+      flake = false;
+    };
+
+    CHaP = {
+      url = "github:intersectmbo/cardano-haskell-packages?ref=repo";
+      flake = false;
+    };
+
+    haskell-nix = {
+      url = "github:input-output-hk/haskell.nix";
+      inputs.hackage.follows = "hackage";
+    };
   };
+
+  # Docs for mkFlake:
+  # https://github.com/input-output-hk/iogx/blob/main/doc/api.md#mkflake
+  outputs =
+    inputs:
+    inputs.iogx.lib.mkFlake {
+      inherit inputs;
+      repoRoot = ./.;
+      outputs = import ./nix/outputs.nix;
+      systems = [
+        "x86_64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+        "aarch64-linux"
+      ];
+    };
 
   nixConfig = {
-    extra-trusted-public-keys =
-      "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=";
-    extra-substituters = "https://devenv.cachix.org";
+    extra-substituters = [ "https://cache.iog.io" ];
+    extra-trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" ];
+    allow-import-from-derivation = true;
   };
-
-  outputs = { self, nixpkgs, devenv, systems, cardano-node
-    , aiken-lang, iohkNix, ... }@inputs:
-    let forEachSystem = nixpkgs.lib.genAttrs (import systems);
-    in {
-      devShells = forEachSystem (system:
-        let
-          pkgs = import nixpkgs {
-            inherit system;
-            overlays = [ iohkNix.overlays.crypto ];
-          };
-          hpkgs = pkgs.haskellPackages;
-        in {
-          default = devenv.lib.mkShell {
-            inherit inputs pkgs;
-            modules = [({
-              # https://devenv.sh/reference/options/
-              packages = [
-                cardano-node.packages.${system}.cardano-cli
-                cardano-node.packages.${system}.cardano-node
-                hpkgs.cabal-fmt
-                hpkgs.fourmolu
-                hpkgs.hlint
-                pkgs.blst
-                pkgs.figlet
-                pkgs.just
-                pkgs.libsodium-vrf
-                pkgs.secp256k1
-              ];
-
-              languages.haskell = {
-                enable = true;
-                package = pkgs.haskell.compiler.ghc965;
-              };
-
-              enterShell = ''
-                figlet Yare
-              '';
-            })];
-          };
-        });
-    };
 }

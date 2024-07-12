@@ -1,4 +1,6 @@
+.pre-commit-config.yaml
 .envrc-local
 .devenv
 cabal.project.local
 dist-newstyle
+result
