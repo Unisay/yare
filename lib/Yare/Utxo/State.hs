@@ -10,6 +10,7 @@ import Relude
 
 -- These 3 imports are required as they bring required instances into scope.
 import Ouroboros.Consensus.Cardano.Node ()
+
 -- import Ouroboros.Consensus.Protocol.Praos.Translate ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 
@@ -19,7 +20,7 @@ import Data.Set (member)
 import Ouroboros.Network.Block (blockPoint)
 import Yare.Addresses (Addresses, isOwnAddress)
 import Yare.Chain.Block (HFBlock)
-import Yare.Chain.Era (IxedByEra (..))
+import Yare.Chain.Era (AnyEra (..))
 import Yare.Chain.Point (ChainPoint)
 import Yare.Chain.Tx
   ( Tx
@@ -32,6 +33,7 @@ import Yare.Chain.Tx
 import Yare.Chain.Types (LedgerAddress)
 import Yare.Utxo (Utxo, utxoEntries)
 
+type UtxoState ∷ Type
 data UtxoState = UtxoState
   { nonFinalState ∷ [(ChainPoint, [UtxoUpdate])]
   , finalState ∷ Utxo
@@ -48,7 +50,7 @@ indexBlock addresses block s = s'
   forEachTx tx nextUpdate = nextUpdate . indexTx addresses chainPoint tx
   chainPoint = blockPoint block
 
-indexTx ∷ Addresses → ChainPoint → IxedByEra Tx → UtxoState → UtxoState
+indexTx ∷ Addresses → ChainPoint → AnyEra Tx → UtxoState → UtxoState
 indexTx addresses point tx s =
   s {nonFinalState = updateNonFinalState (nonFinalState s)}
  where
@@ -80,6 +82,7 @@ rollbackTo ∷ ChainPoint → UtxoState → UtxoState
 rollbackTo point s =
   s {nonFinalState = dropWhile ((> point) . fst) (nonFinalState s)}
 
+type UtxoUpdate ∷ Type
 data UtxoUpdate
   = AddSpendableTxInput TxIn LedgerAddress Value
   | SpendTxInput TxIn

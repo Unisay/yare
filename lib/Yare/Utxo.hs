@@ -13,6 +13,7 @@ import Cardano.Api (TxIn, Value)
 import Data.Map.Strict qualified as Map
 import Yare.Chain.Types (LedgerAddress)
 
+type Utxo ∷ Type
 newtype Utxo = Utxo (Map TxIn (LedgerAddress, Value))
   deriving stock (Eq, Show)
   deriving newtype (Semigroup, Monoid)

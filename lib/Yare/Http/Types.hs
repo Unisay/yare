@@ -5,19 +5,20 @@ module Yare.Http.Types
 
 import Relude
 
+import Cardano.Api (AssetId (..), valueToList)
 import Data.Aeson (ToJSON (..), object, pairs, (.=))
+import Data.Aeson qualified as Aeson
 import Data.Aeson.Encoding (pairStr)
 import Data.Aeson.Encoding qualified as Json
 import Data.Map.Strict qualified as Map
 import Ouroboros.Network.Block qualified as NB
 import Yare.Chain.Types qualified as Y
 import Yare.Utxo qualified as Y
-import Cardano.Api (valueToList, AssetId (..))
-import Data.Aeson qualified as Aeson
 
 --------------------------------------------------------------------------------
 -- UTXO ------------------------------------------------------------------------
 
+type Utxo ∷ Type
 newtype Utxo = Utxo Y.Utxo
   deriving stock (Eq, Show)
 
@@ -30,14 +31,15 @@ instance ToJSON Utxo where
         , "value" .= map (bimap assetIdToJSON toJSON) (valueToList value)
         ]
    where
-    assetIdToJSON :: AssetId -> Aeson.Value
+    assetIdToJSON ∷ AssetId → Aeson.Value
     assetIdToJSON = \case
-      AdaAssetId -> Aeson.String "lovelace"
-      AssetId policyId assetName -> toJSON (policyId, assetName)
+      AdaAssetId → Aeson.String "lovelace"
+      AssetId policyId assetName → toJSON (policyId, assetName)
 
 --------------------------------------------------------------------------------
 -- Chain Tip -------------------------------------------------------------------
 
+type ChainTip ∷ Type
 newtype ChainTip = ChainTip Y.ChainTip
   deriving stock (Eq, Show)
 

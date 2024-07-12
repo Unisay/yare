@@ -1,3 +1,7 @@
+{- |
+Module: Main
+Description: Reads command line arguments and starts the Yare application.
+-}
 module Main (main) where
 
 import Relude
@@ -21,8 +25,9 @@ import Options.Applicative.Help.Pretty (vsep)
 import Ouroboros.Network.Magic (NetworkMagic (NetworkMagic))
 import Path (File, SomeBase (..), parseSomeFile)
 import Path.IO qualified as Path
-import Yare.Chain.Types (ChainPoint, parseChainPoint)
-import Yare.Client qualified as Yare
+import Yare.App qualified as Yare
+import Yare.App.Types qualified as App
+import Yare.Chain.Point (ChainPoint, parseChainPoint)
 import Yare.Node.Socket (NodeSocket (..))
 
 main ∷ IO ()
@@ -33,17 +38,19 @@ main = withUtf8 do
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
   mnemonicFile ←
-    case mnemonicPath of
+    Tagged @"mnemonic" <$> case mnemonicPath of
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
-  void $
-    Yare.main
-      nodeSocket
-      networkMagic
-      (Tagged @"mnemonic" mnemonicFile)
-      syncFrom
+  Yare.start
+    App.Config
+      { apiHttpPort = 9999
+      , nodeSocket
+      , networkMagic
+      , mnemonicFile
+      , syncFrom
+      }
 
-type Args :: Type
+type Args ∷ Type
 data Args = Args
   { nodeSocketPath ∷ SomeBase File
   , networkMagic ∷ NetworkMagic

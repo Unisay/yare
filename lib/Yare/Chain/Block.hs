@@ -29,55 +29,55 @@ import Ouroboros.Consensus.Shelley.Eras
 import Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
 import Yare.Chain.Era (Era (..))
 
-type Blocks :: [Type]
+type Blocks ∷ [Type]
 type Blocks =
-  [ BlockForEra Byron
-  , BlockForEra Shelley
-  , BlockForEra Allegra
-  , BlockForEra Mary
-  , BlockForEra Alonzo
-  , BlockForEra Babbage
-  , BlockForEra Conway
+  [ BlockInEra Byron
+  , BlockInEra Shelley
+  , BlockInEra Allegra
+  , BlockInEra Mary
+  , BlockInEra Alonzo
+  , BlockInEra Babbage
+  , BlockInEra Conway
   ]
 
-type StdShelleyBlocks :: [Type]
+type StdShelleyBlocks ∷ [Type]
 type StdShelleyBlocks = CardanoShelleyEras StandardCrypto
 
-type HFBlock :: Type
+type HFBlock ∷ Type
 type HFBlock = HardForkBlock Blocks
 
 -- | Type family that maps an era to the corresponding Block type.
-type BlockForEra ∷ Era → Type
-type family BlockForEra (era ∷ Era) where
-  BlockForEra Byron =
+type BlockInEra ∷ Era → Type
+type family BlockInEra (era ∷ Era) where
+  BlockInEra Byron =
     ByronBlock
-  BlockForEra Shelley =
+  BlockInEra Shelley =
     ShelleyBlock (TPraos StandardCrypto) (ShelleyEra StandardCrypto)
-  BlockForEra Allegra =
+  BlockInEra Allegra =
     ShelleyBlock (TPraos StandardCrypto) (AllegraEra StandardCrypto)
-  BlockForEra Mary =
+  BlockInEra Mary =
     ShelleyBlock (TPraos StandardCrypto) (MaryEra StandardCrypto)
-  BlockForEra Alonzo =
+  BlockInEra Alonzo =
     ShelleyBlock (TPraos StandardCrypto) (AlonzoEra StandardCrypto)
-  BlockForEra Babbage =
+  BlockInEra Babbage =
     ShelleyBlock (Praos StandardCrypto) (BabbageEra StandardCrypto)
-  BlockForEra Conway =
+  BlockInEra Conway =
     ShelleyBlock (Praos StandardCrypto) (ConwayEra StandardCrypto)
 
 -- Newtype wrapper around the type family to allow partial application,
 -- as type families cannot be partially applied.
-type Block :: Era → Type
-newtype Block (era ∷ Era) = Block (BlockForEra era)
+type Block ∷ Era → Type
+newtype Block (era ∷ Era) = Block (BlockInEra era)
 
 type IxedByBlock ∷ (Type → Type) → Type
 data IxedByBlock (f ∷ Type → Type)
-  = IxedByBlockByron (f (BlockForEra Byron))
-  | IxedByBlockShelley (f (BlockForEra Shelley))
-  | IxedByBlockAllegra (f (BlockForEra Allegra))
-  | IxedByBlockMary (f (BlockForEra Mary))
-  | IxedByBlockAlonzo (f (BlockForEra Alonzo))
-  | IxedByBlockBabbage (f (BlockForEra Babbage))
-  | IxedByBlockConway (f (BlockForEra Conway))
+  = IxedByBlockByron (f (BlockInEra Byron))
+  | IxedByBlockShelley (f (BlockInEra Shelley))
+  | IxedByBlockAllegra (f (BlockInEra Allegra))
+  | IxedByBlockMary (f (BlockInEra Mary))
+  | IxedByBlockAlonzo (f (BlockInEra Alonzo))
+  | IxedByBlockBabbage (f (BlockInEra Babbage))
+  | IxedByBlockConway (f (BlockInEra Conway))
 
 hoistIxedByBlock ∷ ∀ f g. (∀ a. f a → g a) → IxedByBlock f → IxedByBlock g
 hoistIxedByBlock f = \case

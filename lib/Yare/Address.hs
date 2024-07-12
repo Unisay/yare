@@ -32,6 +32,7 @@ import Cardano.Ledger.Api.Tx.Address qualified as Ledger
 import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
 import Yare.Chain.Types (LedgerAddress)
 
+type AddressWithKey ∷ Type
 data AddressWithKey = AddressWithKey
   { address ∷ Address
   , key ∷ Shelley PaymentK XPrv

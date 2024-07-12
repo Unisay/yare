@@ -2,6 +2,7 @@
 
 module Yare.Chain.Tx
   ( Tx (..)
+  , toConsensusGenTx
   , byEraByron
   , byEraShelley
   , byEraAllegra
@@ -27,9 +28,10 @@ import Cardano.Api.Shelley (fromMaryValue, lovelaceToValue)
 import Cardano.Api.Shelley qualified as CAS
 import Cardano.Chain.Block (ABlockOrBoundary (..), blockTxPayload)
 import Cardano.Chain.Common (unsafeGetLovelace)
-import Cardano.Chain.UTxO (taTx, unTxPayload)
+import Cardano.Chain.UTxO (unTxPayload)
 import Cardano.Chain.UTxO qualified as Byron
 import Cardano.Crypto.Hash.Class qualified as Crypto
+import Cardano.Crypto.Hashing (serializeCborHash)
 import Cardano.Crypto.Hashing qualified as ByronHashing
 import Cardano.Ledger.Address (decompactAddr)
 import Cardano.Ledger.Allegra.TxBody (AllegraTxBody)
@@ -52,8 +54,10 @@ import Cardano.Ledger.Mary (MaryTxBody)
 import Cardano.Ledger.Shelley (ShelleyTx, ShelleyTxBody, ShelleyTxOut)
 import Cardano.Ledger.Shelley.Core (txIdTxBody)
 import Cardano.Ledger.Shelley.TxOut (addrEitherShelleyTxOutL)
+import Data.SOP.Strict (NS (S, Z))
 import Lens.Micro (folded, to, (^.), (^..))
 import Ouroboros.Consensus.Byron.Ledger (ByronBlock, byronBlockRaw)
+import Ouroboros.Consensus.Byron.Ledger qualified as Consensus
 import Ouroboros.Consensus.Cardano.Block
   ( HardForkBlock
       ( BlockAllegra
@@ -65,6 +69,7 @@ import Ouroboros.Consensus.Cardano.Block
       , BlockShelley
       )
   )
+import Ouroboros.Consensus.HardFork.Combinator qualified as Consensus
 import Ouroboros.Consensus.Shelley.Eras
   ( AllegraEra
   , AlonzoEra
@@ -75,11 +80,12 @@ import Ouroboros.Consensus.Shelley.Eras
   , StandardCrypto
   )
 import Ouroboros.Consensus.Shelley.Ledger.Block (shelleyBlockRaw)
+import Ouroboros.Consensus.Shelley.Ledger.Mempool qualified as CS
 import Yare.Chain.Block (HFBlock)
 import Yare.Chain.Era
-  ( Era (..)
+  ( AnyEra (..)
+  , Era (..)
   , EraFun (..)
-  , IxedByEra (..)
   , NoIdx (..)
   , applyEraFun
   , fanout3EraFun
@@ -89,40 +95,40 @@ import Yare.Chain.Era
 import Yare.Chain.Types (LedgerAddress)
 
 -- Type family that maps an era to the corresponding Tx type.
-type TxForEra ∷ Era → Type
-type family TxForEra era ∷ Type where
-  TxForEra Byron = Byron.Tx
-  TxForEra Shelley = ShelleyTx (ShelleyEra StandardCrypto)
-  TxForEra Allegra = ShelleyTx (AllegraEra StandardCrypto)
-  TxForEra Mary = ShelleyTx (MaryEra StandardCrypto)
-  TxForEra Alonzo = AlonzoTx (AlonzoEra StandardCrypto)
-  TxForEra Babbage = AlonzoTx (BabbageEra StandardCrypto)
-  TxForEra Conway = AlonzoTx (ConwayEra StandardCrypto)
+type TxInEra ∷ Era → Type
+type family TxInEra era ∷ Type where
+  TxInEra Byron = Byron.TxAux
+  TxInEra Shelley = ShelleyTx (ShelleyEra StandardCrypto)
+  TxInEra Allegra = ShelleyTx (AllegraEra StandardCrypto)
+  TxInEra Mary = ShelleyTx (MaryEra StandardCrypto)
+  TxInEra Alonzo = AlonzoTx (AlonzoEra StandardCrypto)
+  TxInEra Babbage = AlonzoTx (BabbageEra StandardCrypto)
+  TxInEra Conway = AlonzoTx (ConwayEra StandardCrypto)
 
--- Newtype wrapper around the TxForEra type family to allow partial application,
+-- Newtype wrapper around the TxInEra type family to allow partial application,
 -- as type families cannot be partially applied.
 type Tx ∷ Era → Type
-newtype Tx era = Tx {unwrapTx ∷ TxForEra era}
+newtype Tx era = Tx {unwrapTx ∷ TxInEra era}
 
-byEraByron ∷ TxForEra Byron → IxedByEra Tx
+byEraByron ∷ TxInEra Byron → AnyEra Tx
 byEraByron = IxedByEraByron . Tx
 
-byEraShelley ∷ TxForEra Shelley → IxedByEra Tx
+byEraShelley ∷ TxInEra Shelley → AnyEra Tx
 byEraShelley = IxedByEraShelley . Tx
 
-byEraAllegra ∷ TxForEra Allegra → IxedByEra Tx
+byEraAllegra ∷ TxInEra Allegra → AnyEra Tx
 byEraAllegra = IxedByEraAllegra . Tx
 
-byEraMary ∷ TxForEra Mary → IxedByEra Tx
+byEraMary ∷ TxInEra Mary → AnyEra Tx
 byEraMary = IxedByEraMary . Tx
 
-byEraAlonzo ∷ TxForEra Alonzo → IxedByEra Tx
+byEraAlonzo ∷ TxInEra Alonzo → AnyEra Tx
 byEraAlonzo = IxedByEraAlonzo . Tx
 
-byEraBabbage ∷ TxForEra Babbage → IxedByEra Tx
+byEraBabbage ∷ TxInEra Babbage → AnyEra Tx
 byEraBabbage = IxedByEraBabbage . Tx
 
-byEraConway ∷ TxForEra Conway → IxedByEra Tx
+byEraConway ∷ TxInEra Conway → AnyEra Tx
 byEraConway = IxedByEraConway . Tx
 
 --------------------------------------------------------------------------------
@@ -130,7 +136,7 @@ byEraConway = IxedByEraConway . Tx
 
 type TxBodyForEra ∷ Era → Type
 type family TxBodyForEra era ∷ Type where
-  TxBodyForEra Byron = Byron.Tx
+  TxBodyForEra Byron = Byron.TxAux
   TxBodyForEra Shelley = ShelleyTxBody (ShelleyEra StandardCrypto)
   TxBodyForEra Allegra = AllegraTxBody (AllegraEra StandardCrypto)
   TxBodyForEra Mary = MaryTxBody (MaryEra StandardCrypto)
@@ -181,7 +187,7 @@ data TxOutViewUtxo = TxOutViewUtxo
   }
   deriving stock (Eq, Show)
 
-transactionViewUtxo ∷ IxedByEra Tx → TxViewUtxo
+transactionViewUtxo ∷ AnyEra Tx → TxViewUtxo
 transactionViewUtxo =
   runIxedByEra . applyEraFun (bodyEraFun >>> txViewUtxoEraFun)
  where
@@ -244,12 +250,12 @@ transactionViewUtxo =
 --------------------------------------------------------------------------------
 -- Functions -------------------------------------------------------------------
 
-blockTransactions ∷ HFBlock → [IxedByEra Tx]
+blockTransactions ∷ HFBlock → [AnyEra Tx]
 blockTransactions = \case
   BlockByron (byronBlock ∷ ByronBlock) →
     case byronBlockRaw byronBlock of
       ABOBBoundary _ → []
-      ABOBBlock b → byEraByron . taTx <$> unTxPayload (blockTxPayload b)
+      ABOBBlock b → byEraByron <$> unTxPayload (blockTxPayload b)
   BlockShelley b →
     byEraShelley <$> toList (fromTxSeq (bbody (shelleyBlockRaw b)))
   BlockAllegra b →
@@ -297,7 +303,10 @@ inputsEraFun =
   EraFun
     { eraFunByron = \(TxBody tx) →
         Compose $
-          tx ^.. to Byron.txInputs . folded . to (NoIdx . CAB.fromByronTxIn)
+          Byron.taTx tx
+            ^.. to Byron.txInputs
+            . folded
+            . to (NoIdx . CAB.fromByronTxIn)
     , eraFunShelley = \(TxBody tx) →
         Compose $
           tx ^.. inputsTxBodyL . folded . to (NoIdx . CAS.fromShelleyTxIn)
@@ -321,14 +330,53 @@ inputsEraFun =
 outputsEraFun ∷ EraFun TxBody (Compose [] TxOut)
 outputsEraFun =
   EraFun
-    { eraFunByron = \(TxBody tx) → Compose $ mkTxOut $ Byron.txOutputs tx
-    , eraFunShelley = \(TxBody tx) → Compose $ mkTxOut $ tx ^. outputsTxBodyL
-    , eraFunAllegra = \(TxBody tx) → Compose $ mkTxOut $ tx ^. outputsTxBodyL
-    , eraFunMary = \(TxBody tx) → Compose $ mkTxOut $ tx ^. outputsTxBodyL
-    , eraFunAlonzo = \(TxBody tx) → Compose $ mkTxOut $ tx ^. outputsTxBodyL
-    , eraFunBabbage = \(TxBody tx) → Compose $ mkTxOut $ tx ^. outputsTxBodyL
-    , eraFunConway = \(TxBody tx) → Compose $ mkTxOut $ tx ^. outputsTxBodyL
+    { eraFunByron = \(TxBody tx) → mkTxOut $ Byron.txOutputs $ Byron.taTx tx
+    , eraFunShelley = \(TxBody tx) → mkTxOut $ tx ^. outputsTxBodyL
+    , eraFunAllegra = \(TxBody tx) → mkTxOut $ tx ^. outputsTxBodyL
+    , eraFunMary = \(TxBody tx) → mkTxOut $ tx ^. outputsTxBodyL
+    , eraFunAlonzo = \(TxBody tx) → mkTxOut $ tx ^. outputsTxBodyL
+    , eraFunBabbage = \(TxBody tx) → mkTxOut $ tx ^. outputsTxBodyL
+    , eraFunConway = \(TxBody tx) → mkTxOut $ tx ^. outputsTxBodyL
     }
  where
-  mkTxOut ∷ Foldable f ⇒ f (TxOutForEra era) → [TxOut era]
-  mkTxOut = zipWith TxOut [CA.TxIx 0 ..] . toList
+  mkTxOut ∷ Foldable f ⇒ f (TxOutForEra era) → Compose [] TxOut era
+  mkTxOut = Compose . zipWith TxOut [CA.TxIx 0 ..] . toList
+
+--------------------------------------------------------------------------------
+-- Consensus conversions -------------------------------------------------------
+
+type ConsensusTx ∷ Type
+type ConsensusTx = Consensus.GenTx HFBlock
+
+toConsensusGenTx ∷ AnyEra Tx → ConsensusTx
+toConsensusGenTx anyEraTx = runIxedByEra (applyEraFun EraFun {..} anyEraTx)
+ where
+  eraFunByron ∷ Tx Byron → NoIdx ConsensusTx x
+  eraFunByron (Tx txAux) = mkGenTx Z genTx
+   where
+    genTx ∷ Consensus.GenTx Consensus.ByronBlock
+    genTx = Consensus.ByronTx txId (Byron.annotateTxAux txAux)
+     where
+      txId ∷ Byron.TxId
+      txId = serializeCborHash (Byron.taTx txAux)
+
+  eraFunShelley ∷ Tx Shelley → NoIdx ConsensusTx x
+  eraFunShelley = mkConsensusTx (S . Z)
+
+  eraFunAllegra ∷ Tx Allegra → NoIdx ConsensusTx x
+  eraFunAllegra = mkConsensusTx (S . S . Z)
+
+  eraFunMary ∷ Tx Mary → NoIdx ConsensusTx x
+  eraFunMary = mkConsensusTx (S . S . S . Z)
+
+  eraFunAlonzo ∷ Tx Alonzo → NoIdx ConsensusTx x
+  eraFunAlonzo = mkConsensusTx (S . S . S . S . Z)
+
+  eraFunBabbage ∷ Tx Babbage → NoIdx ConsensusTx x
+  eraFunBabbage = mkConsensusTx (S . S . S . S . S . Z)
+
+  eraFunConway ∷ Tx Conway → NoIdx ConsensusTx x
+  eraFunConway = mkConsensusTx (S . S . S . S . S . S . Z)
+
+  mkGenTx n = NoIdx . Consensus.HardForkGenTx . Consensus.OneEraGenTx . n
+  mkConsensusTx n = mkGenTx n . CS.mkShelleyTx . unwrapTx

@@ -3,7 +3,7 @@ module Yare.Chain.Era
   , NoIdx (..)
 
     -- * Functors, indexed by Era
-  , IxedByEra (..)
+  , AnyEra (..)
   , runIxedByEra
   , EraFun (..)
   , applyEraFun
@@ -20,20 +20,20 @@ import Relude hiding (id, (.))
 type Era ∷ Type
 data Era = Byron | Shelley | Allegra | Mary | Alonzo | Babbage | Conway
 
-type IxedByEra ∷ (Era → Type) → Type
-data IxedByEra (f ∷ Era → Type) where
-  IxedByEraByron ∷ f Byron → IxedByEra f
-  IxedByEraShelley ∷ f Shelley → IxedByEra f
-  IxedByEraAllegra ∷ f Allegra → IxedByEra f
-  IxedByEraMary ∷ f Mary → IxedByEra f
-  IxedByEraAlonzo ∷ f Alonzo → IxedByEra f
-  IxedByEraBabbage ∷ f Babbage → IxedByEra f
-  IxedByEraConway ∷ f Conway → IxedByEra f
+type AnyEra ∷ (Era → Type) → Type
+data AnyEra (f ∷ Era → Type) where
+  IxedByEraByron ∷ f Byron → AnyEra f
+  IxedByEraShelley ∷ f Shelley → AnyEra f
+  IxedByEraAllegra ∷ f Allegra → AnyEra f
+  IxedByEraMary ∷ f Mary → AnyEra f
+  IxedByEraAlonzo ∷ f Alonzo → AnyEra f
+  IxedByEraBabbage ∷ f Babbage → AnyEra f
+  IxedByEraConway ∷ f Conway → AnyEra f
 
 type NoIdx ∷ ∀ k. Type → k → Type
 newtype NoIdx f e = NoIdx {unwrapNoIdx ∷ f}
 
-runIxedByEra ∷ IxedByEra (NoIdx f) → f
+runIxedByEra ∷ AnyEra (NoIdx f) → f
 runIxedByEra = \case
   IxedByEraByron (NoIdx f) → f
   IxedByEraShelley (NoIdx f) → f
@@ -175,7 +175,7 @@ fanout3EraFun fg fh fk ap =
           (eraFunConway fk f)
     }
 
-applyEraFun ∷ ∀ (f ∷ Era → Type) g. EraFun f g → IxedByEra f → IxedByEra g
+applyEraFun ∷ ∀ (f ∷ Era → Type) g. EraFun f g → AnyEra f → AnyEra g
 applyEraFun EraFun {..} = \case
   IxedByEraByron b → IxedByEraByron (eraFunByron b)
   IxedByEraShelley b → IxedByEraShelley (eraFunShelley b)

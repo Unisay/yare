@@ -30,6 +30,7 @@ import Yare.Address
 import Yare.Chain.Types (LedgerAddress)
 import Yare.Mnemonic (mnemonicFromFile)
 
+type Addresses ∷ Type
 data Addresses = Addresses
   { paymentAddresses ∷ Set LedgerAddress
   , paymentCredentials ∷ Set (PaymentCredential StandardCrypto)
@@ -89,5 +90,6 @@ networkMagicToTag =
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------
 
+type Error ∷ Type
 newtype Error = NetworkMagicNoTag Word32
   deriving stock (Eq, Show)

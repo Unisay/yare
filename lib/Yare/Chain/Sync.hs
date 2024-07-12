@@ -1,4 +1,4 @@
-module Yare.Chain.Sync (chainSyncClient) where
+module Yare.Chain.Sync (client) where
 
 import Relude
 
@@ -23,14 +23,14 @@ import Yare.Chain.Block (HFBlock)
 import Yare.Chain.Follower (ChainFollower (..))
 import Yare.Chain.Types (ChainPoint, ChainTip)
 
-chainSyncClient
+client
   ∷ ∀ m
    . MonadIO m
   ⇒ ChainFollower m
   → [ChainPoint]
   -- ^ known chain points
   → ChainSyncClient HFBlock ChainPoint ChainTip m ()
-chainSyncClient chainFollower knownChainPoints = ChainSyncClient do
+client chainFollower knownChainPoints = ChainSyncClient do
   pure $
     findIntersect
       if null knownChainPoints

@@ -52,6 +52,7 @@ common opts
     -Weverything -Wno-unused-packages -Wno-unsafe -Wno-safe
     -Wno-unticked-promoted-constructors -Wno-missing-safe-haskell-mode
     -Wno-missing-import-lists -fprint-explicit-foralls
+    -Werror=missing-fields
 
   build-depends:
     , base    ^>=4.18
@@ -86,6 +87,7 @@ library
     , cborg                          ^>=0.2.10
     , contra-tracer                  ^>=0.1.0.2
     , generics-sop                   ^>=0.5.1.4
+    , int-cast                       ^>=0.2
     , io-classes                     ^>=1.5
     , microlens                      ^>=0.4.13.1
     , mmorph                         ^>=1.2
@@ -102,6 +104,8 @@ library
     , pretty-simple                  ^>=4.1.2
     , servant                        ^>=0.20.1
     , servant-server                 ^>=0.20
+    , stm                            ^>=2.5.1
+    , strict-sop-core                ^>=0.1.1
     , string-interpolate             ^>=0.3.3
     , text-ansi                      ^>=0.3.0.1
     , wai                            ^>=3.2.4
@@ -113,6 +117,8 @@ library
   exposed-modules:
     Yare.Address
     Yare.Addresses
+    Yare.App
+    Yare.App.Types
     Yare.Chain.Block
     Yare.Chain.Era
     Yare.Chain.Follower
@@ -120,15 +126,13 @@ library
     Yare.Chain.Sync
     Yare.Chain.Tx
     Yare.Chain.Types
-    Yare.Client
     Yare.Http.Server
     Yare.Http.Types
-    Yare.LSQ
     Yare.Mnemonic
-    Yare.Node.Clients
-    Yare.Node.Interface
     Yare.Node.Socket
+    Yare.Query
     Yare.Storage
+    Yare.Submitter
     Yare.Utxo
     Yare.Utxo.State
 

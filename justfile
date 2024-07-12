@@ -15,7 +15,7 @@ dev-run:
 
 run:
   cabal run yare -- \
-    --node-socket $CARDANO_NODE_SOCKET_PATH \
-    --network-magic 1 \
+    --node-socket /home/yura/projects/cardano/node/node-state/preview/node.sock \
+    --network-magic 2 \
     --mnemonic-file test/data/mnemonic24.txt \
     --sync-from-chain-point 'b0b33e2980f01dcee60c8884ee46a3a601b945055eadd1f01ba1c24c8f9e7fc5:41683132'

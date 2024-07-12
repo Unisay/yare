@@ -5,33 +5,31 @@ module Yare.Http.Server
 
 import Relude
 
-import Data.Map.Strict qualified as Map
 import Network.Wai qualified as Wai
 import Servant qualified
-import Servant.API (Get, JSON, type (:<|>) (..), type (:>))
-import Yare.Chain.Follower (ChainState, chainTip, utxoState)
+import Servant.API (Get, JSON, Post, type (:<|>) (..), type (:>))
+import Yare.App.Types qualified as App
 import Yare.Http.Types qualified as Http
-import Yare.Storage (Storage (readState))
-import Yare.Utxo qualified as Utxo
-import Yare.Utxo.State (spendableUtxoEntries)
 
-application ∷ Storage IO ChainState → Wai.Application
-application = Servant.serve (Proxy @YareApi) . server
- where
-  server storage = serveUtxo storage :<|> serveTip storage
+application ∷ App.Services → Wai.Application
+application services = Servant.serve (Proxy @YareApi) do
+  endpointUtxo services
+    :<|> endpointChainTip services
+    :<|> endpointDeployScript services
 
 type YareApi ∷ Type
 type YareApi =
   "api"
     :> ( "utxo" :> Get '[JSON] Http.Utxo
           :<|> "tip" :> Get '[JSON] Http.ChainTip
+          :<|> "deploy" :> Post '[JSON] ()
        )
 
-serveUtxo ∷ Storage IO ChainState → Servant.Handler Http.Utxo
-serveUtxo storage = do
-  s ← liftIO $ readState storage
-  let utxo = Utxo.fromList (Map.toList (spendableUtxoEntries (utxoState s)))
-  pure $ Http.Utxo utxo
+endpointUtxo ∷ App.Services → Servant.Handler Http.Utxo
+endpointUtxo services = liftIO $ Http.Utxo <$> App.serveUtxo services
 
-serveTip ∷ Storage IO ChainState → Servant.Handler Http.ChainTip
-serveTip storage = Http.ChainTip . chainTip <$> liftIO (readState storage)
+endpointChainTip ∷ App.Services → Servant.Handler Http.ChainTip
+endpointChainTip services = liftIO $ Http.ChainTip <$> App.serveTip services
+
+endpointDeployScript ∷ App.Services → Servant.Handler ()
+endpointDeployScript = liftIO . App.deployScript
