@@ -5,7 +5,7 @@ import Relude hiding (atomically)
 
 import Cardano.Api (NetworkMagic)
 import Cardano.Chain.Slotting (EpochSlots (..))
-import Cardano.Client.Subscription (WithMuxBearer, subscribe)
+import Cardano.Client.Subscription (MuxMode (..), WithMuxBearer, subscribe)
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Mnemonic (MkMnemonicError)
 import Codec.CBOR.Term qualified as CBOR
@@ -63,9 +63,13 @@ import Ouroboros.Network.NodeToClient
   )
 import Ouroboros.Network.Protocol.ChainSync.Client (chainSyncClientPeer)
 import Ouroboros.Network.Protocol.ChainSync.Type (ChainSync)
-import Ouroboros.Network.Protocol.LocalStateQuery.Client qualified as Query
+import Ouroboros.Network.Protocol.LocalStateQuery.Client
+  ( localStateQueryClientPeer
+  )
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (LocalStateQuery)
-import Ouroboros.Network.Protocol.LocalTxSubmission.Client (localTxSubmissionClientPeer)
+import Ouroboros.Network.Protocol.LocalTxSubmission.Client
+  ( localTxSubmissionClientPeer
+  )
 import String.ANSI (blackBg, faint)
 import Text.Pretty.Simple (pPrint)
 import Yare.Addresses (Error (..))
@@ -105,16 +109,19 @@ Starts several threads concurrently:
 start ∷ App.Config → IO ()
 start App.Config {..} = withHandledErrors do
   addresses ← Addresses.deriveFromMnemonic networkMagic mnemonicFile
-  localStateQueryQ ← liftIO newTQueueIO
-  localTxSubmissionQ ← liftIO newTQueueIO
+  queryQ ← liftIO newTQueueIO
+  txSubmissionQ ← liftIO newTQueueIO
   storage ← Storage.inMemory <$> newIORef initialChainState
   let chainFollower = newChainFollower addresses storage
-  liftIO . runConcurrently $
-    foldMap
+  liftIO
+    . runConcurrently
+    $ foldMap
       Concurrently
-      [ runLocalStateQueries localStateQueryQ
-      , Warp.run (intCast apiHttpPort) . simpleCors . Http.application $
-          App.Services
+      [ runLocalStateQueries queryQ
+      , Warp.run (intCast apiHttpPort)
+          . simpleCors
+          . Http.application
+          $ App.Services
             { serveUtxo = serveUtxo storage
             , serveTip = serveTip storage
             , deployScript = deployScript storage
@@ -124,8 +131,8 @@ start App.Config {..} = withHandledErrors do
           networkMagic
           chainFollower
           syncFrom
-          localStateQueryQ
-          localTxSubmissionQ
+          queryQ
+          txSubmissionQ
           <&> absurd
       ]
 
@@ -135,8 +142,9 @@ Each queue item contains a query to run as well as a continuation
 that is called with the result of the query.
 -}
 runLocalStateQueries ∷ TQueue IO (QueryCont IO) → IO ()
-runLocalStateQueries localStateQueryQ = atomically . writeTQueue localStateQueryQ $
-  QueryCont (hoist handleQueryErrors queryLedgerTip) \case
+runLocalStateQueries queryQ = atomically
+  . writeTQueue queryQ
+  $ QueryCont (hoist handleQueryErrors queryLedgerTip) \case
     Left failure →
       crash $ "Local state query failed to acquire state: " <> show failure
     Right ns → case ns of
@@ -177,8 +185,8 @@ stayConnectedToNode
   netMagic
   chainFollower
   syncFrom
-  localStateQueryQ
-  localTxSubmissionQ =
+  queryQ
+  txSubmissionQ =
     withIOManager \ioManager →
       subscribe
         (localSnocket ioManager)
@@ -196,69 +204,20 @@ stayConnectedToNode
           , cspErrorPolicies =
               networkErrorPolicies <> consensusErrorPolicy (Proxy @HFBlock)
           }
-        \(nodeToClientVer ∷ NodeToClientVersion)
-         (blockVer ∷ BlockNodeToClientVersion (CardanoBlock StandardCrypto)) →
-            let
-              Codecs
-                { cChainSyncCodec
-                , cTxSubmissionCodec
-                , cStateQueryCodec
-                , cTxMonitorCodec
-                } = clientCodecs codecConfig blockVer nodeToClientVer
-              chainSyncClient = ChainSync.client chainFollower (maybeToList syncFrom)
-              localTxSubmissionClient = Submitter.client localTxSubmissionQ
-              localStateQueryClient = Query.client localStateQueryQ
-             in
-              NodeToClientProtocols
-                { localChainSyncProtocol =
-                    InitiatorProtocolOnly $
-                      mkMiniProtocolCbFromPeer \_context →
-                        ( lcsTracer
-                        , cChainSyncCodec
-                        , chainSyncClientPeer chainSyncClient
-                        )
-                , localTxSubmissionProtocol =
-                    InitiatorProtocolOnly $
-                      mkMiniProtocolCbFromPeer \_context →
-                        ( nullTracer
-                        , cTxSubmissionCodec
-                        , localTxSubmissionClientPeer localTxSubmissionClient
-                        )
-                , localStateQueryProtocol =
-                    InitiatorProtocolOnly $
-                      mkMiniProtocolCbFromPeer \_context →
-                        ( lsqTracer
-                        , cStateQueryCodec
-                        , Query.localStateQueryClientPeer localStateQueryClient
-                        )
-                , localTxMonitorProtocol =
-                    InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-                      ( nullTracer
-                      , cTxMonitorCodec
-                      , localTxMonitorPeerNull
-                      )
-                }
+        ( makeNodeToClientProtocols
+            chainFollower
+            syncFrom
+            queryQ
+            txSubmissionQ
+        )
    where
-    codecConfig ∷ CodecConfig HFBlock =
-      let byronEpochSlots = EpochSlots 21600
-       in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)
-
-    lcsTracer ∷ Tracer IO (TraceSendRecv (ChainSync HFBlock (Point HFBlock) (Tip HFBlock))) =
-      nullTracer -- showTracer "LCS"
-    lsqTracer
-      ∷ Tracer
-          IO
-          (TraceSendRecv (LocalStateQuery HFBlock (Point HFBlock) (Query HFBlock))) =
-        showTracer "Query"
-
     handshakeTracer
       ∷ Tracer
           IO
           ( WithMuxBearer
               (ConnectionId LocalAddress)
               (TraceSendRecv (Handshake NodeToClientVersion CBOR.Term))
-          )
-    handshakeTracer = showTracer "HS_"
+          ) = showTracer "HS_"
 
     errorPolicyTracer ∷ Tracer IO (WithAddr LocalAddress ErrorPolicyTrace) =
       showTracer "Err"
@@ -266,9 +225,90 @@ stayConnectedToNode
     subscriptionTracer ∷ Tracer IO (Identity (SubscriptionTrace LocalAddress)) =
       runIdentity >$< showTracer "SUB"
 
-    showTracer ∷ Show a ⇒ String → Tracer IO a
-    showTracer prefix =
-      faint . ((blackBg (" " <> prefix <> " ") <> " ") <>) . show >$< debugTracer
+makeNodeToClientProtocols
+  ∷ ∀ {ntcAddr}
+   . ChainFollower IO
+  → Maybe ChainPoint
+  → TQueue IO (QueryCont IO)
+  → TQueue IO (TxSubmitCont IO)
+  → NodeToClientVersion
+  → BlockNodeToClientVersion (CardanoBlock StandardCrypto)
+  → NodeToClientProtocols InitiatorMode ntcAddr LByteString IO () Void
+makeNodeToClientProtocols
+  chainFollower
+  syncFrom
+  queryQ
+  submitQ
+  n2cVer
+  blockVer =
+    NodeToClientProtocols
+      { localChainSyncProtocol =
+          InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+            ( chainSyncTracer
+            , cChainSyncCodec
+            , chainSyncClientPeer
+                $ ChainSync.client chainFollower (maybeToList syncFrom)
+            )
+      , localTxSubmissionProtocol =
+          InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+            ( nullTracer
+            , cTxSubmissionCodec
+            , localTxSubmissionClientPeer $ Submitter.client submitQ
+            )
+      , localStateQueryProtocol =
+          InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+            ( lsqTracer
+            , cStateQueryCodec
+            , localStateQueryClientPeer $ Query.client queryQ
+            )
+      , localTxMonitorProtocol =
+          InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+            ( nullTracer
+            , cTxMonitorCodec
+            , localTxMonitorPeerNull
+            )
+      }
+   where
+    Codecs
+      { cChainSyncCodec
+      , cTxSubmissionCodec
+      , cStateQueryCodec
+      , cTxMonitorCodec
+      } = clientCodecs codecConfig blockVer n2cVer
+
+    codecConfig ∷ CodecConfig HFBlock =
+      let byronEpochSlots = EpochSlots 21600
+       in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)
+
+    chainSyncTracer
+      ∷ Tracer
+          IO
+          ( TraceSendRecv
+              ( ChainSync
+                  HFBlock
+                  (Point HFBlock)
+                  (Tip HFBlock)
+              )
+          ) = nullTracer
+
+    lsqTracer
+      ∷ Tracer
+          IO
+          ( TraceSendRecv
+              ( LocalStateQuery
+                  HFBlock
+                  (Point HFBlock)
+                  (Query HFBlock)
+              )
+          ) =
+        showTracer "Query"
+
+--------------------------------------------------------------------------------
+-- Tracing ---------------------------------------------------------------------
+
+showTracer ∷ Show a ⇒ String → Tracer IO a
+showTracer prefix =
+  faint . ((blackBg (" " <> prefix <> " ") <> " ") <>) . show >$< debugTracer
 
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------
@@ -288,7 +328,8 @@ withHandledErrors =
 crashOnAddressesError
   ∷ ExceptT (Variant (Addresses.Error : e)) IO a
   → ExceptT (Variant e) IO a
-crashOnAddressesError = Oops.catch \(NetworkMagicNoTag magic) → crash $ "Failed to determine a network tag for magic: " <> show magic
+crashOnAddressesError = Oops.catch \(NetworkMagicNoTag magic) →
+  crash $ "Failed to determine a network tag for magic: " <> show magic
 
 crashOnMnemonicError
   ∷ ExceptT (Variant (MkMnemonicError 8 : e)) IO a

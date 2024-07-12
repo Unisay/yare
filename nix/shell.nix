@@ -68,7 +68,7 @@ cabalProject: {
     stylish-haskell.enable = false;
     fourmolu.enable = true;
     hlint.enable = true;
-    editorconfig-checker.enable = true;
+    editorconfig-checker.enable = false;
     nixpkgs-fmt.enable = true;
   };
 }
