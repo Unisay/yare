@@ -47,9 +47,8 @@ client chainFollower knownChainPoints = ChainSyncClient do
             pPrint tip
             sleepSeconds 3
             pure $ findIntersect knownPoints
-        , recvMsgIntersectFound = \point tip → ChainSyncClient do
-            pPrint point
-            pPrint tip
+        , recvMsgIntersectFound = \point _tip → ChainSyncClient do
+            putTextLn $ "Intersection found: " <> show point
             pure requestNext
         }
 

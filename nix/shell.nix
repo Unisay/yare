@@ -21,14 +21,14 @@ cabalProject: {
     build = {
       description = "Build all packages in the project";
       group = "development";
-      exec = ''cabal build all '';
+      exec = ''cabal build all'';
     };
 
     watch = {
       description = "Watch for changes and build";
       group = "development";
       exec = ''
-        watchman-make -p '**/*.hs' '**/*.cabal' -r 'clear; just build &'
+        watchman-make -p '**/*.hs' '**/*.cabal' -r 'clear; build &'
       '';
     };
 
@@ -36,8 +36,8 @@ cabalProject: {
       description = "Run the project and watch for changes";
       group = "development";
       exec = ''
-        just run & watchman-make -p '**/*.hs' '**/*.cabal' \
-          -r 'clear; killall -q -s HUP yare cabal; just run &'
+        run & watchman-make -p '**/*.hs' '**/*.cabal' \
+          -r 'clear; killall -q -s HUP yare cabal; run &'
         wait
       '';
     };
@@ -47,8 +47,8 @@ cabalProject: {
       group = "development";
       exec = ''
         cabal run yare -- \
-          --node-socket /home/yura/projects/cardano/node/node-state/preview/node.sock \
-          --network-magic 2 \
+          --node-socket $CARDANO_NODE_SOCKET_PATH \
+          --network-magic $TESTNET_MAGIC \
           --mnemonic-file test/data/mnemonic24.txt \
           --sync-from-chain-point 'b0b33e2980f01dcee60c8884ee46a3a601b945055eadd1f01ba1c24c8f9e7fc5:41683132'
       '';

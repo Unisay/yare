@@ -113,28 +113,23 @@ start App.Config {..} = withHandledErrors do
   txSubmissionQ ← liftIO newTQueueIO
   storage ← Storage.inMemory <$> newIORef initialChainState
   let chainFollower = newChainFollower addresses storage
-  liftIO
-    . runConcurrently
-    $ foldMap
-      Concurrently
-      [ runLocalStateQueries queryQ
-      , Warp.run (intCast apiHttpPort)
-          . simpleCors
-          . Http.application
-          $ App.Services
-            { serveUtxo = serveUtxo storage
-            , serveTip = serveTip storage
-            , deployScript = deployScript storage
-            }
-      , stayConnectedToNode
-          nodeSocket
-          networkMagic
-          chainFollower
-          syncFrom
-          queryQ
-          txSubmissionQ
-          <&> absurd
-      ]
+  liftIO . runConcurrently . foldMap Concurrently $
+    [ runLocalStateQueries queryQ
+    , Warp.run (intCast apiHttpPort) . simpleCors . Http.application $
+        App.Services
+          { serveUtxo = serveUtxo storage
+          , serveTip = serveTip storage
+          , deployScript = deployScript storage
+          }
+    , stayConnectedToNode
+        nodeSocket
+        networkMagic
+        chainFollower
+        syncFrom
+        queryQ
+        txSubmissionQ
+        <&> absurd
+    ]
 
 {- | Run local state queries.that are provided by a queue.
 
@@ -246,8 +241,8 @@ makeNodeToClientProtocols
           InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
             ( chainSyncTracer
             , cChainSyncCodec
-            , chainSyncClientPeer
-                $ ChainSync.client chainFollower (maybeToList syncFrom)
+            , chainSyncClientPeer $
+                ChainSync.client chainFollower (maybeToList syncFrom)
             )
       , localTxSubmissionProtocol =
           InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →

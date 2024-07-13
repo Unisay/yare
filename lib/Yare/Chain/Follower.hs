@@ -47,15 +47,15 @@ initialChainState =
     }
 
 indexBlock ∷ Addresses → HFBlock → ChainTip → ChainState → ChainState
-indexBlock addresses block tip s =
+indexBlock addresses block tip ChainState {utxoState} =
   ChainState
-    { utxoState = UtxoState.indexBlock addresses block (utxoState s)
+    { utxoState = UtxoState.indexBlock addresses block utxoState
     , chainTip = tip
     }
 
 rollbackTo ∷ ChainPoint → ChainTip → ChainState → ChainState
-rollbackTo point tip s =
+rollbackTo point tip ChainState {utxoState} =
   ChainState
-    { utxoState = UtxoState.rollbackTo point (utxoState s)
+    { utxoState = UtxoState.rollbackTo point utxoState
     , chainTip = tip
     }
