@@ -53,22 +53,24 @@ cabalProject: {
           --sync-from-chain-point 'b0b33e2980f01dcee60c8884ee46a3a601b945055eadd1f01ba1c24c8f9e7fc5:41683132'
       '';
     };
+
+    hooks = {
+      description = "Run all git hooks";
+      group = "development";
+      exec = "pre-commit run --all-files";
+    };
   };
 
   # env = {
   #   KEY = "VALUE";
   # };
 
-  shellHook = ''
-    figlet "Yare"
-  '';
+  shellHook = ''figlet "Yare"'';
 
+  # https://devenv.sh/?q=pre-commit.hooks
   preCommit = {
-    cabal-fmt.enable = true;
-    stylish-haskell.enable = false;
-    fourmolu.enable = true;
     hlint.enable = true;
-    editorconfig-checker.enable = false;
+    cabal-fmt.enable = true;
     nixpkgs-fmt.enable = true;
   };
 }
