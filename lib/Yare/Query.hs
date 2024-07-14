@@ -1,11 +1,15 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Yare.Query
-  ( LsqM
+  ( Q
+  , LsqM
   , QueryCont (..)
+  , queryHistoryInterpreter
   , queryCurrentEra
   , queryLedgerTip
+  , querySystemStart
   , client
+  , submit
 
     -- * Errors
   , UnknownEraIndex (..)
@@ -14,19 +18,21 @@ module Yare.Query
 
 import Relude hiding (atomically, show)
 
-import Control.Concurrent.Class.MonadSTM.TQueue (TQueue, readTQueue)
-import Control.Monad (ap, liftM)
+import Cardano.Ledger.Api (PParams)
+import Cardano.Slotting.Time (SystemStart)
+import Control.Concurrent.Class.MonadSTM.TQueue (TQueue, readTQueue, writeTQueue)
+import Control.Monad (ap, liftM, liftM2)
 import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
 import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Morph (MFunctor (..), hoist)
 import Control.Monad.Oops (CouldBe, Variant)
 import Control.Monad.Oops qualified as Oops
+import Control.Monad.Zip (MonadZip (..))
 import Ouroboros.Consensus.Cardano.Block
   ( BlockQuery (..)
   , CardanoQueryResult
   , Either (..)
   , EraMismatch (..)
-  , HardForkBlock
   , StandardCrypto
   )
 import Ouroboros.Consensus.HardFork.Combinator.Abstract
@@ -34,30 +40,55 @@ import Ouroboros.Consensus.HardFork.Combinator.Abstract
   , eraIndexToInt
   )
 import Ouroboros.Consensus.HardFork.Combinator.Ledger.Query
-  ( QueryHardFork (GetCurrentEra)
+  ( BlockQuery (QueryAnytime, QueryHardFork, QueryIfCurrent)
+  , QueryAnytime (..)
+  , QueryHardFork (..)
+  , QueryIfCurrent (..)
   )
+import Ouroboros.Consensus.HardFork.History qualified as History
 import Ouroboros.Consensus.Ledger.Query (Query (..))
+import Ouroboros.Consensus.Shelley.Ledger.Query (BlockQuery (GetCurrentPParams))
 import Ouroboros.Consensus.Shelley.Ledger.Query qualified as Shelley
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Network.Block (Point)
 import Ouroboros.Network.Protocol.LocalStateQuery.Client qualified as Query
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
 import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as Query
 import Text.Show (show)
 import Yare.Chain.Block (Blocks, HFBlock, IxedByBlock (..))
 import Yare.Chain.Era (Era (..))
+import Ouroboros.Consensus.Ledger.Query qualified as Consensus
+
+type Q ∷ Type
+type Q = TQueue IO (QueryCont IO)
+
+type QueryCont ∷ (Type → Type) → Type
+data QueryCont m = ∀ r. QueryCont (LsqM m r) (Either AcquireFailure r → m ())
 
 client
-  ∷ ∀ m a
-   . MonadSTM m
-  ⇒ TQueue m (QueryCont m)
-  → Query.LocalStateQueryClient HFBlock (Point HFBlock) (Query HFBlock) m a
+  ∷ Q → Query.LocalStateQueryClient HFBlock (Point HFBlock) (Query HFBlock) IO a
 client queryQ = Query.LocalStateQueryClient idleState
  where
-  idleState ∷ m (Query.ClientStIdle HFBlock (Point HFBlock) (Query HFBlock) m a)
+  idleState
+    ∷ IO
+        ( Query.ClientStIdle
+            HFBlock
+            (Point HFBlock)
+            (Query HFBlock)
+            IO
+            a
+        )
   idleState = Query.SendMsgAcquire Query.VolatileTip <$> acquiringState
 
   acquiringState
-    ∷ m (Query.ClientStAcquiring HFBlock (Point HFBlock) (Query HFBlock) m a)
+    ∷ IO
+        ( Query.ClientStAcquiring
+            HFBlock
+            (Point HFBlock)
+            (Query HFBlock)
+            IO
+            a
+        )
   acquiringState =
     atomically (readTQueue queryQ) <&> \(QueryCont lsq k) →
       Query.ClientStAcquiring
@@ -66,16 +97,39 @@ client queryQ = Query.LocalStateQueryClient idleState
         }
 
   acquiredState
-    ∷ LsqM m r
-    → (r → m ())
-    → m (Query.ClientStAcquired HFBlock (Point HFBlock) (Query HFBlock) m a)
+    ∷ LsqM IO r
+    → (r → IO ())
+    → IO
+        ( Query.ClientStAcquired
+            HFBlock
+            (Point HFBlock)
+            (Query HFBlock)
+            IO
+            a
+        )
   acquiredState lsq respond =
     evalLsq lsq \r → pure (Query.SendMsgRelease (respond r *> idleState))
 
   evalLsq
-    ∷ LsqM m r
-    → (r → m (Query.ClientStAcquired HFBlock (Point HFBlock) (Query HFBlock) m a))
-    → m (Query.ClientStAcquired HFBlock (Point HFBlock) (Query HFBlock) m a)
+    ∷ LsqM IO r
+    → ( r
+        → IO
+            ( Query.ClientStAcquired
+                HFBlock
+                (Point HFBlock)
+                (Query HFBlock)
+                IO
+                a
+            )
+      )
+    → IO
+        ( Query.ClientStAcquired
+            HFBlock
+            (Point HFBlock)
+            (Query HFBlock)
+            IO
+            a
+        )
   evalLsq lsq k =
     case lsq of
       LsqLift r → k =<< r
@@ -83,9 +137,10 @@ client queryQ = Query.LocalStateQueryClient idleState
       LsqQuery q → pure do
         Query.SendMsgQuery q Query.ClientStQuerying {recvMsgResult = k}
 
+-- | Local State Query Monad allows composing local state queries
 type LsqM ∷ (Type → Type) → Type → Type
 data LsqM m a
-  = LsqQuery (Query (HardForkBlock Blocks) a)
+  = LsqQuery (Consensus.Query HFBlock a)
   | LsqLift (m a)
   | ∀ r. LsqBind (LsqM m r) (r → LsqM m a)
 
@@ -112,6 +167,24 @@ instance MFunctor LsqM where
     LsqLift m → LsqLift (f m)
     LsqBind l k → LsqBind (hoist f l) (hoist f . k)
 
+instance Monad m ⇒ MonadZip (LsqM m) where
+  mzip = liftM2 (,)
+
+--------------------------------------------------------------------------------
+-- Queries ---------------------------------------------------------------------
+
+querySystemStart ∷ LsqM m SystemStart
+querySystemStart = LsqQuery GetSystemStart
+
+queryHistoryInterpreter ∷ LsqM m (History.Interpreter Blocks)
+queryHistoryInterpreter = LsqQuery (BlockQuery (QueryHardFork GetInterpreter))
+
+queryCurrentEraIndex ∷ LsqM m (EraIndex Blocks)
+queryCurrentEraIndex = LsqQuery (BlockQuery (QueryHardFork GetCurrentEra))
+
+queryCurrentPParams ∷ Monad m ⇒ LsqM m (PParams era)
+queryCurrentPParams = undefined
+
 queryCurrentEra
   ∷ (MonadError (Variant e) m, e `CouldBe` UnknownEraIndex)
   ⇒ LsqM m Era
@@ -126,10 +199,6 @@ queryCurrentEra =
       5 → pure Babbage
       6 → pure Conway
       _ → lift $ Oops.throw (UnknownEraIndex idx)
-
-type QueryCont ∷ (Type → Type) → Type
-data QueryCont m
-  = ∀ r. QueryCont (LsqM m r) (Either Query.AcquireFailure r → m ())
 
 queryLedgerTip
   ∷ ∀ m e
@@ -161,6 +230,18 @@ queryLedgerTip =
     LsqQuery (BlockQuery q) >>= \case
       QueryResultEraMismatch eraMismatch → lift $ Oops.throw eraMismatch
       QueryResultSuccess res → pure res
+
+--------------------------------------------------------------------------------
+-- Submission ------------------------------------------------------------------
+
+submit ∷ Q → LsqM IO a → IO (Either AcquireFailure a)
+submit queryQ lsq = do
+  var ← newEmptyMVar
+  atomically . writeTQueue queryQ $
+    QueryCont lsq \case
+      Left acquireFailure → putMVar var (Left acquireFailure)
+      Right result → putMVar var (Right result)
+  takeMVar var
 
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------

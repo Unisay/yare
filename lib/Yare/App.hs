@@ -3,100 +3,67 @@ module Yare.App (start) where
 
 import Relude hiding (atomically)
 
-import Cardano.Api (NetworkMagic)
-import Cardano.Chain.Slotting (EpochSlots (..))
-import Cardano.Client.Subscription (MuxMode (..), WithMuxBearer, subscribe)
+import Cardano.Api.Ledger (KeyRole (DRepRole))
+import Cardano.Api.Shelley
+  ( LedgerEpochInfo
+  , PoolId
+  , StakeCredential
+  , SystemStart
+  )
+import Cardano.Api.Shelley qualified as Api
+import Cardano.Client.Subscription (subscribe)
+import Cardano.Ledger.Coin qualified as L
+import Cardano.Ledger.Credential (Credential)
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Mnemonic (MkMnemonicError)
-import Codec.CBOR.Term qualified as CBOR
-import Control.Concurrent.Class.MonadSTM.TQueue
-  ( TQueue
-  , newTQueueIO
-  , writeTQueue
-  )
+import Control.Concurrent.Class.MonadSTM.TQueue (newTQueueIO)
 import Control.Exception (throwIO)
-import Control.Monad.Class.MonadAsync (Concurrently (..))
-import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
-import Control.Monad.Morph (MFunctor (hoist))
+import Control.Monad.Class.MonadAsync (concurrently_)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
-import Control.Tracer (Tracer, debugTracer, nullTracer)
-import Data.IntCast (intCast)
+import Control.Monad.Zip (MonadZip (..))
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
+import Data.Variant qualified as Variant
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
-import Ouroboros.Consensus.Block.Abstract (CodecConfig, Point)
-import Ouroboros.Consensus.Cardano.Block (CardanoBlock, EraMismatch)
-import Ouroboros.Consensus.Cardano.Node (protocolClientInfoCardano)
-import Ouroboros.Consensus.Ledger.Query (Query)
-import Ouroboros.Consensus.Network.NodeToClient
-  ( Codecs' (..)
-  , cTxSubmissionCodec
-  , clientCodecs
-  )
+import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
 import Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy)
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
-  ( HasNetworkProtocolVersion (..)
-  , supportedNodeToClientVersions
+  ( supportedNodeToClientVersions
   )
-import Ouroboros.Consensus.Node.ProtocolInfo (pClientInfoCodecConfig)
-import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
-import Ouroboros.Network.Block (Tip)
-import Ouroboros.Network.Mux (RunMiniProtocol (..), mkMiniProtocolCbFromPeer)
 import Ouroboros.Network.NodeToClient
   ( ClientSubscriptionParams (..)
-  , ConnectionId
-  , ErrorPolicyTrace
-  , Handshake
-  , LocalAddress
   , NetworkSubscriptionTracers (..)
-  , NodeToClientProtocols (..)
-  , NodeToClientVersion
-  , SubscriptionTrace
-  , TraceSendRecv
-  , WithAddr
   , localSnocket
-  , localTxMonitorPeerNull
   , networkErrorPolicies
   , withIOManager
   )
-import Ouroboros.Network.Protocol.ChainSync.Client (chainSyncClientPeer)
-import Ouroboros.Network.Protocol.ChainSync.Type (ChainSync)
-import Ouroboros.Network.Protocol.LocalStateQuery.Client
-  ( localStateQueryClientPeer
-  )
-import Ouroboros.Network.Protocol.LocalStateQuery.Type (LocalStateQuery)
-import Ouroboros.Network.Protocol.LocalTxSubmission.Client
-  ( localTxSubmissionClientPeer
-  )
-import String.ANSI (blackBg, faint)
-import Text.Pretty.Simple (pPrint)
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
 import Yare.Addresses (Error (..))
 import Yare.Addresses qualified as Addresses
+import Yare.App.Types (Config (apiHttpPort))
 import Yare.App.Types qualified as App
-import Yare.Chain.Block (HFBlock, IxedByBlock (..))
+import Yare.Chain.Block (HFBlock)
 import Yare.Chain.Follower
-  ( ChainFollower (..)
-  , ChainState (..)
+  ( ChainState (..)
   , chainTip
   , initialChainState
   , newChainFollower
   )
-import Yare.Chain.Point (ChainPoint)
-import Yare.Chain.Sync qualified as ChainSync
 import Yare.Chain.Types (ChainTip)
 import Yare.Http.Server qualified as Http
-import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
-import Yare.Query (QueryCont (..), queryLedgerTip)
+import Yare.Node.Protocols (makeNodeToClientProtocols)
+import Yare.Node.Socket (nodeSocketLocalAddress)
 import Yare.Query qualified as Query
 import Yare.Storage (Storage (..))
 import Yare.Storage qualified as Storage
-import Yare.Submitter (TxSubmitCont)
 import Yare.Submitter qualified as Submitter
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
 import Yare.Utxo.State (spendableUtxoEntries)
+import Yare.Tracer (showTracer, nullTracer)
 
 {- |
 Starts several threads concurrently:
@@ -107,49 +74,13 @@ Starts several threads concurrently:
   * Local transaction submission
 -}
 start ∷ App.Config → IO ()
-start App.Config {..} = withHandledErrors do
-  addresses ← Addresses.deriveFromMnemonic networkMagic mnemonicFile
+start config@App.Config {apiHttpPort} = do
   queryQ ← liftIO newTQueueIO
-  txSubmissionQ ← liftIO newTQueueIO
+  submitQ ← liftIO newTQueueIO
   storage ← Storage.inMemory <$> newIORef initialChainState
-  let chainFollower = newChainFollower addresses storage
-  liftIO . runConcurrently . foldMap Concurrently $
-    [ runLocalStateQueries queryQ
-    , Warp.run (intCast apiHttpPort) . simpleCors . Http.application $
-        App.Services
-          { serveUtxo = serveUtxo storage
-          , serveTip = serveTip storage
-          , deployScript = deployScript storage
-          }
-    , stayConnectedToNode
-        nodeSocket
-        networkMagic
-        chainFollower
-        syncFrom
-        queryQ
-        txSubmissionQ
-        <&> absurd
-    ]
-
-{- | Run local state queries.that are provided by a queue.
-
-Each queue item contains a query to run as well as a continuation
-that is called with the result of the query.
--}
-runLocalStateQueries ∷ TQueue IO (QueryCont IO) → IO ()
-runLocalStateQueries queryQ = atomically
-  . writeTQueue queryQ
-  $ QueryCont (hoist handleQueryErrors queryLedgerTip) \case
-    Left failure →
-      crash $ "Local state query failed to acquire state: " <> show failure
-    Right ns → case ns of
-      IxedByBlockByron p → pPrint p
-      IxedByBlockShelley p → pPrint p
-      IxedByBlockAllegra p → pPrint p
-      IxedByBlockMary p → pPrint p
-      IxedByBlockAlonzo p → pPrint p
-      IxedByBlockBabbage p → pPrint p
-      IxedByBlockConway p → pPrint p
+  concurrently_
+    (runWebServer apiHttpPort storage queryQ submitQ)
+    (runNodeConnection config storage queryQ submitQ)
 
 -- | Retrieves the UTXO set from a storage.
 serveUtxo ∷ Storage IO ChainState → IO Utxo
@@ -162,162 +93,139 @@ serveTip ∷ MonadIO m ⇒ Storage m ChainState → m ChainTip
 serveTip storage = chainTip <$> readState storage
 
 -- | Deploys a script on-chain by submitting a transaction.
-deployScript ∷ MonadIO m ⇒ Storage m ChainState → m ()
-deployScript _storage = do
-  putTextLn "deployScript: not implemented"
+deployScript
+  ∷ Submitter.Q
+  → SystemStart
+  → LedgerEpochInfo
+  → IO
+      ( Maybe
+          ( Variant
+              [ CardanoApplyTxErr StandardCrypto
+              , Api.TxBodyErrorAutoBalance Api.ConwayEra
+              ]
+          )
+      )
+deployScript submitQ systemStart epochInfo = do
+  let era = Api.ShelleyBasedEraConway
+
+  let bodyContent ∷ Api.TxBodyContent Api.BuildTx Api.ConwayEra
+      bodyContent = undefined
+
+  let changeAddr ∷ Api.AddressInEra Api.ConwayEra
+      changeAddr = undefined
+
+  let overrideKeyWitnesses ∷ Maybe Word
+      overrideKeyWitnesses = Nothing
+
+  let txInputs ∷ Api.UTxO Api.ConwayEra
+      txInputs = undefined
+
+  let protocolParams ∷ Api.LedgerProtocolParameters Api.ConwayEra
+      protocolParams = undefined
+
+  let registeredPools ∷ Set PoolId
+      registeredPools = Set.empty
+
+  let delegations ∷ Map StakeCredential L.Coin
+      delegations = Map.empty
+
+  let delegationsRewards ∷ Map (Credential DRepRole StandardCrypto) L.Coin
+      delegationsRewards = Map.empty
+
+  let witnesses ∷ [Api.ShelleyWitnessSigningKey]
+      witnesses = []
+
+  case Api.constructBalancedTx
+    era
+    bodyContent
+    changeAddr
+    overrideKeyWitnesses
+    txInputs
+    protocolParams
+    epochInfo
+    systemStart
+    registeredPools
+    delegations
+    delegationsRewards
+    witnesses of
+    Left txBodyErrorAutoBalance →
+      pure (Just (Variant.throw txBodyErrorAutoBalance))
+    Right signedBalancedTx →
+      Submitter.submit submitQ (Api.TxInMode era signedBalancedTx)
+
+-- | Runs a web server serving web application via a RESTful API.
+runWebServer
+  ∷ Warp.Port
+  → Storage IO ChainState
+  → Query.Q
+  → Submitter.Q
+  → IO ()
+runWebServer httpPort storage queryQ submitQ = withHandledErrors do
+  (systemStart, historyInterpreter) ←
+    Oops.onLeftThrow . liftIO . Query.submit queryQ $
+      mzip Query.querySystemStart Query.queryHistoryInterpreter
+
+  let eraHistory = Api.EraHistory historyInterpreter
+  let ledgerEpochInfo = Api.toLedgerEpochInfo eraHistory
+
+  liftIO $
+    Warp.run httpPort . simpleCors . Http.application $
+      App.Services
+        { serveUtxo = serveUtxo storage
+        , serveTip = serveTip storage
+        , deployScript = deployScript submitQ systemStart ledgerEpochInfo
+        }
 
 -- | Connects to a Cardano Node socket and runs Node-to-Client mini-protocols.
-stayConnectedToNode
-  ∷ NodeSocket
-  → NetworkMagic
-  → ChainFollower IO
-  → Maybe ChainPoint
-  → TQueue IO (QueryCont IO)
-  → TQueue IO (TxSubmitCont IO)
+runNodeConnection
+  ∷ App.Config
+  → Storage IO ChainState
+  → Query.Q
+  → Submitter.Q
   → IO Void
-stayConnectedToNode
-  nodeSocket
-  netMagic
-  chainFollower
-  syncFrom
-  queryQ
-  txSubmissionQ =
-    withIOManager \ioManager →
-      subscribe
-        (localSnocket ioManager)
-        netMagic
-        (supportedNodeToClientVersions (Proxy @HFBlock))
-        NetworkSubscriptionTracers
-          { nsMuxTracer = nullTracer
-          , nsHandshakeTracer = handshakeTracer
-          , nsErrorPolicyTracer = errorPolicyTracer
-          , nsSubscriptionTracer = subscriptionTracer
-          }
-        ClientSubscriptionParams
-          { cspAddress = nodeSocketLocalAddress nodeSocket
-          , cspConnectionAttemptDelay = Nothing
-          , cspErrorPolicies =
-              networkErrorPolicies <> consensusErrorPolicy (Proxy @HFBlock)
-          }
-        ( makeNodeToClientProtocols
-            chainFollower
-            syncFrom
-            queryQ
-            txSubmissionQ
-        )
-   where
-    handshakeTracer
-      ∷ Tracer
-          IO
-          ( WithMuxBearer
-              (ConnectionId LocalAddress)
-              (TraceSendRecv (Handshake NodeToClientVersion CBOR.Term))
-          ) = showTracer "HS_"
-
-    errorPolicyTracer ∷ Tracer IO (WithAddr LocalAddress ErrorPolicyTrace) =
-      showTracer "Err"
-
-    subscriptionTracer ∷ Tracer IO (Identity (SubscriptionTrace LocalAddress)) =
-      runIdentity >$< showTracer "SUB"
-
-makeNodeToClientProtocols
-  ∷ ∀ {ntcAddr}
-   . ChainFollower IO
-  → Maybe ChainPoint
-  → TQueue IO (QueryCont IO)
-  → TQueue IO (TxSubmitCont IO)
-  → NodeToClientVersion
-  → BlockNodeToClientVersion (CardanoBlock StandardCrypto)
-  → NodeToClientProtocols InitiatorMode ntcAddr LByteString IO () Void
-makeNodeToClientProtocols
-  chainFollower
-  syncFrom
-  queryQ
-  submitQ
-  n2cVer
-  blockVer =
-    NodeToClientProtocols
-      { localChainSyncProtocol =
-          InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-            ( chainSyncTracer
-            , cChainSyncCodec
-            , chainSyncClientPeer $
-                ChainSync.client chainFollower (maybeToList syncFrom)
-            )
-      , localTxSubmissionProtocol =
-          InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-            ( nullTracer
-            , cTxSubmissionCodec
-            , localTxSubmissionClientPeer $ Submitter.client submitQ
-            )
-      , localStateQueryProtocol =
-          InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-            ( lsqTracer
-            , cStateQueryCodec
-            , localStateQueryClientPeer $ Query.client queryQ
-            )
-      , localTxMonitorProtocol =
-          InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-            ( nullTracer
-            , cTxMonitorCodec
-            , localTxMonitorPeerNull
-            )
-      }
-   where
-    Codecs
-      { cChainSyncCodec
-      , cTxSubmissionCodec
-      , cStateQueryCodec
-      , cTxMonitorCodec
-      } = clientCodecs codecConfig blockVer n2cVer
-
-    codecConfig ∷ CodecConfig HFBlock =
-      let byronEpochSlots = EpochSlots 21600
-       in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)
-
-    chainSyncTracer
-      ∷ Tracer
-          IO
-          ( TraceSendRecv
-              ( ChainSync
-                  HFBlock
-                  (Point HFBlock)
-                  (Tip HFBlock)
-              )
-          ) = nullTracer
-
-    lsqTracer
-      ∷ Tracer
-          IO
-          ( TraceSendRecv
-              ( LocalStateQuery
-                  HFBlock
-                  (Point HFBlock)
-                  (Query HFBlock)
-              )
-          ) =
-        showTracer "Query"
-
---------------------------------------------------------------------------------
--- Tracing ---------------------------------------------------------------------
-
-showTracer ∷ Show a ⇒ String → Tracer IO a
-showTracer prefix =
-  faint . ((blackBg (" " <> prefix <> " ") <> " ") <>) . show >$< debugTracer
+runNodeConnection App.Config {..} storage queryQ submitQ = do
+  addresses ← withHandledErrors do
+    Addresses.deriveFromMnemonic networkMagic mnemonicFile
+  let chainFollower = newChainFollower addresses storage
+  withIOManager \ioManager →
+    subscribe
+      (localSnocket ioManager)
+      networkMagic
+      (supportedNodeToClientVersions (Proxy @HFBlock))
+      NetworkSubscriptionTracers
+        { nsMuxTracer = nullTracer
+        , nsHandshakeTracer = showTracer "HS_"
+        , nsErrorPolicyTracer = showTracer "Err"
+        , nsSubscriptionTracer = runIdentity >$< showTracer "SUB"
+        }
+      ClientSubscriptionParams
+        { cspAddress = nodeSocketLocalAddress nodeSocket
+        , cspConnectionAttemptDelay = Nothing
+        , cspErrorPolicies =
+            networkErrorPolicies <> consensusErrorPolicy (Proxy @HFBlock)
+        }
+      ( makeNodeToClientProtocols
+          chainFollower
+          syncFrom
+          queryQ
+          submitQ
+      )
 
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------
+
+type Errors ∷ Type
+type Errors = Variant [Addresses.Error, MkMnemonicError 8, AcquireFailure]
 
 {- | Given an action that may throw errors,
 returns an IO action that also handles errors by reporting them before
 exiting the process.
 -}
-withHandledErrors
-  ∷ ExceptT (Variant [Addresses.Error, MkMnemonicError 8]) IO a
-  → IO a
+withHandledErrors ∷ ExceptT Errors IO a → IO a
 withHandledErrors =
   crashOnAddressesError
     >>> crashOnMnemonicError
+    >>> crashOnAcquireFailure
     >>> Oops.runOops
 
 crashOnAddressesError
@@ -332,40 +240,11 @@ crashOnMnemonicError
 crashOnMnemonicError = Oops.catch \(err ∷ MkMnemonicError 8) →
   crash $ "Failed to parse mnemonic file: " <> show err
 
-handleQueryErrors
-  ∷ ExceptT
-      ( Variant
-          [ EraMismatch
-          , Query.UnknownEraIndex
-          , Query.NoLedgerTipQueryInByronEra
-          ]
-      )
-      IO
-      a
-  → IO a
-handleQueryErrors =
-  crashOnEraMismatch
-    >>> crashOnUnknownEraIndex
-    >>> crashOnNoLedgerTipQuery
-    >>> Oops.runOops
-
-crashOnEraMismatch
-  ∷ ExceptT (Variant (EraMismatch : e)) IO a
+crashOnAcquireFailure
+  ∷ ExceptT (Variant (AcquireFailure : e)) IO a
   → ExceptT (Variant e) IO a
-crashOnEraMismatch = Oops.catch \(err ∷ EraMismatch) →
-  crash $ "Local state query mismatch: " <> show err
-
-crashOnUnknownEraIndex
-  ∷ ExceptT (Variant (Query.UnknownEraIndex : e)) IO a
-  → ExceptT (Variant e) IO a
-crashOnUnknownEraIndex = Oops.catch \(err ∷ Query.UnknownEraIndex) →
-  crash $ "Local state query unknown era: " <> show err
-
-crashOnNoLedgerTipQuery
-  ∷ ExceptT (Variant (Query.NoLedgerTipQueryInByronEra : e)) IO a
-  → ExceptT (Variant e) IO a
-crashOnNoLedgerTipQuery = Oops.catch \(err ∷ Query.NoLedgerTipQueryInByronEra) →
-  crash $ "No ledger tip query in Byron era: " <> show err
+crashOnAcquireFailure = Oops.catch \(err ∷ AcquireFailure) →
+  crash $ "Failed to acquire local node state for querying: " <> show err
 
 crash ∷ MonadIO m ⇒ Text → m a
 crash = liftIO . throwIO . userError . toString

@@ -129,10 +129,12 @@ library
     Yare.Http.Server
     Yare.Http.Types
     Yare.Mnemonic
+    Yare.Node.Protocols
     Yare.Node.Socket
     Yare.Query
     Yare.Storage
     Yare.Submitter
+    Yare.Tracer
     Yare.Utxo
     Yare.Utxo.State
 

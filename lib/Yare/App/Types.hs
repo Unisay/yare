@@ -5,7 +5,11 @@ module Yare.App.Types
 
 import Relude
 
+import Cardano.Api (ConwayEra, TxBodyErrorAutoBalance)
 import Data.Tagged (Tagged)
+import Data.Variant (Variant)
+import Network.Wai.Handler.Warp qualified as Warp
+import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, StandardCrypto)
 import Ouroboros.Network.Magic (NetworkMagic)
 import Path (Abs, File, Path)
 import Yare.Chain.Types (ChainPoint, ChainTip)
@@ -15,7 +19,7 @@ import Yare.Utxo (Utxo)
 -- | An application configuration
 type Config ∷ Type
 data Config = Config
-  { apiHttpPort ∷ Word16
+  { apiHttpPort ∷ Warp.Port
   , nodeSocket ∷ NodeSocket
   , networkMagic ∷ NetworkMagic
   , mnemonicFile ∷ Tagged "mnemonic" (Path Abs File)
@@ -27,5 +31,13 @@ type Services ∷ Type
 data Services = Services
   { serveUtxo ∷ IO Utxo
   , serveTip ∷ IO ChainTip
-  , deployScript ∷ IO ()
+  , deployScript
+      ∷ IO
+          ( Maybe
+              ( Variant
+                  [ CardanoApplyTxErr StandardCrypto
+                  , TxBodyErrorAutoBalance ConwayEra
+                  ]
+              )
+          )
   }

@@ -1,43 +1,69 @@
 module Yare.Submitter
   ( TxSubmitCont (..)
-  , client
+  , TxSubmitResult
   , Q
+  , client
+  , submit
   ) where
 
 import Relude hiding (atomically)
 
-import Control.Concurrent.Class.MonadSTM (TQueue, readTQueue)
+import Cardano.Api.Shelley (TxInMode)
+import Cardano.Api.Shelley qualified as Api
+import Control.Concurrent.Class.MonadSTM (TQueue, readTQueue, writeTQueue)
 import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
-import Ouroboros.Consensus.HardFork.Combinator.Mempool (HardForkApplyTxErr)
+import Data.Variant (CouldBe (throw), Variant)
+import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, StandardCrypto)
 import Ouroboros.Consensus.Ledger.SupportsMempool (GenTx)
 import Ouroboros.Network.Protocol.LocalTxSubmission.Client
   ( LocalTxClientStIdle (..)
   , LocalTxSubmissionClient (..)
   , SubmitResult (..)
   )
-import Yare.Chain.Block (Blocks, HFBlock)
-import Yare.Chain.Era (AnyEra)
-import Yare.Chain.Tx (Tx, toConsensusGenTx)
+import Yare.Chain.Block (HFBlock)
+
+type TxSubmitResult ∷ Type
+type TxSubmitResult = SubmitResult (CardanoApplyTxErr StandardCrypto)
 
 type TxSubmitCont ∷ (Type → Type) → Type
-data TxSubmitCont m = TxSubmitCont (AnyEra Tx) (HardForkApplyTxErr Blocks → m ())
+data TxSubmitCont m = TxSubmitCont TxInMode (TxSubmitResult → m ())
 
-type Q ∷ (Type → Type) → Type
-type Q m = TQueue m (TxSubmitCont m)
+type Q ∷ Type
+type Q = TQueue IO (TxSubmitCont IO)
 
 client
-  ∷ MonadSTM m
-  ⇒ Q m
-  → LocalTxSubmissionClient (GenTx HFBlock) (HardForkApplyTxErr Blocks) m a
+  ∷ Q
+  → LocalTxSubmissionClient
+      (GenTx HFBlock)
+      (CardanoApplyTxErr StandardCrypto)
+      IO
+      a
 client txQ = LocalTxSubmissionClient (waitForTxToSubmit txQ)
 
 waitForTxToSubmit
-  ∷ MonadSTM m
-  ⇒ Q m
-  → m (LocalTxClientStIdle (GenTx HFBlock) (HardForkApplyTxErr Blocks) m a)
+  ∷ Q
+  → IO
+      ( LocalTxClientStIdle
+          (GenTx HFBlock)
+          (CardanoApplyTxErr StandardCrypto)
+          IO
+          a
+      )
 waitForTxToSubmit txQ = do
-  TxSubmitCont txAnyEra onError ← atomically (readTQueue txQ)
-  let tx ∷ GenTx HFBlock = toConsensusGenTx txAnyEra
-  pure $ SendMsgSubmitTx tx \case
-    SubmitSuccess → waitForTxToSubmit txQ
-    SubmitFail err → onError err *> waitForTxToSubmit txQ
+  TxSubmitCont txAnyEra onResult ← atomically (readTQueue txQ)
+  pure $ SendMsgSubmitTx (Api.toConsensusGenTx txAnyEra) \txResult → do
+    onResult txResult
+    waitForTxToSubmit txQ
+
+submit
+  ∷ ∀ errors
+   . errors `CouldBe` CardanoApplyTxErr StandardCrypto
+  ⇒ Q
+  → TxInMode
+  → IO (Maybe (Variant errors))
+submit submitQ txInMode = do
+  res ← newEmptyMVar
+  atomically . writeTQueue submitQ $ TxSubmitCont txInMode \case
+    SubmitSuccess → putMVar res Nothing
+    SubmitFail err → putMVar res . Just $ throw err
+  takeMVar res
