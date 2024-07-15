@@ -1,11 +1,18 @@
 module Yare.App.Types
   ( Config (..)
   , Services (..)
+  , NetworkInfo (..)
   ) where
 
 import Relude
 
-import Cardano.Api (ConwayEra, TxBodyErrorAutoBalance)
+import Cardano.Api.Shelley
+  ( InAnyShelleyBasedEra
+  , LedgerEpochInfo
+  , LedgerProtocolParameters
+  , SystemStart
+  , TxBodyErrorAutoBalance
+  )
 import Data.Tagged (Tagged)
 import Data.Variant (Variant)
 import Network.Wai.Handler.Warp qualified as Warp
@@ -26,6 +33,13 @@ data Config = Config
   , syncFrom ∷ Maybe ChainPoint -- TODO: let app decide it based on the persistent state
   }
 
+type NetworkInfo ∷ Type
+data NetworkInfo = NetworkInfo
+  { systemStart ∷ SystemStart
+  , epochInfo ∷ LedgerEpochInfo
+  , protocolParameters ∷ InAnyShelleyBasedEra LedgerProtocolParameters
+  }
+
 -- | Application services
 type Services ∷ Type
 data Services = Services
@@ -36,7 +50,7 @@ data Services = Services
           ( Maybe
               ( Variant
                   [ CardanoApplyTxErr StandardCrypto
-                  , TxBodyErrorAutoBalance ConwayEra
+                  , InAnyShelleyBasedEra TxBodyErrorAutoBalance
                   ]
               )
           )

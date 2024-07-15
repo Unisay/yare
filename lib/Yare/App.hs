@@ -3,12 +3,13 @@ module Yare.App (start) where
 
 import Relude hiding (atomically)
 
+import Cardano.Api (InAnyShelleyBasedEra (..))
 import Cardano.Api.Ledger (KeyRole (DRepRole))
 import Cardano.Api.Shelley
-  ( LedgerEpochInfo
-  , PoolId
+  ( PoolId
   , StakeCredential
-  , SystemStart
+  , TxBodyErrorAutoBalance
+  , inAnyShelleyBasedEra
   )
 import Cardano.Api.Shelley qualified as Api
 import Cardano.Client.Subscription (subscribe)
@@ -19,16 +20,16 @@ import Cardano.Mnemonic (MkMnemonicError)
 import Control.Concurrent.Class.MonadSTM.TQueue (newTQueueIO)
 import Control.Exception (throwIO)
 import Control.Monad.Class.MonadAsync (concurrently_)
+import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
-import Control.Monad.Zip (MonadZip (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Variant qualified as Variant
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
-import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
+import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, EraMismatch)
 import Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy)
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
   ( supportedNodeToClientVersions
@@ -43,7 +44,7 @@ import Ouroboros.Network.NodeToClient
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
 import Yare.Addresses (Error (..))
 import Yare.Addresses qualified as Addresses
-import Yare.App.Types (Config (apiHttpPort))
+import Yare.App.Types (Config (apiHttpPort), NetworkInfo (..))
 import Yare.App.Types qualified as App
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower
@@ -60,10 +61,10 @@ import Yare.Query qualified as Query
 import Yare.Storage (Storage (..))
 import Yare.Storage qualified as Storage
 import Yare.Submitter qualified as Submitter
+import Yare.Tracer (nullTracer, showTracer)
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
 import Yare.Utxo.State (spendableUtxoEntries)
-import Yare.Tracer (showTracer, nullTracer)
 
 {- |
 Starts several threads concurrently:
@@ -95,33 +96,28 @@ serveTip storage = chainTip <$> readState storage
 -- | Deploys a script on-chain by submitting a transaction.
 deployScript
   ∷ Submitter.Q
-  → SystemStart
-  → LedgerEpochInfo
+  → NetworkInfo
   → IO
       ( Maybe
           ( Variant
               [ CardanoApplyTxErr StandardCrypto
-              , Api.TxBodyErrorAutoBalance Api.ConwayEra
+              , InAnyShelleyBasedEra TxBodyErrorAutoBalance
               ]
           )
       )
-deployScript submitQ systemStart epochInfo = do
-  let era = Api.ShelleyBasedEraConway
-
-  let bodyContent ∷ Api.TxBodyContent Api.BuildTx Api.ConwayEra
+deployScript submitQ networkInfo = do
+  let NetworkInfo {protocolParameters, epochInfo, systemStart} = networkInfo
+  let bodyContent ∷ Api.TxBodyContent Api.BuildTx era
       bodyContent = undefined
 
-  let changeAddr ∷ Api.AddressInEra Api.ConwayEra
+  let changeAddr ∷ Api.AddressInEra era
       changeAddr = undefined
 
   let overrideKeyWitnesses ∷ Maybe Word
       overrideKeyWitnesses = Nothing
 
-  let txInputs ∷ Api.UTxO Api.ConwayEra
+  let txInputs ∷ Api.UTxO era
       txInputs = undefined
-
-  let protocolParams ∷ Api.LedgerProtocolParameters Api.ConwayEra
-      protocolParams = undefined
 
   let registeredPools ∷ Set PoolId
       registeredPools = Set.empty
@@ -135,23 +131,25 @@ deployScript submitQ systemStart epochInfo = do
   let witnesses ∷ [Api.ShelleyWitnessSigningKey]
       witnesses = []
 
-  case Api.constructBalancedTx
-    era
-    bodyContent
-    changeAddr
-    overrideKeyWitnesses
-    txInputs
-    protocolParams
-    epochInfo
-    systemStart
-    registeredPools
-    delegations
-    delegationsRewards
-    witnesses of
-    Left txBodyErrorAutoBalance →
-      pure (Just (Variant.throw txBodyErrorAutoBalance))
-    Right signedBalancedTx →
-      Submitter.submit submitQ (Api.TxInMode era signedBalancedTx)
+  case protocolParameters of
+    InAnyShelleyBasedEra era protocolParams →
+      case Api.constructBalancedTx
+        era
+        bodyContent
+        changeAddr
+        overrideKeyWitnesses
+        txInputs
+        protocolParams
+        epochInfo
+        systemStart
+        registeredPools
+        delegations
+        delegationsRewards
+        witnesses of
+        Left err →
+          pure (Just (Variant.throw (inAnyShelleyBasedEra era err)))
+        Right signedBalancedTx →
+          Submitter.submit submitQ (Api.TxInMode era signedBalancedTx)
 
 -- | Runs a web server serving web application via a RESTful API.
 runWebServer
@@ -161,19 +159,30 @@ runWebServer
   → Submitter.Q
   → IO ()
 runWebServer httpPort storage queryQ submitQ = withHandledErrors do
-  (systemStart, historyInterpreter) ←
-    Oops.onLeftThrow . liftIO . Query.submit queryQ $
-      mzip Query.querySystemStart Query.queryHistoryInterpreter
+  (systemStart, historyInterpreter, errorOrProtocolParams) ←
+    Query.submit queryQ $
+      (,,)
+        <$> Query.querySystemStart
+        <*> Query.queryHistoryInterpreter
+        <*> Query.queryCurrentPParams
 
   let eraHistory = Api.EraHistory historyInterpreter
-  let ledgerEpochInfo = Api.toLedgerEpochInfo eraHistory
+
+  protocolParameters ← either throwError pure errorOrProtocolParams
+
+  let networkInfo =
+        App.NetworkInfo
+          { systemStart
+          , epochInfo = Api.toLedgerEpochInfo eraHistory
+          , protocolParameters
+          }
 
   liftIO $
     Warp.run httpPort . simpleCors . Http.application $
       App.Services
         { serveUtxo = serveUtxo storage
         , serveTip = serveTip storage
-        , deployScript = deployScript submitQ systemStart ledgerEpochInfo
+        , deployScript = deployScript submitQ networkInfo
         }
 
 -- | Connects to a Cardano Node socket and runs Node-to-Client mini-protocols.
@@ -215,7 +224,14 @@ runNodeConnection App.Config {..} storage queryQ submitQ = do
 -- Error handling --------------------------------------------------------------
 
 type Errors ∷ Type
-type Errors = Variant [Addresses.Error, MkMnemonicError 8, AcquireFailure]
+type Errors =
+  Variant
+    [ Addresses.Error
+    , MkMnemonicError 8
+    , AcquireFailure
+    , EraMismatch
+    , Query.NoQueryInByronEra
+    ]
 
 {- | Given an action that may throw errors,
 returns an IO action that also handles errors by reporting them before
@@ -226,6 +242,8 @@ withHandledErrors =
   crashOnAddressesError
     >>> crashOnMnemonicError
     >>> crashOnAcquireFailure
+    >>> crashOnEraMismatch
+    >>> crashOnNoQuery
     >>> Oops.runOops
 
 crashOnAddressesError
@@ -245,6 +263,23 @@ crashOnAcquireFailure
   → ExceptT (Variant e) IO a
 crashOnAcquireFailure = Oops.catch \(err ∷ AcquireFailure) →
   crash $ "Failed to acquire local node state for querying: " <> show err
+
+crashOnEraMismatch
+  ∷ ExceptT (Variant (EraMismatch : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnEraMismatch = Oops.catch \(err ∷ EraMismatch) →
+  crash $ "Era mismatch: " <> show err
+
+crashOnNoQuery
+  ∷ ExceptT (Variant (Query.NoQueryInByronEra : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnNoQuery = Oops.catch \(Query.NoQueryInByronEra query) →
+  crash . unwords $
+    [ "Application attempted to send a local state query "
+    , show query
+    , "but the Cardano Node is currently in the Byron "
+    , "era and such query is not available."
+    ]
 
 crash ∷ MonadIO m ⇒ Text → m a
 crash = liftIO . throwIO . userError . toString

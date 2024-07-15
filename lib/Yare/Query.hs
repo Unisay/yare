@@ -4,32 +4,44 @@ module Yare.Query
   ( Q
   , LsqM
   , QueryCont (..)
-  , SomeEraProtocolParams (..)
-  , queryHistoryInterpreter
-  , queryCurrentEra
-  , queryCurrentPParams
-  , queryLedgerTip
-  , querySystemStart
   , client
   , submit
 
+    -- * Queries
+  , queryHistoryInterpreter
+  , queryCurrentEra
+  , queryCurrentShelleyEra
+  , queryCurrentPParams
+  , queryLedgerTip
+  , querySystemStart
+
     -- * Errors
-  , UnknownEraIndex (..)
-  , NoLedgerTipQueryInByronEra (..)
+  , NoQueryInByronEra (..)
   ) where
 
 import Relude hiding (atomically, show)
 
-import Cardano.Ledger.Api (EraPParams, PParams)
+import Cardano.Api.Shelley
+  ( AnyCardanoEra (..)
+  , AnyShelleyBasedEra (AnyShelleyBasedEra)
+  , CardanoEra (..)
+  , InAnyShelleyBasedEra
+  , LedgerProtocolParameters (..)
+  , ShelleyBasedEra (..)
+  , inAnyShelleyBasedEra
+  )
 import Cardano.Slotting.Time (SystemStart)
-import Control.Concurrent.Class.MonadSTM.TQueue (TQueue, readTQueue, writeTQueue)
+import Control.Concurrent.Class.MonadSTM.TQueue
+  ( TQueue
+  , readTQueue
+  , writeTQueue
+  )
 import Control.Monad (ap, liftM, liftM2)
 import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
-import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Morph (MFunctor (..), hoist)
 import Control.Monad.Oops (CouldBe, Variant)
-import Control.Monad.Oops qualified as Oops
 import Control.Monad.Zip (MonadZip (..))
+import Data.Variant qualified as Variant
 import Ouroboros.Consensus.Cardano.Block
   ( BlockQuery (..)
   , CardanoQueryResult
@@ -41,7 +53,9 @@ import Ouroboros.Consensus.HardFork.Combinator.Abstract
   ( EraIndex
   , eraIndexToInt
   )
-import Ouroboros.Consensus.HardFork.Combinator.Ledger.Query (QueryHardFork (..))
+import Ouroboros.Consensus.HardFork.Combinator.Ledger.Query
+  ( QueryHardFork (..)
+  )
 import Ouroboros.Consensus.HardFork.History qualified as History
 import Ouroboros.Consensus.Ledger.Query (Query (BlockQuery, GetSystemStart))
 import Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
@@ -52,9 +66,7 @@ import Ouroboros.Network.Block (Point)
 import Ouroboros.Network.Protocol.LocalStateQuery.Client qualified as Query
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
 import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as Query
-import Text.Show (show)
 import Yare.Chain.Block (Blocks, IxedByBlock (..), StdCardanoBlock)
-import Yare.Chain.Era (Era (..))
 
 type Q ∷ Type
 type Q = TQueue IO (QueryCont IO)
@@ -177,13 +189,13 @@ instance Monad m ⇒ MonadZip (LsqM m) where
   mzip = liftM2 (,)
 
 fromBlockQuery
-  ∷ (MonadError (Variant e) m, e `CouldBe` EraMismatch)
+  ∷ (Monad m, e `CouldBe` EraMismatch)
   ⇒ BlockQuery StdCardanoBlock (CardanoQueryResult StandardCrypto a)
-  → LsqM m a
+  → LsqM m (Either (Variant e) a)
 fromBlockQuery q =
-  LsqQuery (BlockQuery q) >>= \case
-    QueryResultEraMismatch eraMismatch → lift $ Oops.throw eraMismatch
-    QueryResultSuccess res → pure res
+  LsqQuery (BlockQuery q) <&> \case
+    QueryResultEraMismatch eraMismatch → Left (Variant.throw eraMismatch)
+    QueryResultSuccess res → Right res
 
 --------------------------------------------------------------------------------
 -- Queries ---------------------------------------------------------------------
@@ -197,71 +209,74 @@ queryHistoryInterpreter = LsqQuery (BlockQuery (QueryHardFork GetInterpreter))
 queryCurrentEraIndex ∷ LsqM m (EraIndex Blocks)
 queryCurrentEraIndex = LsqQuery (BlockQuery (QueryHardFork GetCurrentEra))
 
-type SomeEraProtocolParams ∷ Type
-data SomeEraProtocolParams
-  = ∀ era. EraPParams era ⇒ SomeEraProtocolParams (PParams era)
+queryCurrentEra ∷ Monad m ⇒ LsqM m AnyCardanoEra
+queryCurrentEra = toEnum . eraIndexToInt <$> queryCurrentEraIndex
+
+queryCurrentShelleyEra ∷ Monad m ⇒ LsqM m (Maybe AnyShelleyBasedEra)
+queryCurrentShelleyEra =
+  queryCurrentEraIndex <&> \idx →
+    case eraIndexToInt idx of
+      0 → Nothing
+      i → Just (toEnum i)
 
 queryCurrentPParams
-  ∷ ( MonadError (Variant e) m
-    , e `CouldBe` UnknownEraIndex
+  ∷ ( Monad m
     , e `CouldBe` EraMismatch
-    , e `CouldBe` NoCurrentPParamsQueryInByronEra
+    , e `CouldBe` NoQueryInByronEra
     )
-  ⇒ LsqM m SomeEraProtocolParams
+  ⇒ LsqM m (Either (Variant e) (InAnyShelleyBasedEra LedgerProtocolParameters))
 queryCurrentPParams =
-  queryCurrentEra >>= \case
-    Byron → lift $ Oops.throw NoCurrentPParamsQueryInByronEra
-    Shelley →
-      SomeEraProtocolParams
-        <$> fromBlockQuery (QueryIfCurrentShelley GetCurrentPParams)
-    Allegra →
-      SomeEraProtocolParams
-        <$> fromBlockQuery (QueryIfCurrentAllegra GetCurrentPParams)
-    Mary →
-      SomeEraProtocolParams
-        <$> fromBlockQuery (QueryIfCurrentMary GetCurrentPParams)
-    Alonzo →
-      SomeEraProtocolParams
-        <$> fromBlockQuery (QueryIfCurrentAlonzo GetCurrentPParams)
-    Babbage →
-      SomeEraProtocolParams
-        <$> fromBlockQuery (QueryIfCurrentBabbage GetCurrentPParams)
-    Conway →
-      SomeEraProtocolParams
-        <$> fromBlockQuery (QueryIfCurrentConway GetCurrentPParams)
-
-queryCurrentEra
-  ∷ (MonadError (Variant e) m, e `CouldBe` UnknownEraIndex)
-  ⇒ LsqM m Era
-queryCurrentEra =
-  queryCurrentEraIndex >>= \idx →
-    case eraIndexToInt idx of
-      0 → pure Byron
-      1 → pure Shelley
-      2 → pure Allegra
-      3 → pure Mary
-      4 → pure Alonzo
-      5 → pure Babbage
-      6 → pure Conway
-      _ → lift $ Oops.throw (UnknownEraIndex idx)
+  queryCurrentShelleyEra >>= \case
+    Nothing →
+      pure . Left $ Variant.throw $ NoQueryInByronEra "GetCurrentPParams"
+    Just (AnyShelleyBasedEra ShelleyBasedEraShelley) →
+      inAnyShelleyBasedEra ShelleyBasedEraShelley
+        . LedgerProtocolParameters
+        <<$>> fromBlockQuery (QueryIfCurrentShelley GetCurrentPParams)
+    Just (AnyShelleyBasedEra ShelleyBasedEraAllegra) →
+      inAnyShelleyBasedEra ShelleyBasedEraAllegra
+        . LedgerProtocolParameters
+        <<$>> fromBlockQuery (QueryIfCurrentAllegra GetCurrentPParams)
+    Just (AnyShelleyBasedEra ShelleyBasedEraMary) →
+      inAnyShelleyBasedEra ShelleyBasedEraMary
+        . LedgerProtocolParameters
+        <<$>> fromBlockQuery (QueryIfCurrentMary GetCurrentPParams)
+    Just (AnyShelleyBasedEra ShelleyBasedEraAlonzo) →
+      inAnyShelleyBasedEra ShelleyBasedEraAlonzo
+        . LedgerProtocolParameters
+        <<$>> fromBlockQuery (QueryIfCurrentAlonzo GetCurrentPParams)
+    Just (AnyShelleyBasedEra ShelleyBasedEraBabbage) →
+      inAnyShelleyBasedEra ShelleyBasedEraBabbage
+        . LedgerProtocolParameters
+        <<$>> fromBlockQuery (QueryIfCurrentBabbage GetCurrentPParams)
+    Just (AnyShelleyBasedEra ShelleyBasedEraConway) →
+      inAnyShelleyBasedEra ShelleyBasedEraConway
+        . LedgerProtocolParameters
+        <<$>> fromBlockQuery (QueryIfCurrentConway GetCurrentPParams)
 
 queryLedgerTip
   ∷ ∀ m e
-   . ( MonadError (Variant e) m
-     , e `CouldBe` UnknownEraIndex
+   . ( Monad m
      , e `CouldBe` EraMismatch
-     , e `CouldBe` NoLedgerTipQueryInByronEra
+     , e `CouldBe` NoQueryInByronEra
      )
-  ⇒ LsqM m (IxedByBlock Point)
+  ⇒ LsqM m (Either (Variant e) (IxedByBlock Point))
 queryLedgerTip =
   queryCurrentEra >>= \case
-    Byron → lift $ Oops.throw NoLedgerTipQueryInByronEra
-    Shelley → IxedByBlockShelley <$> fromBlockQuery (QueryIfCurrentShelley qry)
-    Allegra → IxedByBlockAllegra <$> fromBlockQuery (QueryIfCurrentAllegra qry)
-    Mary → IxedByBlockMary <$> fromBlockQuery (QueryIfCurrentMary qry)
-    Alonzo → IxedByBlockAlonzo <$> fromBlockQuery (QueryIfCurrentAlonzo qry)
-    Babbage → IxedByBlockBabbage <$> fromBlockQuery (QueryIfCurrentBabbage qry)
-    Conway → IxedByBlockConway <$> fromBlockQuery (QueryIfCurrentConway qry)
+    AnyCardanoEra ByronEra →
+      pure . Left $ Variant.throw $ NoQueryInByronEra "GetLedgerTip"
+    AnyCardanoEra ShelleyEra →
+      IxedByBlockShelley <<$>> fromBlockQuery (QueryIfCurrentShelley qry)
+    AnyCardanoEra AllegraEra →
+      IxedByBlockAllegra <<$>> fromBlockQuery (QueryIfCurrentAllegra qry)
+    AnyCardanoEra MaryEra →
+      IxedByBlockMary <<$>> fromBlockQuery (QueryIfCurrentMary qry)
+    AnyCardanoEra AlonzoEra →
+      IxedByBlockAlonzo <<$>> fromBlockQuery (QueryIfCurrentAlonzo qry)
+    AnyCardanoEra BabbageEra →
+      IxedByBlockBabbage <<$>> fromBlockQuery (QueryIfCurrentBabbage qry)
+    AnyCardanoEra ConwayEra →
+      IxedByBlockConway <<$>> fromBlockQuery (QueryIfCurrentConway qry)
  where
   qry ∷ BlockQuery (ShelleyBlock proto era) (Point (ShelleyBlock proto era))
   qry = Shelley.GetLedgerTip
@@ -269,29 +284,22 @@ queryLedgerTip =
 --------------------------------------------------------------------------------
 -- Submission ------------------------------------------------------------------
 
-submit ∷ Q → LsqM IO a → IO (Either AcquireFailure a)
+submit
+  ∷ (e `CouldBe` AcquireFailure, MonadSTM m, MonadIO m)
+  ⇒ TQueue m (QueryCont m)
+  → LsqM m a
+  → ExceptT (Variant e) m a
 submit queryQ lsq = do
   var ← newEmptyMVar
   atomically . writeTQueue queryQ $
     QueryCont lsq \case
-      Left acquireFailure → putMVar var (Left acquireFailure)
+      Left acquireFailure → putMVar var (Left (Variant.throw acquireFailure))
       Right result → putMVar var (Right result)
-  takeMVar var
+  ExceptT $ takeMVar var
 
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------
 
-type UnknownEraIndex ∷ Type
-newtype UnknownEraIndex = UnknownEraIndex (EraIndex Blocks)
-  deriving stock (Eq)
-
-instance Show UnknownEraIndex where
-  show (UnknownEraIndex idx) = "Unknown era index: " <> show (eraIndexToInt idx)
-
-type NoLedgerTipQueryInByronEra ∷ Type
-data NoLedgerTipQueryInByronEra = NoLedgerTipQueryInByronEra
-  deriving stock (Eq, Show)
-
-type NoCurrentPParamsQueryInByronEra ∷ Type
-data NoCurrentPParamsQueryInByronEra = NoCurrentPParamsQueryInByronEra
+type NoQueryInByronEra ∷ Type
+newtype NoQueryInByronEra = NoQueryInByronEra String
   deriving stock (Eq, Show)

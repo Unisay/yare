@@ -5,7 +5,7 @@ module Yare.Http.Server
 
 import Relude
 
-import Cardano.Api (ConwayEra, TxBodyErrorAutoBalance)
+import Cardano.Api (InAnyShelleyBasedEra, TxBodyErrorAutoBalance)
 import Data.Variant (case_)
 import Network.Wai qualified as Wai
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, StandardCrypto)
@@ -46,6 +46,6 @@ endpointDeployScript App.Services {deployScript} = do
           ( \(_err ∷ CardanoApplyTxErr StandardCrypto) →
               Servant.err500 {Servant.errBody = "Tx application error"}
           )
-          ( \(_err ∷ TxBodyErrorAutoBalance ConwayEra) →
+          ( \(_err ∷ InAnyShelleyBasedEra TxBodyErrorAutoBalance) →
               Servant.err500 {Servant.errBody = "Tx balancing error"}
           )
