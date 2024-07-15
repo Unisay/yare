@@ -19,7 +19,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set (member)
 import Ouroboros.Network.Block (blockPoint)
 import Yare.Addresses (Addresses, isOwnAddress)
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Era (AnyEra (..))
 import Yare.Chain.Point (ChainPoint)
 import Yare.Chain.Tx
@@ -43,7 +43,7 @@ data UtxoState = UtxoState
 initialState ∷ UtxoState
 initialState = UtxoState {nonFinalState = mempty, finalState = mempty}
 
-indexBlock ∷ Addresses → HFBlock → UtxoState → UtxoState
+indexBlock ∷ Addresses → StdCardanoBlock → UtxoState → UtxoState
 indexBlock addresses block s = s'
  where
   s' = foldr forEachTx id (blockTransactions block) s

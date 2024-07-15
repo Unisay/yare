@@ -1,5 +1,5 @@
 module Yare.Chain.Block
-  ( HFBlock
+  ( StdCardanoBlock
 
     -- * Functors, indexed by Block
   , IxedByBlock (..)
@@ -14,7 +14,7 @@ module Yare.Chain.Block
 import Relude
 
 import Ouroboros.Consensus.Byron.Ledger (ByronBlock)
-import Ouroboros.Consensus.Cardano.Block (CardanoShelleyEras, HardForkBlock)
+import Ouroboros.Consensus.Cardano.Block (CardanoShelleyEras)
 import Ouroboros.Consensus.Protocol.Praos (Praos)
 import Ouroboros.Consensus.Protocol.TPraos (TPraos)
 import Ouroboros.Consensus.Shelley.Eras
@@ -28,6 +28,7 @@ import Ouroboros.Consensus.Shelley.Eras
   )
 import Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
 import Yare.Chain.Era (Era (..))
+import Ouroboros.Consensus.Cardano (CardanoBlock)
 
 type Blocks ∷ [Type]
 type Blocks =
@@ -43,8 +44,8 @@ type Blocks =
 type StdShelleyBlocks ∷ [Type]
 type StdShelleyBlocks = CardanoShelleyEras StandardCrypto
 
-type HFBlock ∷ Type
-type HFBlock = HardForkBlock Blocks
+type StdCardanoBlock ∷ Type
+type StdCardanoBlock = CardanoBlock StandardCrypto
 
 -- | Type family that maps an era to the corresponding Block type.
 type BlockInEra ∷ Era → Type

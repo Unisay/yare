@@ -81,7 +81,7 @@ import Ouroboros.Consensus.Shelley.Eras
   )
 import Ouroboros.Consensus.Shelley.Ledger.Block (shelleyBlockRaw)
 import Ouroboros.Consensus.Shelley.Ledger.Mempool qualified as CS
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Era
   ( AnyEra (..)
   , Era (..)
@@ -90,7 +90,7 @@ import Yare.Chain.Era
   , applyEraFun
   , fanout3EraFun
   , mapEraFun
-  , runIxedByEra
+  , runInEra
   )
 import Yare.Chain.Types (LedgerAddress)
 
@@ -111,25 +111,25 @@ type Tx ∷ Era → Type
 newtype Tx era = Tx {unwrapTx ∷ TxInEra era}
 
 byEraByron ∷ TxInEra Byron → AnyEra Tx
-byEraByron = IxedByEraByron . Tx
+byEraByron = InEraByron . Tx
 
 byEraShelley ∷ TxInEra Shelley → AnyEra Tx
-byEraShelley = IxedByEraShelley . Tx
+byEraShelley = InEraShelley . Tx
 
 byEraAllegra ∷ TxInEra Allegra → AnyEra Tx
-byEraAllegra = IxedByEraAllegra . Tx
+byEraAllegra = InEraAllegra . Tx
 
 byEraMary ∷ TxInEra Mary → AnyEra Tx
-byEraMary = IxedByEraMary . Tx
+byEraMary = InEraMary . Tx
 
 byEraAlonzo ∷ TxInEra Alonzo → AnyEra Tx
-byEraAlonzo = IxedByEraAlonzo . Tx
+byEraAlonzo = InEraAlonzo . Tx
 
 byEraBabbage ∷ TxInEra Babbage → AnyEra Tx
-byEraBabbage = IxedByEraBabbage . Tx
+byEraBabbage = InEraBabbage . Tx
 
 byEraConway ∷ TxInEra Conway → AnyEra Tx
-byEraConway = IxedByEraConway . Tx
+byEraConway = InEraConway . Tx
 
 --------------------------------------------------------------------------------
 -- Tx body ---------------------------------------------------------------------
@@ -189,7 +189,7 @@ data TxOutViewUtxo = TxOutViewUtxo
 
 transactionViewUtxo ∷ AnyEra Tx → TxViewUtxo
 transactionViewUtxo =
-  runIxedByEra . applyEraFun (bodyEraFun >>> txViewUtxoEraFun)
+  runInEra . applyEraFun (bodyEraFun >>> txViewUtxoEraFun)
  where
   txViewUtxoEraFun ∷ EraFun TxBody (NoIdx TxViewUtxo)
   txViewUtxoEraFun =
@@ -250,7 +250,7 @@ transactionViewUtxo =
 --------------------------------------------------------------------------------
 -- Functions -------------------------------------------------------------------
 
-blockTransactions ∷ HFBlock → [AnyEra Tx]
+blockTransactions ∷ StdCardanoBlock → [AnyEra Tx]
 blockTransactions = \case
   BlockByron (byronBlock ∷ ByronBlock) →
     case byronBlockRaw byronBlock of
@@ -346,10 +346,10 @@ outputsEraFun =
 -- Consensus conversions -------------------------------------------------------
 
 type ConsensusTx ∷ Type
-type ConsensusTx = Consensus.GenTx HFBlock
+type ConsensusTx = Consensus.GenTx StdCardanoBlock
 
 toConsensusGenTx ∷ AnyEra Tx → ConsensusTx
-toConsensusGenTx anyEraTx = runIxedByEra (applyEraFun EraFun {..} anyEraTx)
+toConsensusGenTx anyEraTx = runInEra (applyEraFun EraFun {..} anyEraTx)
  where
   eraFunByron ∷ Tx Byron → NoIdx ConsensusTx x
   eraFunByron (Tx txAux) = mkGenTx Z genTx

@@ -4,7 +4,7 @@ module Yare.Chain.Era
 
     -- * Functors, indexed by Era
   , AnyEra (..)
-  , runIxedByEra
+  , runInEra
   , EraFun (..)
   , applyEraFun
   , hoistEraFun
@@ -22,26 +22,26 @@ data Era = Byron | Shelley | Allegra | Mary | Alonzo | Babbage | Conway
 
 type AnyEra ∷ (Era → Type) → Type
 data AnyEra (f ∷ Era → Type) where
-  IxedByEraByron ∷ f Byron → AnyEra f
-  IxedByEraShelley ∷ f Shelley → AnyEra f
-  IxedByEraAllegra ∷ f Allegra → AnyEra f
-  IxedByEraMary ∷ f Mary → AnyEra f
-  IxedByEraAlonzo ∷ f Alonzo → AnyEra f
-  IxedByEraBabbage ∷ f Babbage → AnyEra f
-  IxedByEraConway ∷ f Conway → AnyEra f
+  InEraByron ∷ f Byron → AnyEra f
+  InEraShelley ∷ f Shelley → AnyEra f
+  InEraAllegra ∷ f Allegra → AnyEra f
+  InEraMary ∷ f Mary → AnyEra f
+  InEraAlonzo ∷ f Alonzo → AnyEra f
+  InEraBabbage ∷ f Babbage → AnyEra f
+  InEraConway ∷ f Conway → AnyEra f
 
 type NoIdx ∷ ∀ k. Type → k → Type
 newtype NoIdx f e = NoIdx {unwrapNoIdx ∷ f}
 
-runIxedByEra ∷ AnyEra (NoIdx f) → f
-runIxedByEra = \case
-  IxedByEraByron (NoIdx f) → f
-  IxedByEraShelley (NoIdx f) → f
-  IxedByEraAllegra (NoIdx f) → f
-  IxedByEraMary (NoIdx f) → f
-  IxedByEraAlonzo (NoIdx f) → f
-  IxedByEraBabbage (NoIdx f) → f
-  IxedByEraConway (NoIdx f) → f
+runInEra ∷ AnyEra (NoIdx f) → f
+runInEra = \case
+  InEraByron (NoIdx f) → f
+  InEraShelley (NoIdx f) → f
+  InEraAllegra (NoIdx f) → f
+  InEraMary (NoIdx f) → f
+  InEraAlonzo (NoIdx f) → f
+  InEraBabbage (NoIdx f) → f
+  InEraConway (NoIdx f) → f
 
 type EraFun ∷ (Era → Type) → (Era → Type) → Type
 data EraFun f g = EraFun
@@ -177,10 +177,10 @@ fanout3EraFun fg fh fk ap =
 
 applyEraFun ∷ ∀ (f ∷ Era → Type) g. EraFun f g → AnyEra f → AnyEra g
 applyEraFun EraFun {..} = \case
-  IxedByEraByron b → IxedByEraByron (eraFunByron b)
-  IxedByEraShelley b → IxedByEraShelley (eraFunShelley b)
-  IxedByEraAllegra b → IxedByEraAllegra (eraFunAllegra b)
-  IxedByEraMary b → IxedByEraMary (eraFunMary b)
-  IxedByEraAlonzo b → IxedByEraAlonzo (eraFunAlonzo b)
-  IxedByEraBabbage b → IxedByEraBabbage (eraFunBabbage b)
-  IxedByEraConway b → IxedByEraConway (eraFunConway b)
+  InEraByron b → InEraByron (eraFunByron b)
+  InEraShelley b → InEraShelley (eraFunShelley b)
+  InEraAllegra b → InEraAllegra (eraFunAllegra b)
+  InEraMary b → InEraMary (eraFunMary b)
+  InEraAlonzo b → InEraAlonzo (eraFunAlonzo b)
+  InEraBabbage b → InEraBabbage (eraFunBabbage b)
+  InEraConway b → InEraConway (eraFunConway b)

@@ -34,7 +34,7 @@ import Ouroboros.Network.Protocol.LocalStateQuery.Client
 import Ouroboros.Network.Protocol.LocalTxSubmission.Client
   ( localTxSubmissionClientPeer
   )
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower (ChainFollower (..))
 import Yare.Chain.Point (ChainPoint)
 import Yare.Chain.Sync qualified as ChainSync
@@ -127,8 +127,8 @@ makeNodeToClientProtocols
       , cStateQueryCodec
       , cTxMonitorCodec
       }
-      ∷ ClientCodecs HFBlock IO = clientCodecs codecConfig blockVer n2cVer
+      ∷ ClientCodecs StdCardanoBlock IO = clientCodecs codecConfig blockVer n2cVer
 
-    codecConfig ∷ CodecConfig HFBlock =
+    codecConfig ∷ CodecConfig StdCardanoBlock =
       let byronEpochSlots = EpochSlots 21600
        in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)

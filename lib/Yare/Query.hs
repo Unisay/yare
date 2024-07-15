@@ -4,8 +4,10 @@ module Yare.Query
   ( Q
   , LsqM
   , QueryCont (..)
+  , SomeEraProtocolParams (..)
   , queryHistoryInterpreter
   , queryCurrentEra
+  , queryCurrentPParams
   , queryLedgerTip
   , querySystemStart
   , client
@@ -18,7 +20,7 @@ module Yare.Query
 
 import Relude hiding (atomically, show)
 
-import Cardano.Ledger.Api (PParams)
+import Cardano.Ledger.Api (EraPParams, PParams)
 import Cardano.Slotting.Time (SystemStart)
 import Control.Concurrent.Class.MonadSTM.TQueue (TQueue, readTQueue, writeTQueue)
 import Control.Monad (ap, liftM, liftM2)
@@ -39,14 +41,10 @@ import Ouroboros.Consensus.HardFork.Combinator.Abstract
   ( EraIndex
   , eraIndexToInt
   )
-import Ouroboros.Consensus.HardFork.Combinator.Ledger.Query
-  ( BlockQuery (QueryAnytime, QueryHardFork, QueryIfCurrent)
-  , QueryAnytime (..)
-  , QueryHardFork (..)
-  , QueryIfCurrent (..)
-  )
+import Ouroboros.Consensus.HardFork.Combinator.Ledger.Query (QueryHardFork (..))
 import Ouroboros.Consensus.HardFork.History qualified as History
-import Ouroboros.Consensus.Ledger.Query (Query (..))
+import Ouroboros.Consensus.Ledger.Query (Query (BlockQuery, GetSystemStart))
+import Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
 import Ouroboros.Consensus.Shelley.Ledger.Query (BlockQuery (GetCurrentPParams))
 import Ouroboros.Consensus.Shelley.Ledger.Query qualified as Shelley
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
@@ -55,9 +53,8 @@ import Ouroboros.Network.Protocol.LocalStateQuery.Client qualified as Query
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
 import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as Query
 import Text.Show (show)
-import Yare.Chain.Block (Blocks, HFBlock, IxedByBlock (..))
+import Yare.Chain.Block (Blocks, IxedByBlock (..), StdCardanoBlock)
 import Yare.Chain.Era (Era (..))
-import Ouroboros.Consensus.Ledger.Query qualified as Consensus
 
 type Q ∷ Type
 type Q = TQueue IO (QueryCont IO)
@@ -66,15 +63,21 @@ type QueryCont ∷ (Type → Type) → Type
 data QueryCont m = ∀ r. QueryCont (LsqM m r) (Either AcquireFailure r → m ())
 
 client
-  ∷ Q → Query.LocalStateQueryClient HFBlock (Point HFBlock) (Query HFBlock) IO a
+  ∷ Q
+  → Query.LocalStateQueryClient
+      StdCardanoBlock
+      (Point StdCardanoBlock)
+      (Query StdCardanoBlock)
+      IO
+      a
 client queryQ = Query.LocalStateQueryClient idleState
  where
   idleState
     ∷ IO
         ( Query.ClientStIdle
-            HFBlock
-            (Point HFBlock)
-            (Query HFBlock)
+            StdCardanoBlock
+            (Point StdCardanoBlock)
+            (Query StdCardanoBlock)
             IO
             a
         )
@@ -83,9 +86,9 @@ client queryQ = Query.LocalStateQueryClient idleState
   acquiringState
     ∷ IO
         ( Query.ClientStAcquiring
-            HFBlock
-            (Point HFBlock)
-            (Query HFBlock)
+            StdCardanoBlock
+            (Point StdCardanoBlock)
+            (Query StdCardanoBlock)
             IO
             a
         )
@@ -101,9 +104,9 @@ client queryQ = Query.LocalStateQueryClient idleState
     → (r → IO ())
     → IO
         ( Query.ClientStAcquired
-            HFBlock
-            (Point HFBlock)
-            (Query HFBlock)
+            StdCardanoBlock
+            (Point StdCardanoBlock)
+            (Query StdCardanoBlock)
             IO
             a
         )
@@ -115,18 +118,18 @@ client queryQ = Query.LocalStateQueryClient idleState
     → ( r
         → IO
             ( Query.ClientStAcquired
-                HFBlock
-                (Point HFBlock)
-                (Query HFBlock)
+                StdCardanoBlock
+                (Point StdCardanoBlock)
+                (Query StdCardanoBlock)
                 IO
                 a
             )
       )
     → IO
         ( Query.ClientStAcquired
-            HFBlock
-            (Point HFBlock)
-            (Query HFBlock)
+            StdCardanoBlock
+            (Point StdCardanoBlock)
+            (Query StdCardanoBlock)
             IO
             a
         )
@@ -137,10 +140,13 @@ client queryQ = Query.LocalStateQueryClient idleState
       LsqQuery q → pure do
         Query.SendMsgQuery q Query.ClientStQuerying {recvMsgResult = k}
 
+--------------------------------------------------------------------------------
+-- Local State Query Monad -----------------------------------------------------
+
 -- | Local State Query Monad allows composing local state queries
 type LsqM ∷ (Type → Type) → Type → Type
 data LsqM m a
-  = LsqQuery (Consensus.Query HFBlock a)
+  = LsqQuery (Query StdCardanoBlock a)
   | LsqLift (m a)
   | ∀ r. LsqBind (LsqM m r) (r → LsqM m a)
 
@@ -170,6 +176,15 @@ instance MFunctor LsqM where
 instance Monad m ⇒ MonadZip (LsqM m) where
   mzip = liftM2 (,)
 
+fromBlockQuery
+  ∷ (MonadError (Variant e) m, e `CouldBe` EraMismatch)
+  ⇒ BlockQuery StdCardanoBlock (CardanoQueryResult StandardCrypto a)
+  → LsqM m a
+fromBlockQuery q =
+  LsqQuery (BlockQuery q) >>= \case
+    QueryResultEraMismatch eraMismatch → lift $ Oops.throw eraMismatch
+    QueryResultSuccess res → pure res
+
 --------------------------------------------------------------------------------
 -- Queries ---------------------------------------------------------------------
 
@@ -182,14 +197,44 @@ queryHistoryInterpreter = LsqQuery (BlockQuery (QueryHardFork GetInterpreter))
 queryCurrentEraIndex ∷ LsqM m (EraIndex Blocks)
 queryCurrentEraIndex = LsqQuery (BlockQuery (QueryHardFork GetCurrentEra))
 
-queryCurrentPParams ∷ Monad m ⇒ LsqM m (PParams era)
-queryCurrentPParams = undefined
+type SomeEraProtocolParams ∷ Type
+data SomeEraProtocolParams
+  = ∀ era. EraPParams era ⇒ SomeEraProtocolParams (PParams era)
+
+queryCurrentPParams
+  ∷ ( MonadError (Variant e) m
+    , e `CouldBe` UnknownEraIndex
+    , e `CouldBe` EraMismatch
+    , e `CouldBe` NoCurrentPParamsQueryInByronEra
+    )
+  ⇒ LsqM m SomeEraProtocolParams
+queryCurrentPParams =
+  queryCurrentEra >>= \case
+    Byron → lift $ Oops.throw NoCurrentPParamsQueryInByronEra
+    Shelley →
+      SomeEraProtocolParams
+        <$> fromBlockQuery (QueryIfCurrentShelley GetCurrentPParams)
+    Allegra →
+      SomeEraProtocolParams
+        <$> fromBlockQuery (QueryIfCurrentAllegra GetCurrentPParams)
+    Mary →
+      SomeEraProtocolParams
+        <$> fromBlockQuery (QueryIfCurrentMary GetCurrentPParams)
+    Alonzo →
+      SomeEraProtocolParams
+        <$> fromBlockQuery (QueryIfCurrentAlonzo GetCurrentPParams)
+    Babbage →
+      SomeEraProtocolParams
+        <$> fromBlockQuery (QueryIfCurrentBabbage GetCurrentPParams)
+    Conway →
+      SomeEraProtocolParams
+        <$> fromBlockQuery (QueryIfCurrentConway GetCurrentPParams)
 
 queryCurrentEra
   ∷ (MonadError (Variant e) m, e `CouldBe` UnknownEraIndex)
   ⇒ LsqM m Era
 queryCurrentEra =
-  LsqQuery (BlockQuery (QueryHardFork GetCurrentEra)) >>= \idx →
+  queryCurrentEraIndex >>= \idx →
     case eraIndexToInt idx of
       0 → pure Byron
       1 → pure Shelley
@@ -210,26 +255,16 @@ queryLedgerTip
   ⇒ LsqM m (IxedByBlock Point)
 queryLedgerTip =
   queryCurrentEra >>= \case
-    Byron →
-      lift $ Oops.throw NoLedgerTipQueryInByronEra
-    Shelley →
-      IxedByBlockShelley <$> query (QueryIfCurrentShelley Shelley.GetLedgerTip)
-    Allegra →
-      IxedByBlockAllegra <$> query (QueryIfCurrentAllegra Shelley.GetLedgerTip)
-    Mary →
-      IxedByBlockMary <$> query (QueryIfCurrentMary Shelley.GetLedgerTip)
-    Alonzo →
-      IxedByBlockAlonzo <$> query (QueryIfCurrentAlonzo Shelley.GetLedgerTip)
-    Babbage →
-      IxedByBlockBabbage <$> query (QueryIfCurrentBabbage Shelley.GetLedgerTip)
-    Conway → do
-      IxedByBlockConway <$> query (QueryIfCurrentConway Shelley.GetLedgerTip)
+    Byron → lift $ Oops.throw NoLedgerTipQueryInByronEra
+    Shelley → IxedByBlockShelley <$> fromBlockQuery (QueryIfCurrentShelley qry)
+    Allegra → IxedByBlockAllegra <$> fromBlockQuery (QueryIfCurrentAllegra qry)
+    Mary → IxedByBlockMary <$> fromBlockQuery (QueryIfCurrentMary qry)
+    Alonzo → IxedByBlockAlonzo <$> fromBlockQuery (QueryIfCurrentAlonzo qry)
+    Babbage → IxedByBlockBabbage <$> fromBlockQuery (QueryIfCurrentBabbage qry)
+    Conway → IxedByBlockConway <$> fromBlockQuery (QueryIfCurrentConway qry)
  where
-  query ∷ BlockQuery HFBlock (CardanoQueryResult StandardCrypto a) → LsqM m a
-  query q =
-    LsqQuery (BlockQuery q) >>= \case
-      QueryResultEraMismatch eraMismatch → lift $ Oops.throw eraMismatch
-      QueryResultSuccess res → pure res
+  qry ∷ BlockQuery (ShelleyBlock proto era) (Point (ShelleyBlock proto era))
+  qry = Shelley.GetLedgerTip
 
 --------------------------------------------------------------------------------
 -- Submission ------------------------------------------------------------------
@@ -255,4 +290,8 @@ instance Show UnknownEraIndex where
 
 type NoLedgerTipQueryInByronEra ∷ Type
 data NoLedgerTipQueryInByronEra = NoLedgerTipQueryInByronEra
+  deriving stock (Eq, Show)
+
+type NoCurrentPParamsQueryInByronEra ∷ Type
+data NoCurrentPParamsQueryInByronEra = NoCurrentPParamsQueryInByronEra
   deriving stock (Eq, Show)

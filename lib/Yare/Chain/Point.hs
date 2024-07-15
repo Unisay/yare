@@ -12,10 +12,10 @@ import Data.ByteString.Char8 qualified as BSC
 import Ouroboros.Consensus.HardFork.Combinator (OneEraHash (..))
 import Ouroboros.Network.Block (Point (..))
 import Ouroboros.Network.Point (Block (..))
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 
 type ChainPoint ∷ Type
-type ChainPoint = Point HFBlock
+type ChainPoint = Point StdCardanoBlock
 
 parseChainPoint ∷ String → Either String ChainPoint
 parseChainPoint src = do

@@ -20,7 +20,7 @@ import Ouroboros.Network.Protocol.LocalTxSubmission.Client
   , LocalTxSubmissionClient (..)
   , SubmitResult (..)
   )
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 
 type TxSubmitResult ∷ Type
 type TxSubmitResult = SubmitResult (CardanoApplyTxErr StandardCrypto)
@@ -34,7 +34,7 @@ type Q = TQueue IO (TxSubmitCont IO)
 client
   ∷ Q
   → LocalTxSubmissionClient
-      (GenTx HFBlock)
+      (GenTx StdCardanoBlock)
       (CardanoApplyTxErr StandardCrypto)
       IO
       a
@@ -44,7 +44,7 @@ waitForTxToSubmit
   ∷ Q
   → IO
       ( LocalTxClientStIdle
-          (GenTx HFBlock)
+          (GenTx StdCardanoBlock)
           (CardanoApplyTxErr StandardCrypto)
           IO
           a

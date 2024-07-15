@@ -9,11 +9,11 @@ import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Data.Kind (Type)
 import Ouroboros.Network.Block (Tip)
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Point (ChainPoint, parseChainPoint)
 
 type ChainTip ∷ Type
-type ChainTip = Tip HFBlock
+type ChainTip = Tip StdCardanoBlock
 
 type LedgerAddress ∷ Type
 type LedgerAddress = Addr StandardCrypto

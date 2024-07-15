@@ -11,7 +11,7 @@ import Relude
 
 import Ouroboros.Network.Block (Tip (TipGenesis))
 import Yare.Addresses (Addresses)
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Types (ChainPoint, ChainTip)
 import Yare.Storage (Storage (modifyStorage))
 import Yare.Utxo.State (UtxoState)
@@ -19,14 +19,14 @@ import Yare.Utxo.State qualified as UtxoState
 
 type ChainFollower ∷ (Type → Type) → Type
 data ChainFollower m = ChainFollower
-  { onNewBlock ∷ HFBlock → ChainTip → m ()
+  { onNewBlock ∷ StdCardanoBlock → ChainTip → m ()
   , onRollback ∷ ChainPoint → ChainTip → m ()
   }
 
 newChainFollower ∷ Addresses → Storage IO ChainState → ChainFollower IO
 newChainFollower addresses storage =
   ChainFollower
-    { onNewBlock = \(block ∷ HFBlock) (tip ∷ ChainTip) →
+    { onNewBlock = \(block ∷ StdCardanoBlock) (tip ∷ ChainTip) →
         modifyStorage storage (indexBlock addresses block tip)
     , onRollback = \(point ∷ ChainPoint) (tip ∷ ChainTip) →
         modifyStorage storage (rollbackTo point tip)
@@ -46,7 +46,7 @@ initialChainState =
     , chainTip = TipGenesis
     }
 
-indexBlock ∷ Addresses → HFBlock → ChainTip → ChainState → ChainState
+indexBlock ∷ Addresses → StdCardanoBlock → ChainTip → ChainState → ChainState
 indexBlock addresses block tip ChainState {utxoState} =
   ChainState
     { utxoState = UtxoState.indexBlock addresses block utxoState

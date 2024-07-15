@@ -19,7 +19,7 @@ import Ouroboros.Network.Protocol.ChainSync.Client
     )
   )
 import Text.Pretty.Simple (pPrint)
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower (ChainFollower (..))
 import Yare.Chain.Types (ChainPoint, ChainTip)
 
@@ -29,7 +29,7 @@ client
   ⇒ ChainFollower m
   → [ChainPoint]
   -- ^ known chain points
-  → ChainSyncClient HFBlock ChainPoint ChainTip m ()
+  → ChainSyncClient StdCardanoBlock ChainPoint ChainTip m ()
 client chainFollower knownChainPoints = ChainSyncClient do
   pure $
     findIntersect
@@ -37,7 +37,7 @@ client chainFollower knownChainPoints = ChainSyncClient do
         then [GenesisPoint]
         else knownChainPoints
  where
-  findIntersect ∷ [ChainPoint] → ClientStIdle HFBlock ChainPoint ChainTip m ()
+  findIntersect ∷ [ChainPoint] → ClientStIdle StdCardanoBlock ChainPoint ChainTip m ()
   findIntersect knownPoints =
     SendMsgFindIntersect
       knownPoints
@@ -52,7 +52,7 @@ client chainFollower knownChainPoints = ChainSyncClient do
             pure requestNext
         }
 
-  requestNext ∷ ClientStIdle HFBlock ChainPoint ChainTip m a
+  requestNext ∷ ClientStIdle StdCardanoBlock ChainPoint ChainTip m a
   requestNext =
     SendMsgRequestNext
       pass

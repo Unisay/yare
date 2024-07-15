@@ -45,7 +45,7 @@ import Yare.Addresses (Error (..))
 import Yare.Addresses qualified as Addresses
 import Yare.App.Types (Config (apiHttpPort))
 import Yare.App.Types qualified as App
-import Yare.Chain.Block (HFBlock)
+import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower
   ( ChainState (..)
   , chainTip
@@ -191,7 +191,7 @@ runNodeConnection App.Config {..} storage queryQ submitQ = do
     subscribe
       (localSnocket ioManager)
       networkMagic
-      (supportedNodeToClientVersions (Proxy @HFBlock))
+      (supportedNodeToClientVersions (Proxy @StdCardanoBlock))
       NetworkSubscriptionTracers
         { nsMuxTracer = nullTracer
         , nsHandshakeTracer = showTracer "HS_"
@@ -202,7 +202,7 @@ runNodeConnection App.Config {..} storage queryQ submitQ = do
         { cspAddress = nodeSocketLocalAddress nodeSocket
         , cspConnectionAttemptDelay = Nothing
         , cspErrorPolicies =
-            networkErrorPolicies <> consensusErrorPolicy (Proxy @HFBlock)
+            networkErrorPolicies <> consensusErrorPolicy (Proxy @StdCardanoBlock)
         }
       ( makeNodeToClientProtocols
           chainFollower
