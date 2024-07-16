@@ -4,3 +4,5 @@
 cabal.project.local
 dist-newstyle
 result
+.vscode
+.direnv
