@@ -90,7 +90,7 @@ serveUtxo storage = do
   pure $ Utxo.fromList (Map.toList (spendableUtxoEntries (utxoState s)))
 
 -- | Retrieves the chain tip from a storage.
-serveTip ∷ MonadIO m ⇒ Storage m ChainState → m ChainTip
+serveTip ∷ Storage IO ChainState → IO ChainTip
 serveTip storage = chainTip <$> readState storage
 
 -- | Deploys a script on-chain by submitting a transaction.
@@ -107,6 +107,7 @@ deployScript
       )
 deployScript submitQ networkInfo = do
   let NetworkInfo {protocolParameters, epochInfo, systemStart} = networkInfo
+
   let bodyContent ∷ Api.TxBodyContent Api.BuildTx era
       bodyContent = undefined
 

@@ -291,10 +291,16 @@ submit
   → ExceptT (Variant e) m a
 submit queryQ lsq = do
   var ← newEmptyMVar
+  -- Submission thread
   atomically . writeTQueue queryQ $
     QueryCont lsq \case
-      Left acquireFailure → putMVar var (Left (Variant.throw acquireFailure))
-      Right result → putMVar var (Right result)
+      Left acquireFailure → do
+        -- Callback runs in the thread of the local state query client 
+        putMVar var (Left (Variant.throw acquireFailure))
+      Right result → do
+        -- Callback runs in the thread of the local state query client 
+        putMVar var (Right result)
+  -- Submission thread
   ExceptT $ takeMVar var
 
 --------------------------------------------------------------------------------
