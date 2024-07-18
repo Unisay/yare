@@ -86,25 +86,20 @@ Starts several threads concurrently:
   * Local transaction submission
 -}
 start ∷ App.Config → IO ()
-start config@App.Config {apiHttpPort} = do
+start config@App.Config {apiHttpPort, txId} = do
   queryQ ← liftIO newTQueueIO
   submitQ ← liftIO newTQueueIO
   storage ← Storage.inMemory <$> newIORef initialChainState
-  feesInput ← initializeFeesInput
+  feesInput ← initializeFeesInput txId
   concurrently_
     (runWebServer apiHttpPort storage queryQ submitQ feesInput)
     (runNodeConnection config storage queryQ submitQ)
 
-initializeFeesInput ∷ IO TxIn
-initializeFeesInput = withHandledErrors do
-  let
-    txId ∷ ByteString -- TODO: move to config
-    txId = "85ca051bf5225ade34b1724d78d5833d6d82b3d7d7d23f35f585d504e068ee5a"
-
+initializeFeesInput ∷ ByteString → IO TxIn
+initializeFeesInput txId = withHandledErrors do
   txIdHash ←
     Crypto.hashFromBytes txId
       & Oops.hoistMaybe (InvalidTxIdHash txId)
-
   pure (TxIn (TxId txIdHash) (TxIx 0))
 
 -- | Retrieves the UTXO set from a storage.
@@ -174,27 +169,27 @@ deployScript submitQ networkInfo feesInput = do
       bodyContent =
         Api.TxBodyContent
           { txIns = [feesInput]
-          , txInsCollateral = _
-          , txInsReference = _
-          , txOuts = _
-          , txTotalCollateral = _
-          , txReturnCollateral = _
-          , txFee = _
-          , txValidityLowerBound = _
-          , txValidityUpperBound = _
-          , txMetadata = _
-          , txAuxScripts = _
-          , txExtraKeyWits = _
-          , txProtocolParams = _
-          , txWithdrawals = _
-          , txCertificates = _
-          , txUpdateProposal = _
-          , txMintValue = _
-          , txScriptValidity = _
-          , txProposalProcedures = _
-          , txVotingProcedures = _
-          , txCurrentTreasuryValue = _
-          , txTreasuryDonation = _
+          , txInsCollateral = undefined
+          , txInsReference = undefined
+          , txOuts = undefined
+          , txTotalCollateral = undefined
+          , txReturnCollateral = undefined
+          , txFee = undefined
+          , txValidityLowerBound = undefined
+          , txValidityUpperBound = undefined
+          , txMetadata = undefined
+          , txAuxScripts = undefined
+          , txExtraKeyWits = undefined
+          , txProtocolParams = undefined
+          , txWithdrawals = undefined
+          , txCertificates = undefined
+          , txUpdateProposal = undefined
+          , txMintValue = undefined
+          , txScriptValidity = undefined
+          , txProposalProcedures = undefined
+          , txVotingProcedures = undefined
+          , txCurrentTreasuryValue = undefined
+          , txTreasuryDonation = undefined
           }
 
   let changeAddr ∷ Api.AddressInEra era

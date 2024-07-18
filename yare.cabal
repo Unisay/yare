@@ -108,6 +108,7 @@ library
     , strict-sop-core                ^>=0.1.1
     , string-interpolate             ^>=0.3.3
     , text-ansi                      ^>=0.3.0.1
+    , toml-reader                    ^>=0.2.1.0
     , wai                            ^>=3.2.4
     , wai-cors                       ^>=0.2.7
     , wai-extra                      ^>=3.1.15
@@ -126,6 +127,7 @@ library
     Yare.Chain.Sync
     Yare.Chain.Tx
     Yare.Chain.Types
+    Yare.Config.Toml
     Yare.Http.Server
     Yare.Http.Types
     Yare.Mnemonic
