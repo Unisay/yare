@@ -28,11 +28,13 @@ import Path.IO qualified as Path
 import Yare.App qualified as Yare
 import Yare.App.Types qualified as App
 import Yare.Chain.Point (ChainPoint, parseChainPoint)
+import Yare.Config.Toml qualified as Toml
 import Yare.Node.Socket (NodeSocket (..))
 
 main ∷ IO ()
 main = withUtf8 do
   Args {networkMagic, nodeSocketPath, mnemonicPath, syncFrom} ← parseArguments
+  Toml.Config {apiHttpPort, txId} ← Toml.readConfig
   nodeSocket ←
     NodeSocket <$> case nodeSocketPath of
       Path.Abs a → pure a
@@ -43,11 +45,12 @@ main = withUtf8 do
       Path.Rel r → Path.makeAbsolute r
   Yare.start
     App.Config
-      { apiHttpPort = 9999
+      { apiHttpPort
       , nodeSocket
       , networkMagic
       , mnemonicFile
       , syncFrom
+      , txId
       }
 
 type Args ∷ Type

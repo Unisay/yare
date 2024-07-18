@@ -1,0 +1,7 @@
+title = "Application config file"
+
+[server]
+apiHttpPort = 9999
+
+[transaction]
+txId = "85ca051bf5225ade34b1724d78d5833d6d82b3d7d7d23f35f585d504e068ee5a"
