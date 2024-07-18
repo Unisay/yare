@@ -19,16 +19,14 @@ module Yare.Query
   , NoQueryInByronEra (..)
   ) where
 
-import Relude hiding (atomically, show)
+import Relude hiding (atomically)
 
 import Cardano.Api.Shelley
   ( AnyCardanoEra (..)
-  , AnyShelleyBasedEra (AnyShelleyBasedEra)
+  , AnyShelleyBasedEra
   , CardanoEra (..)
-  , InAnyShelleyBasedEra
   , LedgerProtocolParameters (..)
   , ShelleyBasedEra (..)
-  , inAnyShelleyBasedEra
   )
 import Cardano.Slotting.Time (SystemStart)
 import Control.Concurrent.Class.MonadSTM.TQueue
@@ -220,39 +218,29 @@ queryCurrentShelleyEra =
       i → Just (toEnum i)
 
 queryCurrentPParams
-  ∷ ( Monad m
-    , e `CouldBe` EraMismatch
-    , e `CouldBe` NoQueryInByronEra
-    )
-  ⇒ LsqM m (Either (Variant e) (InAnyShelleyBasedEra LedgerProtocolParameters))
-queryCurrentPParams =
-  queryCurrentShelleyEra >>= \case
-    Nothing →
-      pure . Left $ Variant.throw $ NoQueryInByronEra "GetCurrentPParams"
-    Just (AnyShelleyBasedEra ShelleyBasedEraShelley) →
-      inAnyShelleyBasedEra ShelleyBasedEraShelley
-        . LedgerProtocolParameters
-        <<$>> fromBlockQuery (QueryIfCurrentShelley GetCurrentPParams)
-    Just (AnyShelleyBasedEra ShelleyBasedEraAllegra) →
-      inAnyShelleyBasedEra ShelleyBasedEraAllegra
-        . LedgerProtocolParameters
-        <<$>> fromBlockQuery (QueryIfCurrentAllegra GetCurrentPParams)
-    Just (AnyShelleyBasedEra ShelleyBasedEraMary) →
-      inAnyShelleyBasedEra ShelleyBasedEraMary
-        . LedgerProtocolParameters
-        <<$>> fromBlockQuery (QueryIfCurrentMary GetCurrentPParams)
-    Just (AnyShelleyBasedEra ShelleyBasedEraAlonzo) →
-      inAnyShelleyBasedEra ShelleyBasedEraAlonzo
-        . LedgerProtocolParameters
-        <<$>> fromBlockQuery (QueryIfCurrentAlonzo GetCurrentPParams)
-    Just (AnyShelleyBasedEra ShelleyBasedEraBabbage) →
-      inAnyShelleyBasedEra ShelleyBasedEraBabbage
-        . LedgerProtocolParameters
-        <<$>> fromBlockQuery (QueryIfCurrentBabbage GetCurrentPParams)
-    Just (AnyShelleyBasedEra ShelleyBasedEraConway) →
-      inAnyShelleyBasedEra ShelleyBasedEraConway
-        . LedgerProtocolParameters
-        <<$>> fromBlockQuery (QueryIfCurrentConway GetCurrentPParams)
+  ∷ ∀ m e era
+   . (Monad m, e `CouldBe` EraMismatch)
+  ⇒ ShelleyBasedEra era
+  → LsqM m (Either (Variant e) (LedgerProtocolParameters era))
+queryCurrentPParams = \case
+  ShelleyBasedEraShelley →
+    LedgerProtocolParameters
+      <<$>> fromBlockQuery (QueryIfCurrentShelley GetCurrentPParams)
+  ShelleyBasedEraAllegra →
+    LedgerProtocolParameters
+      <<$>> fromBlockQuery (QueryIfCurrentAllegra GetCurrentPParams)
+  ShelleyBasedEraMary →
+    LedgerProtocolParameters
+      <<$>> fromBlockQuery (QueryIfCurrentMary GetCurrentPParams)
+  ShelleyBasedEraAlonzo →
+    LedgerProtocolParameters
+      <<$>> fromBlockQuery (QueryIfCurrentAlonzo GetCurrentPParams)
+  ShelleyBasedEraBabbage →
+    LedgerProtocolParameters
+      <<$>> fromBlockQuery (QueryIfCurrentBabbage GetCurrentPParams)
+  ShelleyBasedEraConway →
+    LedgerProtocolParameters
+      <<$>> fromBlockQuery (QueryIfCurrentConway GetCurrentPParams)
 
 queryLedgerTip
   ∷ ∀ m e
@@ -295,10 +283,10 @@ submit queryQ lsq = do
   atomically . writeTQueue queryQ $
     QueryCont lsq \case
       Left acquireFailure → do
-        -- Callback runs in the thread of the local state query client 
+        -- Callback runs in the thread of the local state query client
         putMVar var (Left (Variant.throw acquireFailure))
       Right result → do
-        -- Callback runs in the thread of the local state query client 
+        -- Callback runs in the thread of the local state query client
         putMVar var (Right result)
   -- Submission thread
   ExceptT $ takeMVar var

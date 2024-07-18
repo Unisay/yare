@@ -3,12 +3,23 @@ module Yare.App (start) where
 
 import Relude hiding (atomically)
 
-import Cardano.Api (InAnyShelleyBasedEra (..))
 import Cardano.Api.Ledger (KeyRole (DRepRole))
+import Cardano.Api.Ledger qualified as Crypto
 import Cardano.Api.Shelley
-  ( PoolId
+  ( AnyShelleyBasedEra (..)
+  , BuildTx
+  , BuildTxWith (..)
+  , InAnyShelleyBasedEra (..)
+  , KeyWitnessInCtx (..)
+  , PoolId
+  , ShelleyBasedEra
   , StakeCredential
   , TxBodyErrorAutoBalance
+  , TxId (..)
+  , TxIn (..)
+  , TxIx (..)
+  , WitCtxTxIn
+  , Witness (..)
   , inAnyShelleyBasedEra
   )
 import Cardano.Api.Shelley qualified as Api
@@ -79,9 +90,22 @@ start config@App.Config {apiHttpPort} = do
   queryQ ← liftIO newTQueueIO
   submitQ ← liftIO newTQueueIO
   storage ← Storage.inMemory <$> newIORef initialChainState
+  feesInput ← initializeFeesInput
   concurrently_
-    (runWebServer apiHttpPort storage queryQ submitQ)
+    (runWebServer apiHttpPort storage queryQ submitQ feesInput)
     (runNodeConnection config storage queryQ submitQ)
+
+initializeFeesInput ∷ IO TxIn
+initializeFeesInput = withHandledErrors do
+  let
+    txId ∷ ByteString -- TODO: move to config
+    txId = "85ca051bf5225ade34b1724d78d5833d6d82b3d7d7d23f35f585d504e068ee5a"
+
+  txIdHash ←
+    Crypto.hashFromBytes txId
+      & Oops.hoistMaybe (InvalidTxIdHash txId)
+
+  pure (TxIn (TxId txIdHash) (TxIx 0))
 
 -- | Retrieves the UTXO set from a storage.
 serveUtxo ∷ Storage IO ChainState → IO Utxo
@@ -93,10 +117,15 @@ serveUtxo storage = do
 serveTip ∷ Storage IO ChainState → IO ChainTip
 serveTip storage = chainTip <$> readState storage
 
+type InputForTx ∷ Type → Type
+type InputForTx era = (TxIn, BuildTxWith BuildTx (Witness WitCtxTxIn era))
+
 -- | Deploys a script on-chain by submitting a transaction.
 deployScript
-  ∷ Submitter.Q
-  → NetworkInfo
+  ∷ ∀ era
+   . Submitter.Q
+  → NetworkInfo era
+  → InputForTx era
   → IO
       ( Maybe
           ( Variant
@@ -105,11 +134,68 @@ deployScript
               ]
           )
       )
-deployScript submitQ networkInfo = do
-  let NetworkInfo {protocolParameters, epochInfo, systemStart} = networkInfo
+deployScript submitQ networkInfo feesInput = do
+  let NetworkInfo
+        { protocolParameters
+        , epochInfo
+        , systemStart
+        , currentEra
+        } = networkInfo
+  {-
+
+   TxBodyContent {
+     txIns                :: [(TxIn, BuildTxWith build (Witness WitCtxTxIn era))],
+     txInsCollateral      :: TxInsCollateral era,
+     txInsReference       :: TxInsReference build era,
+     txOuts               :: [TxOut CtxTx era],
+     txTotalCollateral    :: TxTotalCollateral era,
+     txReturnCollateral   :: TxReturnCollateral CtxTx era,
+     txFee                :: TxFee era,
+     txValidityLowerBound :: TxValidityLowerBound era,
+     txValidityUpperBound :: TxValidityUpperBound era,
+     txMetadata           :: TxMetadataInEra era,
+     txAuxScripts         :: TxAuxScripts era,
+     txExtraKeyWits       :: TxExtraKeyWitnesses era,
+     txProtocolParams     :: BuildTxWith build (Maybe (LedgerProtocolParameters era)),
+     txWithdrawals        :: TxWithdrawals  build era,
+     txCertificates       :: TxCertificates build era,
+     txUpdateProposal     :: TxUpdateProposal era,
+     txMintValue          :: TxMintValue    build era,
+     txScriptValidity     :: TxScriptValidity era,
+     txProposalProcedures :: Maybe (Featured ConwayEraOnwards era (TxProposalProcedures build era)),
+     txVotingProcedures   :: Maybe (Featured ConwayEraOnwards era (TxVotingProcedures build era)),
+     -- | Current treasury value
+     txCurrentTreasuryValue :: Maybe (Featured ConwayEraOnwards era L.Coin),
+     -- | Treasury donation to perform
+     txTreasuryDonation     :: Maybe (Featured ConwayEraOnwards era L.Coin)
+   } -}
 
   let bodyContent ∷ Api.TxBodyContent Api.BuildTx era
-      bodyContent = undefined
+      bodyContent =
+        Api.TxBodyContent
+          { txIns = [feesInput]
+          , txInsCollateral = _
+          , txInsReference = _
+          , txOuts = _
+          , txTotalCollateral = _
+          , txReturnCollateral = _
+          , txFee = _
+          , txValidityLowerBound = _
+          , txValidityUpperBound = _
+          , txMetadata = _
+          , txAuxScripts = _
+          , txExtraKeyWits = _
+          , txProtocolParams = _
+          , txWithdrawals = _
+          , txCertificates = _
+          , txUpdateProposal = _
+          , txMintValue = _
+          , txScriptValidity = _
+          , txProposalProcedures = _
+          , txVotingProcedures = _
+          , txCurrentTreasuryValue = _
+          , txTreasuryDonation = _
+          }
 
   let changeAddr ∷ Api.AddressInEra era
       changeAddr = undefined
@@ -132,59 +218,72 @@ deployScript submitQ networkInfo = do
   let witnesses ∷ [Api.ShelleyWitnessSigningKey]
       witnesses = []
 
-  case protocolParameters of
-    InAnyShelleyBasedEra era protocolParams →
-      case Api.constructBalancedTx
-        era
-        bodyContent
-        changeAddr
-        overrideKeyWitnesses
-        txInputs
-        protocolParams
-        epochInfo
-        systemStart
-        registeredPools
-        delegations
-        delegationsRewards
-        witnesses of
-        Left err →
-          pure (Just (Variant.throw (inAnyShelleyBasedEra era err)))
-        Right signedBalancedTx →
-          Submitter.submit submitQ (Api.TxInMode era signedBalancedTx)
+  case Api.constructBalancedTx
+    currentEra
+    bodyContent
+    changeAddr
+    overrideKeyWitnesses
+    txInputs
+    protocolParameters
+    epochInfo
+    systemStart
+    registeredPools
+    delegations
+    delegationsRewards
+    witnesses of
+    Left err →
+      pure $ Just $ Variant.throw $ inAnyShelleyBasedEra currentEra err
+    Right signedBalancedTx →
+      Submitter.submit submitQ (Api.TxInMode currentEra signedBalancedTx)
 
 -- | Runs a web server serving web application via a RESTful API.
 runWebServer
   ∷ Warp.Port
+  -- ^ HTTP port for API to listen on
   → Storage IO ChainState
+  -- ^ Storage for the chain state
   → Query.Q
+  -- ^ A queue used to send local state query requests
   → Submitter.Q
+  -- ^ A queue used to send transaction submission requests
+  → TxIn
+  -- ^ Fees input
   → IO ()
-runWebServer httpPort storage queryQ submitQ = withHandledErrors do
-  (systemStart, historyInterpreter, errorOrProtocolParams) ←
-    Query.submit queryQ $
-      (,,)
-        <$> Query.querySystemStart
-        <*> Query.queryHistoryInterpreter
-        <*> Query.queryCurrentPParams
+runWebServer httpPort storage queryQ submitQ feesIn = withHandledErrors do
+  Query.submit queryQ Query.queryCurrentShelleyEra
+    >>= Oops.hoistMaybe UnsupportedEraByron
+    >>= \case
+      AnyShelleyBasedEra (currentEra ∷ ShelleyBasedEra era) → do
+        (systemStart, historyInterpreter, errorOrProtocolParams) ←
+          Query.submit queryQ $
+            (,,)
+              <$> Query.querySystemStart
+              <*> Query.queryHistoryInterpreter
+              <*> Query.queryCurrentPParams currentEra
 
-  let eraHistory = Api.EraHistory historyInterpreter
+        let eraHistory = Api.EraHistory historyInterpreter
 
-  protocolParameters ← either throwError pure errorOrProtocolParams
+        protocolParameters ← either throwError pure errorOrProtocolParams
 
-  let networkInfo =
-        App.NetworkInfo
-          { systemStart
-          , epochInfo = Api.toLedgerEpochInfo eraHistory
-          , protocolParameters
-          }
+        let networkInfo ∷ NetworkInfo era =
+              NetworkInfo
+                { systemStart
+                , currentEra
+                , epochInfo = Api.toLedgerEpochInfo eraHistory
+                , protocolParameters
+                }
 
-  liftIO $
-    Warp.run httpPort . simpleCors . Http.application $
-      App.Services
-        { serveUtxo = serveUtxo storage
-        , serveTip = serveTip storage
-        , deployScript = deployScript submitQ networkInfo
-        }
+        liftIO $
+          Warp.run httpPort . simpleCors . Http.application $
+            App.Services
+              { serveUtxo = serveUtxo storage
+              , serveTip = serveTip storage
+              , deployScript =
+                  deployScript
+                    submitQ
+                    networkInfo
+                    (feesIn, BuildTxWith (KeyWitness KeyWitnessForSpending))
+              }
 
 -- | Connects to a Cardano Node socket and runs Node-to-Client mini-protocols.
 runNodeConnection
@@ -224,14 +323,24 @@ runNodeConnection App.Config {..} storage queryQ submitQ = do
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------
 
+type UnsupportedEraByron ∷ Type
+data UnsupportedEraByron = UnsupportedEraByron
+  deriving stock (Show)
+
+type InvalidTxIdHash ∷ Type
+newtype InvalidTxIdHash = InvalidTxIdHash ByteString
+  deriving stock (Show)
+
 type Errors ∷ Type
 type Errors =
   Variant
-    [ Addresses.Error
+    [ UnsupportedEraByron
+    , Addresses.Error
     , MkMnemonicError 8
     , AcquireFailure
     , EraMismatch
     , Query.NoQueryInByronEra
+    , InvalidTxIdHash
     ]
 
 {- | Given an action that may throw errors,
@@ -240,12 +349,20 @@ exiting the process.
 -}
 withHandledErrors ∷ ExceptT Errors IO a → IO a
 withHandledErrors =
-  crashOnAddressesError
+  crashOnUnsupportedEraError
+    >>> crashOnAddressesError
     >>> crashOnMnemonicError
     >>> crashOnAcquireFailure
     >>> crashOnEraMismatch
     >>> crashOnNoQuery
+    >>> crashOnInvalidTxIdHash
     >>> Oops.runOops
+
+crashOnUnsupportedEraError
+  ∷ ExceptT (Variant (UnsupportedEraByron : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnUnsupportedEraError = Oops.catch \UnsupportedEraByron →
+  crash "Current node era (Byron) is not supported."
 
 crashOnAddressesError
   ∷ ExceptT (Variant (Addresses.Error : e)) IO a
@@ -281,6 +398,12 @@ crashOnNoQuery = Oops.catch \(Query.NoQueryInByronEra query) →
     , "but the Cardano Node is currently in the Byron "
     , "era and such query is not available."
     ]
+
+crashOnInvalidTxIdHash
+  ∷ ExceptT (Variant (InvalidTxIdHash : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnInvalidTxIdHash = Oops.catch \(InvalidTxIdHash hash) →
+  crash $ "Failed to parse transaction ID hash: " <> show hash
 
 crash ∷ MonadIO m ⇒ Text → m a
 crash = liftIO . throwIO . userError . toString

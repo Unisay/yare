@@ -114,10 +114,11 @@ library
     , warp                           ^>=3.4.1
     , Win32-network                  ^>=0.2
 
-  exposed-modules:
+  exposed-modules: Yare.App
+  other-modules:
+    Control.Concurrent.Exchange
     Yare.Address
     Yare.Addresses
-    Yare.App
     Yare.App.Types
     Yare.Chain.Block
     Yare.Chain.Era

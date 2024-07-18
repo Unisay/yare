@@ -10,6 +10,7 @@ import Cardano.Api.Shelley
   ( InAnyShelleyBasedEra
   , LedgerEpochInfo
   , LedgerProtocolParameters
+  , ShelleyBasedEra
   , SystemStart
   , TxBodyErrorAutoBalance
   )
@@ -33,11 +34,12 @@ data Config = Config
   , syncFrom ∷ Maybe ChainPoint -- TODO: let app decide it based on the persistent state
   }
 
-type NetworkInfo ∷ Type
-data NetworkInfo = NetworkInfo
+type NetworkInfo ∷ Type → Type
+data NetworkInfo era = NetworkInfo
   { systemStart ∷ SystemStart
   , epochInfo ∷ LedgerEpochInfo
-  , protocolParameters ∷ InAnyShelleyBasedEra LedgerProtocolParameters
+  , currentEra ∷ ShelleyBasedEra era
+  , protocolParameters ∷ LedgerProtocolParameters era
   }
 
 -- | Application services
