@@ -7,7 +7,7 @@ import Data.ByteString.Char8 (pack)
 import Network.Wai.Handler.Warp (Port)
 import TOML.Decode (DecodeTOML (..), Decoder, decodeFile, getFields)
 
--- | Data that must be present in `toml.config`
+-- | Data that must be present in `config.toml`
 type Config ∷ Type
 data Config = Config
   { apiHttpPort ∷ Port
