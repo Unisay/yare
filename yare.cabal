@@ -29,6 +29,7 @@ common opts
     InstanceSigs
     KindSignatures
     LambdaCase
+    LiberalTypeSynonyms
     MultiParamTypeClasses
     NamedFieldPuns
     NumericUnderscores
@@ -89,7 +90,7 @@ library
     , generics-sop                   ^>=0.5.1.4
     , int-cast                       ^>=0.2
     , io-classes                     ^>=1.5
-    , microlens                      ^>=0.4.13.1
+    , lens                           ^>=5.3.2
     , mmorph                         ^>=1.2
     , mtl                            ^>=2.3.1
     , oops                           ^>=0.2.0.1
@@ -118,6 +119,7 @@ library
     Yare.Address
     Yare.Addresses
     Yare.App
+    Yare.App.Services
     Yare.App.Types
     Yare.Chain.Block
     Yare.Chain.Era
@@ -126,6 +128,7 @@ library
     Yare.Chain.Sync
     Yare.Chain.Tx
     Yare.Chain.Types
+    Yare.Funds
     Yare.Http.Server
     Yare.Http.Types
     Yare.Mnemonic

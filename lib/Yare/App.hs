@@ -3,30 +3,13 @@ module Yare.App (start) where
 
 import Relude hiding (atomically)
 
-import Cardano.Api.Ledger (KeyRole (DRepRole))
-import Cardano.Api.Ledger qualified as Crypto
 import Cardano.Api.Shelley
   ( AnyShelleyBasedEra (..)
-  , BuildTx
-  , BuildTxWith (..)
-  , InAnyShelleyBasedEra (..)
-  , KeyWitnessInCtx (..)
-  , PoolId
-  , ShelleyBasedEra
-  , StakeCredential
-  , TxBodyErrorAutoBalance
-  , TxId (..)
-  , TxIn (..)
-  , TxIx (..)
-  , WitCtxTxIn
-  , Witness (..)
-  , inAnyShelleyBasedEra
+  , EraHistory (..)
+  , ShelleyBasedEra (..)
+  , toLedgerEpochInfo
   )
-import Cardano.Api.Shelley qualified as Api
 import Cardano.Client.Subscription (subscribe)
-import Cardano.Ledger.Coin qualified as L
-import Cardano.Ledger.Credential (Credential)
-import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Mnemonic (MkMnemonicError)
 import Control.Concurrent.Class.MonadSTM.TQueue (newTQueueIO)
 import Control.Exception (throwIO)
@@ -34,13 +17,10 @@ import Control.Monad.Class.MonadAsync (concurrently_)
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
-import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
-import Data.Variant qualified as Variant
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
-import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, EraMismatch)
+import Ouroboros.Consensus.Cardano.Block (EraMismatch)
 import Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy)
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
   ( supportedNodeToClientVersions
@@ -53,29 +33,21 @@ import Ouroboros.Network.NodeToClient
   , withIOManager
   )
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
-import Yare.Addresses (Error (..))
+import Yare.Addresses (Addresses, Error (..))
 import Yare.Addresses qualified as Addresses
-import Yare.App.Types (Config (apiHttpPort), NetworkInfo (..))
+import Yare.App.Services qualified as App
+import Yare.App.Types (AppState, Config (apiHttpPort), NetworkInfo (..), chainState)
 import Yare.App.Types qualified as App
 import Yare.Chain.Block (StdCardanoBlock)
-import Yare.Chain.Follower
-  ( ChainState (..)
-  , chainTip
-  , initialChainState
-  , newChainFollower
-  )
-import Yare.Chain.Types (ChainTip)
+import Yare.Chain.Follower (ChainState (..), newChainFollower)
 import Yare.Http.Server qualified as Http
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (nodeSocketLocalAddress)
 import Yare.Query qualified as Query
-import Yare.Storage (Storage (..))
+import Yare.Storage (Storage (..), zoomStorage)
 import Yare.Storage qualified as Storage
 import Yare.Submitter qualified as Submitter
 import Yare.Tracer (nullTracer, showTracer)
-import Yare.Utxo (Utxo)
-import Yare.Utxo qualified as Utxo
-import Yare.Utxo.State (spendableUtxoEntries)
 
 {- |
 Starts several threads concurrently:
@@ -86,215 +58,78 @@ Starts several threads concurrently:
   * Local transaction submission
 -}
 start ∷ App.Config → IO ()
-start config@App.Config {apiHttpPort} = do
+start config@App.Config {networkMagic, mnemonicFile} = do
+  addresses ← withHandledErrors do
+    Addresses.deriveFromMnemonic networkMagic mnemonicFile
   queryQ ← liftIO newTQueueIO
   submitQ ← liftIO newTQueueIO
-  storage ← Storage.inMemory <$> newIORef initialChainState
-  feesInput ← initializeFeesInput
+  storage ← Storage.inMemory <$> newIORef (App.initialState addresses)
   concurrently_
-    (runWebServer apiHttpPort storage queryQ submitQ feesInput)
-    (runNodeConnection config storage queryQ submitQ)
-
-initializeFeesInput ∷ IO TxIn
-initializeFeesInput = withHandledErrors do
-  let
-    txId ∷ ByteString -- TODO: move to config
-    txId = "85ca051bf5225ade34b1724d78d5833d6d82b3d7d7d23f35f585d504e068ee5a"
-
-  txIdHash ←
-    Crypto.hashFromBytes txId
-      & Oops.hoistMaybe (InvalidTxIdHash txId)
-
-  pure (TxIn (TxId txIdHash) (TxIx 0))
-
--- | Retrieves the UTXO set from a storage.
-serveUtxo ∷ Storage IO ChainState → IO Utxo
-serveUtxo storage = do
-  s ← readState storage
-  pure $ Utxo.fromList (Map.toList (spendableUtxoEntries (utxoState s)))
-
--- | Retrieves the chain tip from a storage.
-serveTip ∷ Storage IO ChainState → IO ChainTip
-serveTip storage = chainTip <$> readState storage
-
-type InputForTx ∷ Type → Type
-type InputForTx era = (TxIn, BuildTxWith BuildTx (Witness WitCtxTxIn era))
-
--- | Deploys a script on-chain by submitting a transaction.
-deployScript
-  ∷ ∀ era
-   . Submitter.Q
-  → NetworkInfo era
-  → InputForTx era
-  → IO
-      ( Maybe
-          ( Variant
-              [ CardanoApplyTxErr StandardCrypto
-              , InAnyShelleyBasedEra TxBodyErrorAutoBalance
-              ]
-          )
-      )
-deployScript submitQ networkInfo feesInput = do
-  let NetworkInfo
-        { protocolParameters
-        , epochInfo
-        , systemStart
-        , currentEra
-        } = networkInfo
-  {-
-
-   TxBodyContent {
-     txIns                :: [(TxIn, BuildTxWith build (Witness WitCtxTxIn era))],
-     txInsCollateral      :: TxInsCollateral era,
-     txInsReference       :: TxInsReference build era,
-     txOuts               :: [TxOut CtxTx era],
-     txTotalCollateral    :: TxTotalCollateral era,
-     txReturnCollateral   :: TxReturnCollateral CtxTx era,
-     txFee                :: TxFee era,
-     txValidityLowerBound :: TxValidityLowerBound era,
-     txValidityUpperBound :: TxValidityUpperBound era,
-     txMetadata           :: TxMetadataInEra era,
-     txAuxScripts         :: TxAuxScripts era,
-     txExtraKeyWits       :: TxExtraKeyWitnesses era,
-     txProtocolParams     :: BuildTxWith build (Maybe (LedgerProtocolParameters era)),
-     txWithdrawals        :: TxWithdrawals  build era,
-     txCertificates       :: TxCertificates build era,
-     txUpdateProposal     :: TxUpdateProposal era,
-     txMintValue          :: TxMintValue    build era,
-     txScriptValidity     :: TxScriptValidity era,
-     txProposalProcedures :: Maybe (Featured ConwayEraOnwards era (TxProposalProcedures build era)),
-     txVotingProcedures   :: Maybe (Featured ConwayEraOnwards era (TxVotingProcedures build era)),
-     -- | Current treasury value
-     txCurrentTreasuryValue :: Maybe (Featured ConwayEraOnwards era L.Coin),
-     -- | Treasury donation to perform
-     txTreasuryDonation     :: Maybe (Featured ConwayEraOnwards era L.Coin)
-   } -}
-
-  let bodyContent ∷ Api.TxBodyContent Api.BuildTx era
-      bodyContent =
-        Api.TxBodyContent
-          { txIns = [feesInput]
-          , txInsCollateral = _
-          , txInsReference = _
-          , txOuts = _
-          , txTotalCollateral = _
-          , txReturnCollateral = _
-          , txFee = _
-          , txValidityLowerBound = _
-          , txValidityUpperBound = _
-          , txMetadata = _
-          , txAuxScripts = _
-          , txExtraKeyWits = _
-          , txProtocolParams = _
-          , txWithdrawals = _
-          , txCertificates = _
-          , txUpdateProposal = _
-          , txMintValue = _
-          , txScriptValidity = _
-          , txProposalProcedures = _
-          , txVotingProcedures = _
-          , txCurrentTreasuryValue = _
-          , txTreasuryDonation = _
-          }
-
-  let changeAddr ∷ Api.AddressInEra era
-      changeAddr = undefined
-
-  let overrideKeyWitnesses ∷ Maybe Word
-      overrideKeyWitnesses = Nothing
-
-  let txInputs ∷ Api.UTxO era
-      txInputs = undefined
-
-  let registeredPools ∷ Set PoolId
-      registeredPools = Set.empty
-
-  let delegations ∷ Map StakeCredential L.Coin
-      delegations = Map.empty
-
-  let delegationsRewards ∷ Map (Credential DRepRole StandardCrypto) L.Coin
-      delegationsRewards = Map.empty
-
-  let witnesses ∷ [Api.ShelleyWitnessSigningKey]
-      witnesses = []
-
-  case Api.constructBalancedTx
-    currentEra
-    bodyContent
-    changeAddr
-    overrideKeyWitnesses
-    txInputs
-    protocolParameters
-    epochInfo
-    systemStart
-    registeredPools
-    delegations
-    delegationsRewards
-    witnesses of
-    Left err →
-      pure $ Just $ Variant.throw $ inAnyShelleyBasedEra currentEra err
-    Right signedBalancedTx →
-      Submitter.submit submitQ (Api.TxInMode currentEra signedBalancedTx)
+    ( runWebServer
+        config
+        storage
+        queryQ
+        submitQ
+    )
+    ( runNodeConnection
+        config
+        addresses
+        (zoomStorage chainState storage)
+        queryQ
+        submitQ
+    )
 
 -- | Runs a web server serving web application via a RESTful API.
 runWebServer
-  ∷ Warp.Port
-  -- ^ HTTP port for API to listen on
-  → Storage IO ChainState
+  ∷ Config
+  -- ^ Application configuration
+  → Storage IO AppState
   -- ^ Storage for the chain state
   → Query.Q
   -- ^ A queue used to send local state query requests
   → Submitter.Q
   -- ^ A queue used to send transaction submission requests
-  → TxIn
-  -- ^ Fees input
   → IO ()
-runWebServer httpPort storage queryQ submitQ feesIn = withHandledErrors do
-  Query.submit queryQ Query.queryCurrentShelleyEra
-    >>= Oops.hoistMaybe UnsupportedEraByron
-    >>= \case
-      AnyShelleyBasedEra (currentEra ∷ ShelleyBasedEra era) → do
-        (systemStart, historyInterpreter, errorOrProtocolParams) ←
-          Query.submit queryQ $
-            (,,)
-              <$> Query.querySystemStart
-              <*> Query.queryHistoryInterpreter
-              <*> Query.queryCurrentPParams currentEra
+runWebServer App.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
+  withHandledErrors do
+    Query.submit queryQ Query.queryCurrentShelleyEra
+      >>= Oops.hoistMaybe UnsupportedEraByron
+      >>= \case
+        AnyShelleyBasedEra (currentEra ∷ ShelleyBasedEra era) → do
+          -- Making NetworkInfo ------------------------------------------------
+          network ← Addresses.networkMagicToLedgerNetwork networkMagic
+          (systemStart, historyInterpreter, errorOrProtocolParams) ←
+            Query.submit queryQ $
+              (,,)
+                <$> Query.querySystemStart
+                <*> Query.queryHistoryInterpreter
+                <*> Query.queryCurrentPParams currentEra
+          let epochInfo = toLedgerEpochInfo (EraHistory historyInterpreter)
+          protocolParameters ← either throwError pure errorOrProtocolParams
+          let networkInfo =
+                NetworkInfo
+                  { network
+                  , systemStart
+                  , currentEra
+                  , epochInfo
+                  , protocolParameters
+                  }
+          -- Running the server ------------------------------------------------
+          liftIO . Warp.run apiHttpPort . simpleCors . Http.application $
+            App.mkServices storage submitQ networkInfo
 
-        let eraHistory = Api.EraHistory historyInterpreter
-
-        protocolParameters ← either throwError pure errorOrProtocolParams
-
-        let networkInfo ∷ NetworkInfo era =
-              NetworkInfo
-                { systemStart
-                , currentEra
-                , epochInfo = Api.toLedgerEpochInfo eraHistory
-                , protocolParameters
-                }
-
-        liftIO $
-          Warp.run httpPort . simpleCors . Http.application $
-            App.Services
-              { serveUtxo = serveUtxo storage
-              , serveTip = serveTip storage
-              , deployScript =
-                  deployScript
-                    submitQ
-                    networkInfo
-                    (feesIn, BuildTxWith (KeyWitness KeyWitnessForSpending))
-              }
+--------------------------------------------------------------------------------
+-- Node connection -------------------------------------------------------------
 
 -- | Connects to a Cardano Node socket and runs Node-to-Client mini-protocols.
 runNodeConnection
   ∷ App.Config
+  → Addresses
   → Storage IO ChainState
   → Query.Q
   → Submitter.Q
   → IO Void
-runNodeConnection App.Config {..} storage queryQ submitQ = do
-  addresses ← withHandledErrors do
-    Addresses.deriveFromMnemonic networkMagic mnemonicFile
+runNodeConnection App.Config {..} addresses storage queryQ submitQ = do
   let chainFollower = newChainFollower addresses storage
   withIOManager \ioManager →
     subscribe

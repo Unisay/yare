@@ -54,8 +54,8 @@ import Cardano.Ledger.Mary (MaryTxBody)
 import Cardano.Ledger.Shelley (ShelleyTx, ShelleyTxBody, ShelleyTxOut)
 import Cardano.Ledger.Shelley.Core (txIdTxBody)
 import Cardano.Ledger.Shelley.TxOut (addrEitherShelleyTxOutL)
+import Control.Lens (folded, to, (^.), (^..))
 import Data.SOP.Strict (NS (S, Z))
-import Lens.Micro (folded, to, (^.), (^..))
 import Ouroboros.Consensus.Byron.Ledger (ByronBlock, byronBlockRaw)
 import Ouroboros.Consensus.Byron.Ledger qualified as Consensus
 import Ouroboros.Consensus.Cardano.Block
@@ -305,8 +305,8 @@ inputsEraFun =
         Compose $
           Byron.taTx tx
             ^.. to Byron.txInputs
-            . folded
-            . to (NoIdx . CAB.fromByronTxIn)
+              . folded
+              . to (NoIdx . CAB.fromByronTxIn)
     , eraFunShelley = \(TxBody tx) →
         Compose $
           tx ^.. inputsTxBodyL . folded . to (NoIdx . CAS.fromShelleyTxIn)

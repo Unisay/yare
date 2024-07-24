@@ -1,28 +1,32 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Yare.App.Types
   ( Config (..)
-  , Services (..)
   , NetworkInfo (..)
+  , AppState (..)
+  , chainState
+  , addressState
+  , initialState
   ) where
 
 import Relude
 
+import Cardano.Api.Ledger (Network)
 import Cardano.Api.Shelley
-  ( InAnyShelleyBasedEra
-  , LedgerEpochInfo
+  ( LedgerEpochInfo
   , LedgerProtocolParameters
   , ShelleyBasedEra
   , SystemStart
-  , TxBodyErrorAutoBalance
   )
+import Control.Lens.TH (makeLenses)
 import Data.Tagged (Tagged)
-import Data.Variant (Variant)
 import Network.Wai.Handler.Warp qualified as Warp
-import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, StandardCrypto)
 import Ouroboros.Network.Magic (NetworkMagic)
 import Path (Abs, File, Path)
-import Yare.Chain.Types (ChainPoint, ChainTip)
+import Yare.Addresses (Addresses)
+import Yare.Chain.Follower (ChainState, initialChainState)
+import Yare.Chain.Point (ChainPoint)
 import Yare.Node.Socket (NodeSocket)
-import Yare.Utxo (Utxo)
 
 -- | An application configuration
 type Config ∷ Type
@@ -36,24 +40,24 @@ data Config = Config
 
 type NetworkInfo ∷ Type → Type
 data NetworkInfo era = NetworkInfo
-  { systemStart ∷ SystemStart
+  { network ∷ Network
+  , systemStart ∷ SystemStart
   , epochInfo ∷ LedgerEpochInfo
   , currentEra ∷ ShelleyBasedEra era
   , protocolParameters ∷ LedgerProtocolParameters era
   }
 
--- | Application services
-type Services ∷ Type
-data Services = Services
-  { serveUtxo ∷ IO Utxo
-  , serveTip ∷ IO ChainTip
-  , deployScript
-      ∷ IO
-          ( Maybe
-              ( Variant
-                  [ CardanoApplyTxErr StandardCrypto
-                  , InAnyShelleyBasedEra TxBodyErrorAutoBalance
-                  ]
-              )
-          )
+type AppState ∷ Type
+data AppState = AppState
+  { _chainState ∷ ChainState
+  , _addressState ∷ Addresses
   }
+
+initialState ∷ Addresses → AppState
+initialState _addressState =
+  AppState
+    { _chainState = initialChainState
+    , _addressState
+    }
+
+$(makeLenses ''AppState)
