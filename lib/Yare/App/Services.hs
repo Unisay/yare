@@ -1,11 +1,13 @@
 module Yare.App.Services
   ( Services (..)
   , mkServices
+  , NoFeeInputs
+  , NoCollateralInputs
   ) where
 
 import Relude
 
-import Cardano.Api (TxInsReference (..))
+import Cardano.Api (TxInsReference (..), runExcept)
 import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
 import Cardano.Api.Shelley
   ( AlonzoEraOnwards (..)
@@ -21,6 +23,7 @@ import Cardano.Api.Shelley
   , Tx
   , TxBodyContent (..)
   , TxBodyErrorAutoBalance
+  , TxIn
   , TxInMode (..)
   , TxInsCollateral (..)
   , TxOut (..)
@@ -32,28 +35,37 @@ import Cardano.Api.Shelley
   )
 import Cardano.Ledger.Coin qualified as L
 import Cardano.Ledger.Crypto (StandardCrypto)
-import Control.Lens (Lens, Simple, lens, set, view, (.~), (^.), _1)
-import Control.Monad.Oops (Variant)
+import Control.Lens (Lens, Simple, lens, (.~), (^.), _1)
+import Control.Monad.Except (Except)
+import Control.Monad.Oops (CouldBe, Variant)
+import Control.Monad.Oops qualified as Oops
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Data.Variant qualified as Variant
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
 import Yare.Addresses (Addresses)
 import Yare.Addresses qualified as Addresses
 import Yare.App.Types (AppState, NetworkInfo (..), addressState, chainState)
-import Yare.Chain.Follower (ChainState (..), chainTip, utxoState)
-import Yare.Chain.Types (ChainTip)
+import Yare.Chain.Follower (ChainState (..), chainTip, utxo)
+import Yare.Chain.Types (ChainTip, LedgerAddress)
 import Yare.Funds qualified as Funds
-import Yare.Storage (Storage (..), overStorageState, stateful, stateful', zoomStorage)
+import Yare.Storage
+  ( Storage (..)
+  , readsStorage
+  , stateful'
+  , statefulMaybe
+  , zoomStorage
+  )
 import Yare.Submitter qualified as Submitter
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
-import Yare.Utxo.State (UtxoState, spendableUtxoEntries)
 
 -- | Application services
 type Services ∷ (Type → Type) → Type
 data Services m = Services
-  { serveUtxo ∷ m Utxo
+  { serveChangeAddresses ∷ m [LedgerAddress]
+  , serveFeeAddresses ∷ m [LedgerAddress]
+  , serveCollateralAddresses ∷ m [LedgerAddress]
+  , serveUtxo ∷ m Utxo.Entries
   , serveTip ∷ m ChainTip
   , deployScript
       ∷ IO
@@ -61,6 +73,8 @@ data Services m = Services
               ( Variant
                   [ CardanoApplyTxErr StandardCrypto
                   , InAnyShelleyBasedEra TxBodyErrorAutoBalance
+                  , NoFeeInputs
+                  , NoCollateralInputs
                   ]
               )
           )
@@ -73,57 +87,66 @@ mkServices
   → Services IO
 mkServices storage submitQ networkInfo =
   Services
-    { serveUtxo =
-        serveUtxoFromStorage chainStateStorage
+    { serveChangeAddresses =
+        pure . snd . Addresses.useForChange
+          <$> readsStorage storage addressState
+    , serveFeeAddresses =
+        pure . snd . Addresses.useForFees
+          <$> readsStorage storage addressState
+    , serveCollateralAddresses =
+        pure . snd . Addresses.useForCollateral
+          <$> readsStorage storage addressState
+    , serveUtxo =
+        Utxo.spendableEntries
+          <$> readsStorage chainStateStorage utxo
     , serveTip =
-        serveTipFromStorage chainStateStorage
+        readsStorage chainStateStorage chainTip
     , deployScript =
         serviceDeployScript
-          (zoomStorage (both addressState (chainState . utxoState)) storage)
+          (zoomStorage (both addressState (chainState . utxo)) storage)
           submitQ
           networkInfo
     }
  where
+  chainStateStorage ∷ Storage IO ChainState
   chainStateStorage = zoomStorage chainState storage
-
--- | Retrieves the UTXO set from a storage.
-serveUtxoFromStorage ∷ Storage IO ChainState → IO Utxo
-serveUtxoFromStorage storage = do
-  s ← readStorage storage
-  pure $ Utxo.fromList (Map.toList (spendableUtxoEntries (s ^. utxoState)))
-
--- | Retrieves the chain tip from a storage.
-serveTipFromStorage ∷ Storage IO ChainState → IO ChainTip
-serveTipFromStorage storage = view chainTip <$> readStorage storage
 
 -- | Deploys a script on-chain by submitting a transaction.
 serviceDeployScript
-  ∷ ∀ era
-   . Storage IO (Addresses, UtxoState)
+  ∷ ∀ era e
+   . ( e `CouldBe` CardanoApplyTxErr StandardCrypto
+     , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
+     , e `CouldBe` NoFeeInputs
+     , e `CouldBe` NoCollateralInputs
+     )
+  ⇒ Storage IO (Addresses, Utxo)
   → Submitter.Q
   → NetworkInfo era
-  → IO
-      ( Maybe
-          ( Variant
-              [ CardanoApplyTxErr StandardCrypto
-              , InAnyShelleyBasedEra TxBodyErrorAutoBalance
-              ]
-          )
-      )
+  → IO (Maybe (Variant e))
 serviceDeployScript storage submitQ networkInfo = do
   let NetworkInfo {currentEra} = networkInfo
-  overStorageState storage (txDeployScript networkInfo) >>= \case
-    Left err →
-      pure $ Just $ Variant.throw $ inAnyShelleyBasedEra currentEra err
-    Right signedBalancedTx →
-      Submitter.submit submitQ (TxInMode currentEra signedBalancedTx)
+  overStorage storage (run (txDeployScript networkInfo))
+    >>= \case
+      Left err → pure (Just err)
+      Right signedBalancedTx →
+        Submitter.submit submitQ (TxInMode currentEra signedBalancedTx)
+ where
+  run ∷ StateT s (Except (Variant e)) a → (s → (s, Either (Variant e) a))
+  run st =
+    runStateT st & \f s →
+      f s & \et →
+        case runExcept et of
+          Left e → (s, Left e)
+          Right (txEra, s') → (s', Right txEra)
 
 txDeployScript
-  ∷ ∀ era
-   . NetworkInfo era
-  → State
-      (Addresses, UtxoState)
-      (Either (TxBodyErrorAutoBalance era) (Tx era))
+  ∷ ∀ era e
+   . ( e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
+     , e `CouldBe` NoFeeInputs
+     , e `CouldBe` NoCollateralInputs
+     )
+  ⇒ NetworkInfo era
+  → StateT (Addresses, Utxo) (Except (Variant e)) (Tx era)
 txDeployScript networkInfo = do
   let NetworkInfo
         { protocolParameters
@@ -131,11 +154,17 @@ txDeployScript networkInfo = do
         , systemStart
         , currentEra
         } = networkInfo
-  originalState ← get
-  feeInputs ← stateful Funds.useFeeInputs
-  colInputs ← stateful Funds.useCollateralInputs
+  feeInputs ∷ NonEmpty TxIn ←
+    statefulMaybe Funds.useFeeInputs
+      & Oops.onNothingThrow NoFeeInputs
+
+  colInputs ∷ NonEmpty TxIn ←
+    statefulMaybe Funds.useCollateralInputs
+      & Oops.onNothingThrow NoCollateralInputs
+
   changeAddr ←
-    fromShelleyAddrIsSbe currentEra <$> stateful' _1 Addresses.useChangeAddress
+    fromShelleyAddrIsSbe currentEra
+      <$> stateful' _1 Addresses.useForChange
 
   let
     scriptOutput ∷ TxOut CtxTx era
@@ -235,25 +264,20 @@ txDeployScript networkInfo = do
     witnesses ∷ [ShelleyWitnessSigningKey]
     witnesses = []
 
-    txConstructionResult =
-      constructBalancedTx
-        currentEra
-        bodyContent
-        changeAddr
-        overrideKeyWitnesses
-        txInputs
-        protocolParameters
-        epochInfo
-        systemStart
-        registeredPools
-        delegations
-        delegationsRewards
-        witnesses
-
-  when (isLeft txConstructionResult) do
-    put originalState
-
-  pure txConstructionResult
+  Oops.hoistEither . first (inAnyShelleyBasedEra currentEra) $
+    constructBalancedTx
+      currentEra
+      bodyContent
+      changeAddr
+      overrideKeyWitnesses
+      txInputs
+      protocolParameters
+      epochInfo
+      systemStart
+      registeredPools
+      delegations
+      delegationsRewards
+      witnesses
 
 --------------------------------------------------------------------------------
 -- Lens utilities --------------------------------------------------------------
@@ -263,3 +287,14 @@ both l r =
   lens
     (\s → (s ^. l, s ^. r))
     (\s (a, b) → s & l .~ a & r .~ b)
+
+--------------------------------------------------------------------------------
+-- Error types -----------------------------------------------------------------
+
+type NoFeeInputs ∷ Type
+data NoFeeInputs = NoFeeInputs
+  deriving stock (Show)
+
+type NoCollateralInputs ∷ Type
+data NoCollateralInputs = NoCollateralInputs
+  deriving stock (Show)

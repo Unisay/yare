@@ -21,6 +21,7 @@ import Cardano.Api.Shelley
 import Control.Lens.TH (makeLenses)
 import Data.Tagged (Tagged)
 import Network.Wai.Handler.Warp qualified as Warp
+import NoThunks.Class (NoThunks)
 import Ouroboros.Network.Magic (NetworkMagic)
 import Path (Abs, File, Path)
 import Yare.Addresses (Addresses)
@@ -49,15 +50,14 @@ data NetworkInfo era = NetworkInfo
 
 type AppState ∷ Type
 data AppState = AppState
-  { _chainState ∷ ChainState
-  , _addressState ∷ Addresses
+  { _chainState ∷ !ChainState
+  , _addressState ∷ !Addresses
   }
+  deriving stock (Generic)
+  deriving anyclass (NoThunks)
 
 initialState ∷ Addresses → AppState
 initialState _addressState =
-  AppState
-    { _chainState = initialChainState
-    , _addressState
-    }
+  AppState {_chainState = initialChainState, _addressState}
 
 $(makeLenses ''AppState)

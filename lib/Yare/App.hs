@@ -17,6 +17,7 @@ import Control.Monad.Class.MonadAsync (concurrently_)
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
+import Data.IORef.Strict qualified as Strict
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
@@ -33,10 +34,20 @@ import Ouroboros.Network.NodeToClient
   , withIOManager
   )
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
-import Yare.Addresses (Addresses, Error (..))
+import Yare.Addresses
+  ( AddressConversionError (..)
+  , AddressDerivationError (..)
+  , Addresses
+  , NetworkMagicNoTagError (..)
+  )
 import Yare.Addresses qualified as Addresses
 import Yare.App.Services qualified as App
-import Yare.App.Types (AppState, Config (apiHttpPort), NetworkInfo (..), chainState)
+import Yare.App.Types
+  ( AppState
+  , Config (apiHttpPort)
+  , NetworkInfo (..)
+  , chainState
+  )
 import Yare.App.Types qualified as App
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower (ChainState (..), newChainFollower)
@@ -63,7 +74,8 @@ start config@App.Config {networkMagic, mnemonicFile} = do
     Addresses.deriveFromMnemonic networkMagic mnemonicFile
   queryQ ← liftIO newTQueueIO
   submitQ ← liftIO newTQueueIO
-  storage ← Storage.inMemory <$> newIORef (App.initialState addresses)
+  let !appState = App.initialState addresses
+  storage ← Storage.inMemory <$> Strict.newIORef appState
   concurrently_
     ( runWebServer
         config
@@ -170,7 +182,9 @@ type Errors ∷ Type
 type Errors =
   Variant
     [ UnsupportedEraByron
-    , Addresses.Error
+    , NetworkMagicNoTagError
+    , AddressConversionError
+    , AddressDerivationError
     , MkMnemonicError 8
     , AcquireFailure
     , EraMismatch
@@ -185,7 +199,9 @@ exiting the process.
 withHandledErrors ∷ ExceptT Errors IO a → IO a
 withHandledErrors =
   crashOnUnsupportedEraError
-    >>> crashOnAddressesError
+    >>> crashOnNetworkMagicNoTagError
+    >>> crashOnAddressConversionError
+    >>> crashOnAddressDerivationError
     >>> crashOnMnemonicError
     >>> crashOnAcquireFailure
     >>> crashOnEraMismatch
@@ -199,11 +215,23 @@ crashOnUnsupportedEraError
 crashOnUnsupportedEraError = Oops.catch \UnsupportedEraByron →
   crash "Current node era (Byron) is not supported."
 
-crashOnAddressesError
-  ∷ ExceptT (Variant (Addresses.Error : e)) IO a
+crashOnNetworkMagicNoTagError
+  ∷ ExceptT (Variant (NetworkMagicNoTagError : e)) IO a
   → ExceptT (Variant e) IO a
-crashOnAddressesError = Oops.catch \(NetworkMagicNoTag magic) →
+crashOnNetworkMagicNoTagError = Oops.catch \(NetworkMagicNoTag magic) →
   crash $ "Failed to determine a network tag for magic: " <> show magic
+
+crashOnAddressConversionError
+  ∷ ExceptT (Variant (AddressConversionError : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnAddressConversionError = Oops.catch \(AddressConversionError addr) →
+  crash $ "Failed to convert address: " <> show addr
+
+crashOnAddressDerivationError
+  ∷ ExceptT (Variant (AddressDerivationError : e)) IO a
+  → ExceptT (Variant e) IO a
+crashOnAddressDerivationError = Oops.catch \NoAddressesDerived →
+  crash "Failed to derive addresses from mnemonic"
 
 crashOnMnemonicError
   ∷ ExceptT (Variant (MkMnemonicError 8 : e)) IO a

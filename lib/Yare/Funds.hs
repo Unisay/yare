@@ -7,14 +7,25 @@ module Yare.Funds
 import Relude
 
 import Cardano.Api.Shelley (TxIn)
+import Data.List.NonEmpty qualified as NE
 import Yare.Addresses (Addresses)
-import Yare.Utxo.State (UtxoState)
+import Yare.Addresses qualified as Addresses
+import Yare.Utxo (Utxo)
+import Yare.Utxo qualified as Utxo
 
 type Funds ∷ Type
-type Funds = (Addresses, UtxoState)
+type Funds = (Addresses, Utxo)
 
-useFeeInputs ∷ Funds → (Funds, NonEmpty TxIn)
-useFeeInputs = undefined $ error "useFeeInputs: not implemented"
+useFeeInputs ∷ Funds → Maybe (Funds, NonEmpty TxIn)
+useFeeInputs (addresses, utxo) =
+  let (addresses', feeAddress) = Addresses.useForFees addresses
+      (utxo', feeInputs) = Utxo.useByAddress utxo feeAddress
+      funds' = (addresses', utxo')
+   in (funds',) <$> NE.nonEmpty feeInputs
 
-useCollateralInputs ∷ Funds → (Funds, NonEmpty TxIn)
-useCollateralInputs = undefined $ error "useCollateralInputs: not implemented"
+useCollateralInputs ∷ Funds → Maybe (Funds, NonEmpty TxIn)
+useCollateralInputs (addresses, utxo) =
+  let (addresses', collateralAddress) = Addresses.useForCollateral addresses
+      (utxo', collateralInputs) = Utxo.useByAddress utxo collateralAddress
+      funds' = (addresses', utxo')
+   in (funds',) <$> NE.nonEmpty collateralInputs

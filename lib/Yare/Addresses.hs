@@ -1,50 +1,55 @@
 module Yare.Addresses
   ( Addresses
+  , externalAddresses
   , deriveFromMnemonic
   , isOwnAddress
-  , useChangeAddress
-  , Error (..)
+  , useForChange
+  , useForFees
+  , useForCollateral
+  , AddressConversionError (..)
+  , AddressDerivationError (..)
+  , NetworkMagicNoTagError (..)
   , networkMagicToLedgerNetwork
   , networkMagicToAddressesTag
   ) where
 
 import Relude
 
-import Cardano.Address (NetworkTag)
+import Cardano.Address (Address, NetworkTag)
 import Cardano.Address.Style.Shelley (shelleyMainnet, shelleyTestnet)
-import Cardano.Ledger.Address (Addr (..))
-import Cardano.Ledger.Api (StandardCrypto)
 import Cardano.Ledger.BaseTypes qualified as Ledger
-import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (MkMnemonicError)
 import Control.Monad.Error.Class (MonadError)
 import Control.Monad.Oops (CouldBe, CouldBeAnyOf)
 import Control.Monad.Oops qualified as Oops
-import Data.Set (member)
-import Data.Set qualified as Set
+import Data.List.NonEmpty qualified as NE
 import Data.Tagged (Tagged, untag)
+import NoThunks.Class (NoThunks)
 import Ouroboros.Network.Magic (NetworkMagic, unNetworkMagic)
 import Path (Abs, File, Path)
-import Relude.Unsafe qualified as Unsafe
 import Yare.Address
-  ( AddressWithKey (address)
+  ( AddressWithKey (..)
   , externalPaymentAdressesKeys
-  , internalPaymentAdressesKeys
   , toLedgerAddress
   )
 import Yare.Chain.Types (LedgerAddress)
 import Yare.Mnemonic (mnemonicFromFile)
 
 type Addresses ∷ Type
-data Addresses = Addresses
-  { internalAddress ∷ LedgerAddress
-  , externalAddress ∷ LedgerAddress
-  , paymentCredentials ∷ Set (PaymentCredential StandardCrypto)
+newtype Addresses = Addresses
+  { externalAddresses ∷ NonEmpty LedgerAddress
   }
+  deriving stock (Generic)
+  deriving anyclass (NoThunks)
 
 deriveFromMnemonic
   ∷ ( MonadError (Oops.Variant e) m
-    , e `CouldBeAnyOf` [Error, MkMnemonicError 8]
+    , e
+        `CouldBeAnyOf` [ NetworkMagicNoTagError
+                       , MkMnemonicError 8
+                       , AddressConversionError
+                       , AddressDerivationError
+                       ]
     , MonadIO m
     )
   ⇒ NetworkMagic
@@ -53,43 +58,41 @@ deriveFromMnemonic
 deriveFromMnemonic networkMagic mnemonicFile = do
   nt ← networkMagicToAddressesTag networkMagic
   mnemonic ← mnemonicFromFile (untag mnemonicFile)
-  let oneAddress pool =
-        fromMaybe (error "Failed to parse address")
-          . toLedgerAddress
-          . address
-          . Unsafe.head
-          $ pool nt mnemonic
-      internalAddress = oneAddress internalPaymentAdressesKeys
-      externalAddress = oneAddress externalPaymentAdressesKeys
-  pure
-    Addresses
-      { internalAddress
-      , externalAddress
-      , paymentCredentials =
-          Set.fromList
-            [ Unsafe.fromJust $ shelleyPaymentCred internalAddress
-            , Unsafe.fromJust $ shelleyPaymentCred externalAddress
-            ]
-      }
+  externalLedgerAddrs ∷ NonEmpty LedgerAddress ←
+    externalPaymentAdressesKeys nt mnemonic
+      & mapMaybe (toLedgerAddress . address)
+      & take 20
+      & NE.nonEmpty
+      & Oops.hoistMaybe NoAddressesDerived
+  pure Addresses {externalAddresses = force externalLedgerAddrs}
 
 isOwnAddress ∷ Addresses → LedgerAddress → Bool
-isOwnAddress Addresses {paymentCredentials} address =
-  case shelleyPaymentCred address of
-    Nothing → False
-    Just paymentCredential → paymentCredential `member` paymentCredentials
+isOwnAddress Addresses {externalAddresses} address =
+  address `elem` externalAddresses
 
-useChangeAddress ∷ Addresses → (Addresses, LedgerAddress)
-useChangeAddress a@Addresses {internalAddress} =
-  -- Not actually modifying the addresses state
-  (a, internalAddress)
+useForChange ∷ Addresses → (Addresses, LedgerAddress)
+useForChange a@Addresses {externalAddresses} =
+  -- While the function type makes it possible to modify the addresses state,
+  -- we don't do it in the current implementation always using the same and the
+  -- only external address for change in order to KISS.
+  (a, NE.head externalAddresses)
 
-shelleyPaymentCred ∷ LedgerAddress → Maybe (PaymentCredential StandardCrypto)
-shelleyPaymentCred = \case
-  AddrBootstrap _bootstrapAddress → Nothing
-  Addr _net paymentCred _stakeRef → Just paymentCred
+useForFees ∷ Addresses → (Addresses, LedgerAddress)
+useForFees a@Addresses {externalAddresses} =
+  -- While the function type makes it possible to modify the addresses state,
+  -- we don't do it in the current implementation always using the same and the
+  -- only external address for fees in order to KISS.
+  (a, NE.head externalAddresses)
+
+useForCollateral ∷ Addresses → (Addresses, LedgerAddress)
+useForCollateral a@Addresses {externalAddresses} =
+  -- While the function type makes it possible to modify the addresses state,
+  -- we don't do it in the current implementation always using the same and the
+  -- only external address for collateral in order to KISS.
+  (a, NE.head externalAddresses)
 
 networkMagicToAddressesTag
-  ∷ (MonadError (Oops.Variant e) m, e `CouldBe` Error)
+  ∷ (MonadError (Oops.Variant e) m, e `CouldBe` NetworkMagicNoTagError)
   ⇒ NetworkMagic
   → m NetworkTag
 networkMagicToAddressesTag =
@@ -100,7 +103,7 @@ networkMagicToAddressesTag =
     n → Oops.throw (NetworkMagicNoTag n)
 
 networkMagicToLedgerNetwork
-  ∷ (MonadError (Oops.Variant e) m, e `CouldBe` Error)
+  ∷ (MonadError (Oops.Variant e) m, e `CouldBe` NetworkMagicNoTagError)
   ⇒ NetworkMagic
   → m Ledger.Network
 networkMagicToLedgerNetwork =
@@ -113,6 +116,14 @@ networkMagicToLedgerNetwork =
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------
 
-type Error ∷ Type
-newtype Error = NetworkMagicNoTag Word32
+type NetworkMagicNoTagError ∷ Type
+newtype NetworkMagicNoTagError = NetworkMagicNoTag Word32
+  deriving stock (Eq, Show)
+
+type AddressConversionError ∷ Type
+newtype AddressConversionError = AddressConversionError Address
+  deriving stock (Eq, Show)
+
+type AddressDerivationError ∷ Type
+data AddressDerivationError = NoAddressesDerived
   deriving stock (Eq, Show)

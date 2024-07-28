@@ -5,7 +5,7 @@ module Yare.Chain.Follower
   , newChainFollower
   , initialChainState
   , ChainState (..)
-  , utxoState
+  , utxo
   , chainTip
   ) where
 
@@ -17,8 +17,9 @@ import Yare.Addresses (Addresses)
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Types (ChainPoint, ChainTip)
 import Yare.Storage (Storage (overStorage))
-import Yare.Utxo.State (UtxoState)
-import Yare.Utxo.State qualified as UtxoState
+import Yare.Utxo (Utxo)
+import Yare.Utxo qualified as Utxo
+import NoThunks.Class (NoThunks)
 
 type ChainFollower ∷ (Type → Type) → Type
 data ChainFollower m = ChainFollower
@@ -37,29 +38,30 @@ newChainFollower addresses storage =
 
 type ChainState ∷ Type
 data ChainState = ChainState
-  { _utxoState ∷ UtxoState
-  , _chainTip ∷ ChainTip
+  { _utxo ∷ !Utxo
+  , _chainTip ∷ !ChainTip
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (NoThunks)
 
 initialChainState ∷ ChainState
 initialChainState =
   ChainState
-    { _utxoState = UtxoState.initialState
+    { _utxo = Utxo.initial
     , _chainTip = TipGenesis
     }
 
 indexBlock ∷ Addresses → StdCardanoBlock → ChainTip → ChainState → ChainState
-indexBlock addresses block tip ChainState {_utxoState} =
+indexBlock addresses block tip ChainState {_utxo} =
   ChainState
-    { _utxoState = UtxoState.indexBlock addresses block _utxoState
+    { _utxo = Utxo.indexBlock addresses block _utxo
     , _chainTip = tip
     }
 
 rollbackTo ∷ ChainPoint → ChainTip → ChainState → ChainState
-rollbackTo point tip ChainState {_utxoState} =
+rollbackTo point tip ChainState {_utxo} =
   ChainState
-    { _utxoState = UtxoState.rollbackTo point _utxoState
+    { _utxo = Utxo.rollbackTo point _utxo
     , _chainTip = tip
     }
 

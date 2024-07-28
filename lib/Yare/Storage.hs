@@ -4,15 +4,19 @@ module Yare.Storage
   , overStorageState
   , readOverStorage
   , readStorage
+  , readsStorage
   , zoomStorage
   , inMemory
   , stateful
+  , statefulMaybe
   , stateful'
   ) where
 
 import Relude
 
-import Control.Lens (Lens, Simple, over, set, view)
+import Control.Lens (Lens, Simple, set, view)
+import Data.IORef.Strict (StrictIORef)
+import Data.IORef.Strict qualified as Strict
 
 type Storage ∷ (Type → Type) → Type → Type
 data Storage m s = Storage
@@ -32,21 +36,26 @@ data Storage m s = Storage
 readOverStorage ∷ (∀ a. (s → (s, a)) → m a) → m s
 readOverStorage overStorage = overStorage \s → (s, s)
 
--- | Given a storage and a pure stateful computation,
--- | produces an impure computation.
+readsStorage ∷ Functor m ⇒ Storage m s → Simple Lens s t → m t
+readsStorage s l = view l . trace "storage read" <$> readStorage s
+
+{- | Given a storage and a pure stateful computation,
+| produces an impure computation.
+-}
 overStorageState ∷ ∀ s m a. Storage m s → State s a → m a
 overStorageState storage st = overStorage storage (swap . runState st)
 
 -- | A simple in-memory storage.
-inMemory ∷ IORef s → Storage IO s
+inMemory ∷ StrictIORef s → Storage IO s
 inMemory ref =
   Storage
-    { overStorage = atomicModifyIORef' ref
-    , readStorage = readIORef ref
+    { overStorage = Strict.atomicModifyIORef ref
+    , readStorage = Strict.readIORef ref
     }
 
--- | Uses a lens to produce another storage
--- | focused on a part of the original storage state.
+{- | Uses a lens to produce another storage
+| focused on a part of the original storage state.
+-}
 zoomStorage ∷ Functor m ⇒ Simple Lens t s → Storage m t → Storage m s
 zoomStorage lens Storage {overStorage, readStorage} =
   Storage
@@ -58,11 +67,20 @@ zoomStorage lens Storage {overStorage, readStorage} =
     }
 
 -- | A helper to lift pure state transition
-stateful ∷ (s → (s, a)) → State s a
+stateful ∷ MonadState s m ⇒ (s → (s, a)) → m a
 stateful f = state (swap . f)
 
+{- | Lift an optional (which may not be possible) state transition
+to a stateful computation.
+-}
+statefulMaybe ∷ MonadState s m ⇒ (s → Maybe (s, a)) → m (Maybe a)
+statefulMaybe f = state \originalState →
+  case f originalState of
+    Nothing → (Nothing, originalState)
+    Just (updatedState, a) → (Just a, updatedState)
+
 -- | A helper to lift pure sub-state transition using a lens
-stateful' ∷ Simple Lens s t → (t → (t, a)) → State s a
+stateful' ∷ MonadState s m ⇒ Simple Lens s t → (t → (t, a)) → m a
 stateful' l f = state \s →
   let (t, a) = f (view l s)
    in (a, set l t s)
