@@ -20,12 +20,10 @@ useFeeInputs ∷ Funds → Maybe (Funds, NonEmpty TxIn)
 useFeeInputs (addresses, utxo) =
   let (addresses', feeAddress) = Addresses.useForFees addresses
       (utxo', feeInputs) = Utxo.useByAddress utxo feeAddress
-      funds' = (addresses', utxo')
-   in (funds',) <$> NE.nonEmpty feeInputs
+   in ((addresses', utxo'),) <$> NE.nonEmpty feeInputs
 
 useCollateralInputs ∷ Funds → Maybe (Funds, NonEmpty TxIn)
 useCollateralInputs (addresses, utxo) =
   let (addresses', collateralAddress) = Addresses.useForCollateral addresses
       (utxo', collateralInputs) = Utxo.useByAddress utxo collateralAddress
-      funds' = (addresses', utxo')
-   in (funds',) <$> NE.nonEmpty collateralInputs
+   in ((addresses', utxo'),) <$> NE.nonEmpty collateralInputs

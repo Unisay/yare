@@ -27,17 +27,13 @@ import Data.Tagged (Tagged, untag)
 import NoThunks.Class (NoThunks)
 import Ouroboros.Network.Magic (NetworkMagic, unNetworkMagic)
 import Path (Abs, File, Path)
-import Yare.Address
-  ( AddressWithKey (..)
-  , externalPaymentAdressesKeys
-  , toLedgerAddress
-  )
+import Yare.Address (AddressWithKey (..), externalPaymentAdressesKeys)
 import Yare.Chain.Types (LedgerAddress)
 import Yare.Mnemonic (mnemonicFromFile)
 
 type Addresses ∷ Type
 newtype Addresses = Addresses
-  { externalAddresses ∷ NonEmpty LedgerAddress
+  { externalAddresses ∷ NonEmpty AddressWithKey
   }
   deriving stock (Generic)
   deriving anyclass (NoThunks)
@@ -58,38 +54,37 @@ deriveFromMnemonic
 deriveFromMnemonic networkMagic mnemonicFile = do
   nt ← networkMagicToAddressesTag networkMagic
   mnemonic ← mnemonicFromFile (untag mnemonicFile)
-  externalLedgerAddrs ∷ NonEmpty LedgerAddress ←
+  externalLedgerAddrs ∷ NonEmpty AddressWithKey ←
     externalPaymentAdressesKeys nt mnemonic
-      & mapMaybe (toLedgerAddress . address)
       & take 20
       & NE.nonEmpty
       & Oops.hoistMaybe NoAddressesDerived
-  pure Addresses {externalAddresses = force externalLedgerAddrs}
+  pure Addresses {externalAddresses = externalLedgerAddrs } -- TODO: force
 
 isOwnAddress ∷ Addresses → LedgerAddress → Bool
 isOwnAddress Addresses {externalAddresses} address =
-  address `elem` externalAddresses
+  address `elem` fmap ledgerAddress externalAddresses
 
 useForChange ∷ Addresses → (Addresses, LedgerAddress)
 useForChange a@Addresses {externalAddresses} =
   -- While the function type makes it possible to modify the addresses state,
   -- we don't do it in the current implementation always using the same and the
   -- only external address for change in order to KISS.
-  (a, NE.head externalAddresses)
+  (a, ledgerAddress (NE.head externalAddresses))
 
 useForFees ∷ Addresses → (Addresses, LedgerAddress)
 useForFees a@Addresses {externalAddresses} =
   -- While the function type makes it possible to modify the addresses state,
   -- we don't do it in the current implementation always using the same and the
   -- only external address for fees in order to KISS.
-  (a, NE.head externalAddresses)
+  (a, ledgerAddress (NE.head externalAddresses))
 
 useForCollateral ∷ Addresses → (Addresses, LedgerAddress)
 useForCollateral a@Addresses {externalAddresses} =
   -- While the function type makes it possible to modify the addresses state,
   -- we don't do it in the current implementation always using the same and the
   -- only external address for collateral in order to KISS.
-  (a, NE.head externalAddresses)
+  (a, ledgerAddress (NE.head externalAddresses))
 
 networkMagicToAddressesTag
   ∷ (MonadError (Oops.Variant e) m, e `CouldBe` NetworkMagicNoTagError)

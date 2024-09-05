@@ -30,13 +30,17 @@ import Cardano.Address.Style.Shelley
   )
 import Cardano.Ledger.Api.Tx.Address qualified as Ledger
 import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
+import NoThunks.Class.Extended (NoThunks)
 import Yare.Chain.Types (LedgerAddress)
 
 type AddressWithKey ∷ Type
 data AddressWithKey = AddressWithKey
-  { address ∷ Address
+  { cardanoAddress ∷ Address
+  , ledgerAddress ∷ LedgerAddress
   , key ∷ Shelley PaymentK XPrv
   }
+  deriving stock (Generic)
+  deriving anyclass (NoThunks)
 
 externalPaymentAdressesKeys ∷ NetworkTag → Mnemonic 24 → [AddressWithKey]
 externalPaymentAdressesKeys = paymentAddressesKeys UTxOExternal
@@ -53,11 +57,16 @@ paymentAddressesKeys role networkTag mnemonic =
      in firstIx : unfoldr (fmap (\a → (a, a)) . nextIndex) firstIx
 
   makePaymentAddressWithKey
-    ∷ Index (AddressIndexDerivationType Shelley) PaymentK
+    ∷ HasCallStack
+    ⇒ Index (AddressIndexDerivationType Shelley) PaymentK
     → AddressWithKey
   makePaymentAddressWithKey paymentAddrIx =
     AddressWithKey
-      { address = paymentAddress networkTag credential
+      { cardanoAddress
+      , ledgerAddress =
+          fromMaybe
+            (error "Can't convert Cardano.Address.Address to Ledger Addr")
+            (toLedgerAddress cardanoAddress)
       , key = paymentKey
       }
    where
@@ -71,6 +80,8 @@ paymentAddressesKeys role networkTag mnemonic =
        where
         accountIx ∷ Index 'Hardened 'AccountK = minBound
         masterKey = genMasterKeyFromMnemonic (SomeMnemonic mnemonic) mempty
+    cardanoAddress ∷ Address =
+      paymentAddress networkTag credential
 
 toLedgerAddress ∷ Address → Maybe LedgerAddress
 toLedgerAddress address = Ledger.decodeAddr (unAddress address)

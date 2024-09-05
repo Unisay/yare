@@ -12,6 +12,8 @@ module Yare.Chain.Follower
 import Relude
 
 import Control.Lens.TH (makeLenses)
+import Fmt (pretty)
+import NoThunks.Class (NoThunks)
 import Ouroboros.Network.Block (Tip (TipGenesis))
 import Yare.Addresses (Addresses)
 import Yare.Chain.Block (StdCardanoBlock)
@@ -19,7 +21,6 @@ import Yare.Chain.Types (ChainPoint, ChainTip)
 import Yare.Storage (Storage (overStorage))
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
-import NoThunks.Class (NoThunks)
 
 type ChainFollower ∷ (Type → Type) → Type
 data ChainFollower m = ChainFollower
@@ -51,18 +52,21 @@ initialChainState =
     , _chainTip = TipGenesis
     }
 
-indexBlock ∷ Addresses → StdCardanoBlock → ChainTip → ChainState → ChainState
-indexBlock addresses block tip ChainState {_utxo} =
-  ChainState
-    { _utxo = Utxo.indexBlock addresses block _utxo
-    , _chainTip = tip
-    }
+indexBlock
+  ∷ Addresses
+  → StdCardanoBlock
+  → ChainTip
+  → ChainState
+  → ChainState
+indexBlock addresses block tip cs@ChainState {_utxo} =
+  case Utxo.indexBlock addresses block _utxo of
+    Nothing → cs {_chainTip = tip}
+    Just utxo → trace (pretty utxo) cs {_utxo = utxo, _chainTip = tip}
 
 rollbackTo ∷ ChainPoint → ChainTip → ChainState → ChainState
-rollbackTo point tip ChainState {_utxo} =
-  ChainState
-    { _utxo = Utxo.rollbackTo point _utxo
-    , _chainTip = tip
-    }
+rollbackTo point tip cs@ChainState {_utxo} =
+  case Utxo.rollbackTo point _utxo of
+    Nothing → cs {_chainTip = tip}
+    Just utxo → trace (pretty utxo) cs {_utxo = utxo, _chainTip = tip}
 
 $(makeLenses ''ChainState)

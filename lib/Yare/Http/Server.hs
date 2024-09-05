@@ -18,23 +18,29 @@ import Yare.Http.Types qualified as Http
 
 application ∷ App.Services IO → Wai.Application
 application services = Servant.serve (Proxy @YareApi) do
-  endpointUtxo services
-    :<|> endpointChainTip services
-    :<|> endpointDeployScript services
-    :<|> endpointAddressesChange services
-    :<|> endpointAddressesFees services
-    :<|> endpointAddressesCollateral services
+  ( endpointUtxo services
+      :<|> endpointChainTip services
+      :<|> endpointDeployScript services
+    )
+    :<|> ( endpointAddresses services
+            :<|> endpointAddressesChange services
+            :<|> endpointAddressesFees services
+            :<|> endpointAddressesCollateral services
+         )
 
 type YareApi ∷ Type
 type YareApi =
   "api"
-    :> ( "utxo" :> Get '[JSON] Http.Utxo
-          :<|> "tip" :> Get '[JSON] Http.ChainTip
-          :<|> "deploy" :> Post '[JSON] ()
-          :<|> "addresses"
-            :> ( "change" :> Get '[JSON] [Http.Address]
-                  :<|> "fees" :> Get '[JSON] [Http.Address]
-                  :<|> "collateral" :> Get '[JSON] [Http.Address]
+    :> ( ( "utxo" :> Get '[JSON] Http.Utxo
+            :<|> "tip" :> Get '[JSON] Http.ChainTip
+            :<|> "deploy" :> Post '[JSON] ()
+         )
+          :<|> ( "addresses"
+                  :> ( Get '[JSON] [Http.Address]
+                        :<|> "change" :> Get '[JSON] [Http.Address]
+                        :<|> "fees" :> Get '[JSON] [Http.Address]
+                        :<|> "collateral" :> Get '[JSON] [Http.Address]
+                     )
                )
        )
 
@@ -62,6 +68,10 @@ endpointDeployScript App.Services {deployScript} =
         ( \(_err ∷ App.NoCollateralInputs) →
             Servant.err400 {Servant.errBody = "No collateral inputs"}
         )
+
+endpointAddresses ∷ App.Services IO → Servant.Handler [Http.Address]
+endpointAddresses App.Services {serveAddresses} = liftIO do
+  Http.Address.fromLedgerAddress <<$>> serveAddresses
 
 endpointAddressesChange ∷ App.Services IO → Servant.Handler [Http.Address]
 endpointAddressesChange App.Services {serveChangeAddresses} = liftIO do

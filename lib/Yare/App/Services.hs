@@ -42,7 +42,8 @@ import Control.Monad.Oops qualified as Oops
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
-import Yare.Addresses (Addresses)
+import Yare.Address (AddressWithKey (ledgerAddress))
+import Yare.Addresses (Addresses, externalAddresses)
 import Yare.Addresses qualified as Addresses
 import Yare.App.Types (AppState, NetworkInfo (..), addressState, chainState)
 import Yare.Chain.Follower (ChainState (..), chainTip, utxo)
@@ -62,7 +63,8 @@ import Yare.Utxo qualified as Utxo
 -- | Application services
 type Services ∷ (Type → Type) → Type
 data Services m = Services
-  { serveChangeAddresses ∷ m [LedgerAddress]
+  { serveAddresses ∷ m [LedgerAddress]
+  , serveChangeAddresses ∷ m [LedgerAddress]
   , serveFeeAddresses ∷ m [LedgerAddress]
   , serveCollateralAddresses ∷ m [LedgerAddress]
   , serveUtxo ∷ m Utxo.Entries
@@ -87,7 +89,10 @@ mkServices
   → Services IO
 mkServices storage submitQ networkInfo =
   Services
-    { serveChangeAddresses =
+    { serveAddresses =
+        toList . fmap ledgerAddress . externalAddresses
+          <$> readsStorage storage addressState
+    , serveChangeAddresses =
         pure . snd . Addresses.useForChange
           <$> readsStorage storage addressState
     , serveFeeAddresses =

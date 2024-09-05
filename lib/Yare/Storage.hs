@@ -37,7 +37,7 @@ readOverStorage ∷ (∀ a. (s → (s, a)) → m a) → m s
 readOverStorage overStorage = overStorage \s → (s, s)
 
 readsStorage ∷ Functor m ⇒ Storage m s → Simple Lens s t → m t
-readsStorage s l = view l . trace "storage read" <$> readStorage s
+readsStorage s l = view l <$> readStorage s
 
 {- | Given a storage and a pure stateful computation,
 | produces an impure computation.

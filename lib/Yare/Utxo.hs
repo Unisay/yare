@@ -18,7 +18,7 @@ import Control.Lens.TH (makeLenses)
 import Data.Map.Strict qualified as Map
 import Data.Set (member)
 import Data.Set qualified as Set
-import Fmt (Buildable (..), blockListF, nameF, pretty, (+|), (|+))
+import Fmt (Buildable (..), blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
 import NoThunks.Class.Extended (NoThunks, repeatedly)
 import Ouroboros.Consensus.Block (pointSlot)
@@ -98,25 +98,38 @@ initial =
     , usedInputs = mempty
     }
 
-indexBlock ∷ Addresses → StdCardanoBlock → Utxo → Utxo
-indexBlock addresses block utxo =
-  if utxo' /= utxo
-    then trace (pretty utxo') utxo'
-    else utxo'
+{- | Enrich the UTXO set with the transactions from a block.
+| Returns the updated UTXO set or 'Nothing' if the block is irrelevant.
+-}
+indexBlock ∷ Addresses → StdCardanoBlock → Utxo → Maybe Utxo
+indexBlock addresses block =
+  repeatedly forEachTx (const Nothing) (blockTransactions block)
  where
-  utxo' = repeatedly forEachTx id (blockTransactions block) utxo
-  forEachTx !prevUpdate !tx = indexTx addresses chainPoint tx . prevUpdate
+  forEachTx ∷ (Utxo → Maybe Utxo) → AnyEra Tx → Utxo → Maybe Utxo
+  forEachTx !prevUpdate !tx utxo =
+    case prevUpdate utxo of
+      Nothing → indexTx addresses chainPoint tx utxo
+      Just utxo' →
+        case indexTx addresses chainPoint tx utxo' of
+          Nothing → Just utxo'
+          Just utxo'' → Just utxo''
+
+  chainPoint ∷ ChainPoint
   chainPoint = blockPoint block
 
-indexTx ∷ Addresses → ChainPoint → AnyEra Tx → Utxo → Utxo
+{- | Enrich the UTXO set with the information from a transaction.
+| Returns the updated UTXO set or 'Nothing' if the transaction is irrelevant.
+-}
+indexTx ∷ Addresses → ChainPoint → AnyEra Tx → Utxo → Maybe Utxo
 indexTx addresses point tx utxo =
-  utxo {reversibleUpdates = updateNonFinalState (reversibleUpdates utxo)}
+  updateNonFinalState (reversibleUpdates utxo) <&> \updates →
+    utxo {reversibleUpdates = updates}
  where
-  updateNonFinalState ∷ [(ChainPoint, [Update])] → [(ChainPoint, [Update])]
-  updateNonFinalState =
-    updateUtxo addresses spendableTxInputs (transactionViewUtxo tx) & \case
-      [] → id
-      updates → ((point, updates) :)
+  updateNonFinalState ∷ [(ChainPoint, [Update])] → Maybe [(ChainPoint, [Update])]
+  updateNonFinalState prevUpdates =
+    case updateUtxo addresses spendableTxInputs (transactionViewUtxo tx) of
+      [] → Nothing
+      updates → Just ((point, updates) : prevUpdates)
   spendableTxInputs = Map.keysSet (spendableEntries utxo)
 
 updateUtxo ∷ Addresses → Set TxIn → TxViewUtxo → [Update]
@@ -137,11 +150,13 @@ indexTxOut addresses txId TxOutViewUtxo {..} =
       txOutViewUtxoAddress
       txOutViewUtxoValue
 
-rollbackTo ∷ ChainPoint → Utxo → Utxo
-rollbackTo point utxo =
-  utxo
-    { reversibleUpdates = dropWhile ((> point) . fst) (reversibleUpdates utxo)
-    }
+rollbackTo ∷ ChainPoint → Utxo → Maybe Utxo
+rollbackTo point utxo = do
+  let considerPoint (updatePoint, _update) = updatePoint > point
+  case span considerPoint (reversibleUpdates utxo) of
+    ([], _remainingUpdates) → Nothing
+    (_discardedUpdates, remainingUpdates) →
+      Just utxo {reversibleUpdates = remainingUpdates}
 
 --------------------------------------------------------------------------------
 -- State updates ---------------------------------------------------------------
