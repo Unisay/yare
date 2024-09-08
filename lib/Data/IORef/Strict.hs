@@ -7,7 +7,7 @@ module Data.IORef.Strict
   , atomicModifyIORef
   ) where
 
-import Relude hiding (readIORef, writeIORef, atomicModifyIORef, newIORef)
+import Relude hiding (atomicModifyIORef, newIORef, readIORef, writeIORef)
 
 import Control.Exception (throw)
 import Data.IORef qualified as Lazy

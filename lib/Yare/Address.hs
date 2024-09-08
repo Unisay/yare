@@ -40,7 +40,7 @@ data AddressWithKey = AddressWithKey
   , key ∷ Shelley PaymentK XPrv
   }
   deriving stock (Generic)
-  deriving anyclass (NoThunks)
+  deriving anyclass (NoThunks, NFData)
 
 externalPaymentAdressesKeys ∷ NetworkTag → Mnemonic 24 → [AddressWithKey]
 externalPaymentAdressesKeys = paymentAddressesKeys UTxOExternal

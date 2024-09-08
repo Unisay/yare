@@ -59,7 +59,7 @@ deriveFromMnemonic networkMagic mnemonicFile = do
       & take 20
       & NE.nonEmpty
       & Oops.hoistMaybe NoAddressesDerived
-  pure Addresses {externalAddresses = externalLedgerAddrs } -- TODO: force
+  pure $ Addresses {externalAddresses = force externalLedgerAddrs} -- TODO: force
 
 isOwnAddress ∷ Addresses → LedgerAddress → Bool
 isOwnAddress Addresses {externalAddresses} address =
