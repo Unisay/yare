@@ -7,7 +7,7 @@ module Yare.App.Services
 
 import Relude
 
-import Cardano.Api (TxInsReference (..), runExcept)
+import Cardano.Api (IsBabbageBasedEra, TxInsReference (..), TxOutDatum (..), lovelaceToTxOutValue, runExcept)
 import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
 import Cardano.Api.Shelley
   ( AlonzoEraOnwards (..)
@@ -17,6 +17,7 @@ import Cardano.Api.Shelley
   , InAnyShelleyBasedEra (..)
   , KeyWitnessInCtx (..)
   , PoolId
+  , ReferenceScript (..)
   , ShelleyBasedEra (..)
   , ShelleyWitnessSigningKey
   , StakeCredential
@@ -130,11 +131,10 @@ serviceDeployScript
   → IO (Maybe (Variant e))
 serviceDeployScript storage submitQ networkInfo = do
   let NetworkInfo {currentEra} = networkInfo
-  overStorage storage (run (txDeployScript networkInfo))
-    >>= \case
-      Left err → pure (Just err)
-      Right signedBalancedTx →
-        Submitter.submit submitQ (TxInMode currentEra signedBalancedTx)
+  overStorage storage (run (txDeployScript networkInfo)) >>= \case
+    Left err → pure (Just err)
+    Right signedBalancedTx →
+      Submitter.submit submitQ (TxInMode currentEra signedBalancedTx)
  where
   run ∷ StateT s (Except (Variant e)) a → (s → (s, Either (Variant e) a))
   run st =
@@ -149,6 +149,7 @@ txDeployScript
    . ( e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
      , e `CouldBe` NoFeeInputs
      , e `CouldBe` NoCollateralInputs
+     , IsBabbageBasedEra era
      )
   ⇒ NetworkInfo era
   → StateT (Addresses, Utxo) (Except (Variant e)) (Tx era)
@@ -171,9 +172,20 @@ txDeployScript networkInfo = do
     fromShelleyAddrIsSbe currentEra
       <$> stateful' _1 Addresses.useForChange
 
+  scriptAddr ←
+    fromShelleyAddrIsSbe currentEra
+      <$> stateful' _1 Addresses.useForScript
+
+  -- TODO: checkMinUTxOValue ?
+
   let
     scriptOutput ∷ TxOut CtxTx era
-    scriptOutput = undefined $ error "not implemented"
+    scriptOutput =
+      TxOut
+        scriptAddr
+        (lovelaceToTxOutValue currentEra 0)
+        TxOutDatumNone
+        (ReferenceScript currentEra _)
 
     {-
 

@@ -6,6 +6,7 @@ module Yare.Addresses
   , useForChange
   , useForFees
   , useForCollateral
+  , useForScript
   , AddressConversionError (..)
   , AddressDerivationError (..)
   , NetworkMagicNoTagError (..)
@@ -22,6 +23,7 @@ import Cardano.Mnemonic (MkMnemonicError)
 import Control.Monad.Error.Class (MonadError)
 import Control.Monad.Oops (CouldBe, CouldBeAnyOf)
 import Control.Monad.Oops qualified as Oops
+import Data.List.NonEmpty ((!!))
 import Data.List.NonEmpty qualified as NE
 import Data.Tagged (Tagged, untag)
 import NoThunks.Class (NoThunks)
@@ -57,9 +59,11 @@ deriveFromMnemonic networkMagic mnemonicFile = do
   externalLedgerAddrs ∷ NonEmpty AddressWithKey ←
     externalPaymentAdressesKeys nt mnemonic
       & take 20
+      -- At least 2 addresses are needed:
+      -- 1 for change, fees and collateral and 1 for the ref script.
       & NE.nonEmpty
       & Oops.hoistMaybe NoAddressesDerived
-  pure Addresses {externalAddresses = externalLedgerAddrs } -- TODO: force
+  pure Addresses {externalAddresses = force externalLedgerAddrs}
 
 isOwnAddress ∷ Addresses → LedgerAddress → Bool
 isOwnAddress Addresses {externalAddresses} address =
@@ -85,6 +89,13 @@ useForCollateral a@Addresses {externalAddresses} =
   -- we don't do it in the current implementation always using the same and the
   -- only external address for collateral in order to KISS.
   (a, ledgerAddress (NE.head externalAddresses))
+
+useForScript ∷ Addresses → (Addresses, LedgerAddress)
+useForScript a@Addresses {externalAddresses} =
+  -- While the function type makes it possible to modify the addresses state,
+  -- we don't do it in the current implementation always using the same and the
+  -- only external address for script in order to KISS.
+  (a, ledgerAddress (externalAddresses !! 1))
 
 networkMagicToAddressesTag
   ∷ (MonadError (Oops.Variant e) m, e `CouldBe` NetworkMagicNoTagError)
