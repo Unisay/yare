@@ -15,8 +15,8 @@ import Cardano.Api.Ledger (Network)
 import Cardano.Api.Shelley
   ( LedgerEpochInfo
   , LedgerProtocolParameters
-  , ShelleyBasedEra
   , SystemStart
+  , BabbageEraOnwards
   )
 import Control.Lens.TH (makeLenses)
 import Data.Tagged (Tagged)
@@ -44,7 +44,7 @@ data NetworkInfo era = NetworkInfo
   { network ∷ Network
   , systemStart ∷ SystemStart
   , epochInfo ∷ LedgerEpochInfo
-  , currentEra ∷ ShelleyBasedEra era
+  , currentEra ∷ BabbageEraOnwards era
   , protocolParameters ∷ LedgerProtocolParameters era
   }
 

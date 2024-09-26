@@ -105,6 +105,7 @@ library
     , ouroboros-network-api          ^>=0.7.3
     , ouroboros-network-framework    ^>=0.13.2.1
     , ouroboros-network-protocols    ^>=0.9
+    , placeholder                    ^>=0
     , pretty-simple                  ^>=4.1.2
     , servant                        ^>=0.20.1
     , servant-server                 ^>=0.20

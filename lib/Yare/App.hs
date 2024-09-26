@@ -5,8 +5,10 @@ import Relude hiding (atomically)
 
 import Cardano.Api.Shelley
   ( AnyShelleyBasedEra (..)
+  , BabbageEraOnwards (BabbageEraOnwardsBabbage, BabbageEraOnwardsConway)
   , EraHistory (..)
   , ShelleyBasedEra (..)
+  , babbageEraOnwardsToShelleyBasedEra
   , toLedgerEpochInfo
   )
 import Cardano.Client.Subscription (subscribe)
@@ -106,29 +108,43 @@ runWebServer App.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
   withHandledErrors do
     Query.submit queryQ Query.queryCurrentShelleyEra
       >>= Oops.hoistMaybe UnsupportedEraByron
-      >>= \case
-        AnyShelleyBasedEra (currentEra ∷ ShelleyBasedEra era) → do
-          -- Making NetworkInfo ------------------------------------------------
-          network ← Addresses.networkMagicToLedgerNetwork networkMagic
-          (systemStart, historyInterpreter, errorOrProtocolParams) ←
-            Query.submit queryQ $
-              (,,)
-                <$> Query.querySystemStart
-                <*> Query.queryHistoryInterpreter
-                <*> Query.queryCurrentPParams currentEra
-          let epochInfo = toLedgerEpochInfo (EraHistory historyInterpreter)
-          protocolParameters ← either throwError pure errorOrProtocolParams
-          let networkInfo =
-                NetworkInfo
-                  { network
-                  , systemStart
-                  , currentEra
-                  , epochInfo
-                  , protocolParameters
-                  }
-          -- Running the server ------------------------------------------------
-          liftIO . Warp.run apiHttpPort . simpleCors . Http.application $
-            App.mkServices storage submitQ networkInfo
+      >>= \sbe@(AnyShelleyBasedEra (shelleyBasedEra ∷ ShelleyBasedEra era)) →
+        let unsupportedEra ∷ ExceptT Errors IO a
+            unsupportedEra = Oops.throw (UnsupportedEraShelley sbe)
+         in case shelleyBasedEra of
+              ShelleyBasedEraShelley → unsupportedEra
+              ShelleyBasedEraAllegra → unsupportedEra
+              ShelleyBasedEraMary → unsupportedEra
+              ShelleyBasedEraAlonzo → unsupportedEra
+              ShelleyBasedEraBabbage →
+                withBabbageEraOnwards BabbageEraOnwardsBabbage
+              ShelleyBasedEraConway →
+                withBabbageEraOnwards BabbageEraOnwardsConway
+ where
+  withBabbageEraOnwards ∷ BabbageEraOnwards era → ExceptT Errors IO ()
+  withBabbageEraOnwards currentEra = do
+    let shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
+    -- Making NetworkInfo ------------------------------------------------
+    network ← Addresses.networkMagicToLedgerNetwork networkMagic
+    (systemStart, historyInterpreter, errorOrProtocolParams) ←
+      Query.submit queryQ $
+        (,,)
+          <$> Query.querySystemStart
+          <*> Query.queryHistoryInterpreter
+          <*> Query.queryCurrentPParams shelleyBasedEra
+    let epochInfo = toLedgerEpochInfo (EraHistory historyInterpreter)
+    protocolParameters ← either throwError pure errorOrProtocolParams
+    let networkInfo =
+          NetworkInfo
+            { network
+            , systemStart
+            , currentEra
+            , epochInfo
+            , protocolParameters
+            }
+    -- Running the server ------------------------------------------------
+    liftIO . Warp.run apiHttpPort . simpleCors . Http.application $
+      App.mkServices storage submitQ networkInfo
 
 --------------------------------------------------------------------------------
 -- Node connection -------------------------------------------------------------
@@ -170,8 +186,10 @@ runNodeConnection App.Config {..} addresses storage queryQ submitQ = do
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------
 
-type UnsupportedEraByron ∷ Type
-data UnsupportedEraByron = UnsupportedEraByron
+type UnsupportedEra ∷ Type
+data UnsupportedEra
+  = UnsupportedEraByron
+  | UnsupportedEraShelley AnyShelleyBasedEra
   deriving stock (Show)
 
 type InvalidTxIdHash ∷ Type
@@ -181,7 +199,7 @@ newtype InvalidTxIdHash = InvalidTxIdHash ByteString
 type Errors ∷ Type
 type Errors =
   Variant
-    [ UnsupportedEraByron
+    [ UnsupportedEra
     , NetworkMagicNoTagError
     , AddressConversionError
     , AddressDerivationError
@@ -210,10 +228,12 @@ withHandledErrors =
     >>> Oops.runOops
 
 crashOnUnsupportedEraError
-  ∷ ExceptT (Variant (UnsupportedEraByron : e)) IO a
+  ∷ ExceptT (Variant (UnsupportedEra : e)) IO a
   → ExceptT (Variant e) IO a
-crashOnUnsupportedEraError = Oops.catch \UnsupportedEraByron →
-  crash "Current node era (Byron) is not supported."
+crashOnUnsupportedEraError = Oops.catch \case
+  UnsupportedEraByron → crash "Current node era (Byron) is not supported."
+  UnsupportedEraShelley sbe →
+    crash $ "Current node era (Shelley) is not supported: " <> show sbe
 
 crashOnNetworkMagicNoTagError
   ∷ ExceptT (Variant (NetworkMagicNoTagError : e)) IO a

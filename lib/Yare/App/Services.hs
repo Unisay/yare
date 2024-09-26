@@ -7,18 +7,19 @@ module Yare.App.Services
 
 import Relude
 
-import Cardano.Api (IsBabbageBasedEra, TxInsReference (..), TxOutDatum (..), lovelaceToTxOutValue, runExcept)
 import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
+import Cardano.Api.Ledger qualified as L
 import Cardano.Api.Shelley
   ( AlonzoEraOnwards (..)
+  , BabbageEraOnwards (..)
   , BuildTx
-  , BuildTxWith (..)
   , CtxTx
   , InAnyShelleyBasedEra (..)
-  , KeyWitnessInCtx (..)
+  , PlutusScript (..)
+  , PlutusScriptVersion (PlutusScriptV3)
   , PoolId
   , ReferenceScript (..)
-  , ShelleyBasedEra (..)
+  , Script (..)
   , ShelleyWitnessSigningKey
   , StakeCredential
   , Tx
@@ -28,13 +29,25 @@ import Cardano.Api.Shelley
   , TxInMode (..)
   , TxInsCollateral (..)
   , TxOut (..)
-  , UTxO
-  , Witness (..)
+  , TxOutDatum (..)
+  , TxOutValue (..)
+  , UTxO (..)
+  , Value
+  , addTxOut
+  , babbageEraOnwardsToMaryEraOnwards
+  , babbageEraOnwardsToShelleyBasedEra
   , constructBalancedTx
+  , defaultTxBodyContent
+  , fromShelleyAddr
   , fromShelleyAddrIsSbe
   , inAnyShelleyBasedEra
+  , lovelaceToTxOutValue
+  , runExcept
+  , setTxInsCollateral
+  , shelleyBasedEraConstraints
+  , toLedgerValue
+  , toScriptInAnyLang
   )
-import Cardano.Ledger.Coin qualified as L
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Lens (Lens, Simple, lens, (.~), (^.), _1)
 import Control.Monad.Except (Except)
@@ -131,10 +144,11 @@ serviceDeployScript
   → IO (Maybe (Variant e))
 serviceDeployScript storage submitQ networkInfo = do
   let NetworkInfo {currentEra} = networkInfo
+      shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
   overStorage storage (run (txDeployScript networkInfo)) >>= \case
     Left err → pure (Just err)
     Right signedBalancedTx →
-      Submitter.submit submitQ (TxInMode currentEra signedBalancedTx)
+      Submitter.submit submitQ (TxInMode shelleyBasedEra signedBalancedTx)
  where
   run ∷ StateT s (Except (Variant e)) a → (s → (s, Either (Variant e) a))
   run st =
@@ -149,7 +163,6 @@ txDeployScript
    . ( e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
      , e `CouldBe` NoFeeInputs
      , e `CouldBe` NoCollateralInputs
-     , IsBabbageBasedEra era
      )
   ⇒ NetworkInfo era
   → StateT (Addresses, Utxo) (Except (Variant e)) (Tx era)
@@ -160,114 +173,115 @@ txDeployScript networkInfo = do
         , systemStart
         , currentEra
         } = networkInfo
-  feeInputs ∷ NonEmpty TxIn ←
+
+      shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
+
+  feeInputs ∷ NonEmpty (TxIn, (LedgerAddress, Value)) ←
     statefulMaybe Funds.useFeeInputs
       & Oops.onNothingThrow NoFeeInputs
 
-  colInputs ∷ NonEmpty TxIn ←
+  colInputs ∷ NonEmpty (TxIn, (LedgerAddress, Value)) ←
     statefulMaybe Funds.useCollateralInputs
       & Oops.onNothingThrow NoCollateralInputs
 
   changeAddr ←
-    fromShelleyAddrIsSbe currentEra
+    fromShelleyAddrIsSbe shelleyBasedEra
       <$> stateful' _1 Addresses.useForChange
 
   scriptAddr ←
-    fromShelleyAddrIsSbe currentEra
+    fromShelleyAddrIsSbe shelleyBasedEra
       <$> stateful' _1 Addresses.useForScript
 
   -- TODO: checkMinUTxOValue ?
-
   let
     scriptOutput ∷ TxOut CtxTx era
     scriptOutput =
       TxOut
         scriptAddr
-        (lovelaceToTxOutValue currentEra 0)
+        (lovelaceToTxOutValue shelleyBasedEra 0)
         TxOutDatumNone
-        (ReferenceScript currentEra _)
+        ( ReferenceScript
+            currentEra
+            ( toScriptInAnyLang
+                ( PlutusScript
+                    PlutusScriptV3
+                    (PlutusScriptSerialised "TODO")
+                )
+            )
+        )
 
     {-
 
-      data TxOut = TxOut
-          (AddressInEra era)
-          (TxOutValue era)
-          (TxOutDatum ctx era)
-          (ReferenceScript era)
+          data TxOut = TxOut
+              (AddressInEra era)
+              (TxOutValue era)
+              (TxOutDatum ctx era)
+              (ReferenceScript era)
 
-     TxBodyContent {
-       txIns                :: [(TxIn, BuildTxWith build (Witness WitCtxTxIn era))],
-       txInsCollateral      :: TxInsCollateral era,
-       txInsReference       :: TxInsReference build era,
-       txOuts               :: [TxOut CtxTx era],
-       txTotalCollateral    :: TxTotalCollateral era,
-       txReturnCollateral   :: TxReturnCollateral CtxTx era,
-       txFee                :: TxFee era,
-       txValidityLowerBound :: TxValidityLowerBound era,
-       txValidityUpperBound :: TxValidityUpperBound era,
-       txMetadata           :: TxMetadataInEra era,
-       txAuxScripts         :: TxAuxScripts era,
-       txExtraKeyWits       :: TxExtraKeyWitnesses era,
-       txProtocolParams     :: BuildTxWith build (Maybe (LedgerProtocolParameters era)),
-       txWithdrawals        :: TxWithdrawals  build era,
-       txCertificates       :: TxCertificates build era,
-       txUpdateProposal     :: TxUpdateProposal era,
-       txMintValue          :: TxMintValue    build era,
-       txScriptValidity     :: TxScriptValidity era,
-       txProposalProcedures :: Maybe (Featured ConwayEraOnwards era (TxProposalProcedures build era)),
-       txVotingProcedures   :: Maybe (Featured ConwayEraOnwards era (TxVotingProcedures build era)),
-       -- | Current treasury value
-       txCurrentTreasuryValue :: Maybe (Featured ConwayEraOnwards era L.Coin),
-       -- | Treasury donation to perform
-       txTreasuryDonation     :: Maybe (Featured ConwayEraOnwards era L.Coin)
-     }
-    -}
+         TxBodyContent {
+           txIns                :: [(TxIn, BuildTxWith build (Witness WitCtxTxIn era))],
+           txInsCollateral      :: TxInsCollateral era,
+           txInsReference       :: TxInsReference build era,
+           txOuts               :: [TxOut CtxTx era],
+           txTotalCollateral    :: TxTotalCollateral era,
+           txReturnCollateral   :: TxReturnCollateral CtxTx era,
+           txFee                :: TxFee era,
+           txValidityLowerBound :: TxValidityLowerBound era,
+           txValidityUpperBound :: TxValidityUpperBound era,
+           txMetadata           :: TxMetadataInEra era,
+           txAuxScripts         :: TxAuxScripts era,
+           txExtraKeyWits       :: TxExtraKeyWitnesses era,
+           txProtocolParams     :: BuildTxWith build (Maybe (LedgerProtocolParameters era)),
+           txWithdrawals        :: TxWithdrawals  build era,
+           txCertificates       :: TxCertificates build era,
+           txUpdateProposal     :: TxUpdateProposal era,
+           txMintValue          :: TxMintValue    build era,
+           txScriptValidity     :: TxScriptValidity era,
+           txProposalProcedures :: Maybe (Featured ConwayEraOnwards era (TxProposalProcedures build era)),
+           txVotingProcedures   :: Maybe (Featured ConwayEraOnwards era (TxVotingProcedures build era)),
+           -- | Current treasury value
+           txCurrentTreasuryValue :: Maybe (Featured ConwayEraOnwards era L.Coin),
+           -- | Treasury donation to perform
+           txTreasuryDonation     :: Maybe (Featured ConwayEraOnwards era L.Coin)
+         }
 
-    bodyContent ∷ TxBodyContent BuildTx era
-    bodyContent =
-      TxBodyContent
-        { txIns =
-            (,BuildTxWith (KeyWitness KeyWitnessForSpending))
-              <$> toList feeInputs
-        , txInsCollateral =
-            let
-              collInputs ∷ AlonzoEraOnwards era → TxInsCollateral era
-              collInputs = (`TxInsCollateral` toList colInputs)
-             in
-              case currentEra of
-                ShelleyBasedEraShelley → TxInsCollateralNone
-                ShelleyBasedEraAllegra → TxInsCollateralNone
-                ShelleyBasedEraMary → TxInsCollateralNone
-                ShelleyBasedEraAlonzo → collInputs AlonzoEraOnwardsAlonzo
-                ShelleyBasedEraBabbage → collInputs AlonzoEraOnwardsBabbage
-                ShelleyBasedEraConway → collInputs AlonzoEraOnwardsConway
-        , txInsReference = TxInsReferenceNone
-        , txOuts = [scriptOutput]
-        , txTotalCollateral = undefined $ error "not implemented"
-        , txReturnCollateral = undefined $ error "not implemented"
-        , txFee = undefined $ error "not implemented"
-        , txValidityLowerBound = undefined $ error "not implemented"
-        , txValidityUpperBound = undefined $ error "not implemented"
-        , txMetadata = undefined $ error "not implemented"
-        , txAuxScripts = undefined $ error "not implemented"
-        , txExtraKeyWits = undefined $ error "not implemented"
-        , txProtocolParams = undefined $ error "not implemented"
-        , txWithdrawals = undefined $ error "not implemented"
-        , txCertificates = undefined $ error "not implemented"
-        , txUpdateProposal = undefined $ error "not implemented"
-        , txMintValue = undefined $ error "not implemented"
-        , txScriptValidity = undefined $ error "not implemented"
-        , txProposalProcedures = undefined $ error "not implemented"
-        , txVotingProcedures = undefined $ error "not implemented"
-        , txCurrentTreasuryValue = undefined $ error "not implemented"
-        , txTreasuryDonation = undefined $ error "not implemented"
-        }
+        -}
+
+    txInsCollateral =
+      let
+        collInputs ∷ AlonzoEraOnwards era → TxInsCollateral era
+        collInputs = (`TxInsCollateral` toList (fmap fst colInputs))
+       in
+        case currentEra of
+          BabbageEraOnwardsBabbage → collInputs AlonzoEraOnwardsBabbage
+          BabbageEraOnwardsConway → collInputs AlonzoEraOnwardsConway
+
+    bodyContent ∷ TxBodyContent BuildTx era =
+      defaultTxBodyContent shelleyBasedEra
+        & setTxInsCollateral txInsCollateral
+        & addTxOut scriptOutput
 
     overrideKeyWitnesses ∷ Maybe Word
     overrideKeyWitnesses = Nothing
 
     txInputs ∷ UTxO era
-    txInputs = undefined $ error "not implemented"
+    txInputs = UTxO $ Map.fromList do
+      (txIn, (addr, value)) ← toList feeInputs
+      pure
+        ( txIn
+        , TxOut
+            (fromShelleyAddr shelleyBasedEra addr)
+            ( shelleyBasedEraConstraints shelleyBasedEra $
+                TxOutValueShelleyBased
+                  shelleyBasedEra
+                  ( toLedgerValue
+                      (babbageEraOnwardsToMaryEraOnwards currentEra)
+                      value
+                  )
+            )
+            TxOutDatumNone
+            ReferenceScriptNone
+        )
 
     registeredPools ∷ Set PoolId
     registeredPools = Set.empty
@@ -281,9 +295,9 @@ txDeployScript networkInfo = do
     witnesses ∷ [ShelleyWitnessSigningKey]
     witnesses = []
 
-  Oops.hoistEither . first (inAnyShelleyBasedEra currentEra) $
+  Oops.hoistEither . first (inAnyShelleyBasedEra shelleyBasedEra) $
     constructBalancedTx
-      currentEra
+      shelleyBasedEra
       bodyContent
       changeAddr
       overrideKeyWitnesses

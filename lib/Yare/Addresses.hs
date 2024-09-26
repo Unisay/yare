@@ -88,7 +88,7 @@ useForCollateral a@Addresses {externalAddresses} =
   -- While the function type makes it possible to modify the addresses state,
   -- we don't do it in the current implementation always using the same and the
   -- only external address for collateral in order to KISS.
-  (a, ledgerAddress (NE.head externalAddresses))
+  (a, ledgerAddress (NE.last externalAddresses))
 
 useForScript ∷ Addresses → (Addresses, LedgerAddress)
 useForScript a@Addresses {externalAddresses} =

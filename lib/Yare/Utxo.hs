@@ -161,16 +161,16 @@ rollbackTo point utxo = do
 --------------------------------------------------------------------------------
 -- State updates ---------------------------------------------------------------
 
-useByAddress ∷ Utxo → LedgerAddress → (Utxo, [TxIn])
-useByAddress utxo addr = (utxo', inputs)
+useByAddress ∷ Utxo → LedgerAddress → (Utxo, [(TxIn, (LedgerAddress, Value))])
+useByAddress utxo addr = (utxo', entries)
  where
-  inputs = do
-    -- This query is not optimized for performance
-    (input, (outputAddr, _value)) ← Map.toList (spendableEntries utxo)
-    guard $ addr == outputAddr
-    pure input
-
   utxo' = utxo {usedInputs = Set.fromList inputs <> usedInputs utxo}
+  inputs = map fst entries
+  entries = do
+    -- This query is not optimized for performance
+    entry@(_input, (outputAddr, _value)) ← Map.toList (spendableEntries utxo)
+    guard $ addr == outputAddr
+    pure entry
 
 --------------------------------------------------------------------------------
 -- State queries ---------------------------------------------------------------
