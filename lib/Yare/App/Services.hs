@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Yare.App.Services
   ( Services (..)
   , mkServices
@@ -13,9 +15,13 @@ import Cardano.Api.Shelley
   ( AlonzoEraOnwards (..)
   , BabbageEraOnwards (..)
   , BuildTx
+  , BuildTxWith (BuildTxWith)
   , CtxTx
   , InAnyShelleyBasedEra (..)
+  , KeyWitnessInCtx (KeyWitnessForSpending)
+  , LedgerProtocolParameters (unLedgerProtocolParameters)
   , PlutusScript (..)
+  , PlutusScriptV3
   , PlutusScriptVersion (PlutusScriptV3)
   , PoolId
   , ReferenceScript (..)
@@ -27,15 +33,18 @@ import Cardano.Api.Shelley
   , TxBodyErrorAutoBalance
   , TxIn
   , TxInMode (..)
+  , TxIns
   , TxInsCollateral (..)
   , TxOut (..)
   , TxOutDatum (..)
   , TxOutValue (..)
   , UTxO (..)
   , Value
+  , Witness (KeyWitness)
   , addTxOut
   , babbageEraOnwardsToMaryEraOnwards
   , babbageEraOnwardsToShelleyBasedEra
+  , calculateMinimumUTxO
   , constructBalancedTx
   , defaultTxBodyContent
   , fromShelleyAddr
@@ -43,10 +52,12 @@ import Cardano.Api.Shelley
   , inAnyShelleyBasedEra
   , lovelaceToTxOutValue
   , runExcept
+  , setTxIns
   , setTxInsCollateral
   , shelleyBasedEraConstraints
   , toLedgerValue
   , toScriptInAnyLang
+  , unLedgerProtocolParameters
   )
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Lens (Lens, Simple, lens, (.~), (^.), _1)
@@ -55,10 +66,12 @@ import Control.Monad.Oops (CouldBe, Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Development.Placeholders (todo)
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
 import Yare.Address (AddressWithKey (ledgerAddress))
 import Yare.Addresses (Addresses, externalAddresses)
 import Yare.Addresses qualified as Addresses
+import Yare.App.Scripts (script)
 import Yare.App.Types (AppState, NetworkInfo (..), addressState, chainState)
 import Yare.Chain.Follower (ChainState (..), chainTip, utxo)
 import Yare.Chain.Types (ChainTip, LedgerAddress)
@@ -145,7 +158,7 @@ serviceDeployScript
 serviceDeployScript storage submitQ networkInfo = do
   let NetworkInfo {currentEra} = networkInfo
       shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
-  overStorage storage (run (txDeployScript networkInfo)) >>= \case
+  overStorage storage (run (txDeployScript networkInfo script)) >>= \case
     Left err → pure (Just err)
     Right signedBalancedTx →
       Submitter.submit submitQ (TxInMode shelleyBasedEra signedBalancedTx)
@@ -165,8 +178,9 @@ txDeployScript
      , e `CouldBe` NoCollateralInputs
      )
   ⇒ NetworkInfo era
+  → PlutusScript PlutusScriptV3
   → StateT (Addresses, Utxo) (Except (Variant e)) (Tx era)
-txDeployScript networkInfo = do
+txDeployScript networkInfo plutusScript = do
   let NetworkInfo
         { protocolParameters
         , epochInfo
@@ -192,7 +206,6 @@ txDeployScript networkInfo = do
     fromShelleyAddrIsSbe shelleyBasedEra
       <$> stateful' _1 Addresses.useForScript
 
-  -- TODO: checkMinUTxOValue ?
   let
     scriptOutput ∷ TxOut CtxTx era
     scriptOutput =
@@ -202,50 +215,19 @@ txDeployScript networkInfo = do
         TxOutDatumNone
         ( ReferenceScript
             currentEra
-            ( toScriptInAnyLang
-                ( PlutusScript
-                    PlutusScriptV3
-                    (PlutusScriptSerialised "TODO")
-                )
-            )
+            (toScriptInAnyLang (PlutusScript PlutusScriptV3 plutusScript))
         )
 
-    {-
+    scriptOutputAdaValue =
+      lovelaceToTxOutValue shelleyBasedEra $
+        calculateMinimumUTxO
+          shelleyBasedEra
+          scriptOutput
+          (unLedgerProtocolParameters protocolParameters)
 
-          data TxOut = TxOut
-              (AddressInEra era)
-              (TxOutValue era)
-              (TxOutDatum ctx era)
-              (ReferenceScript era)
-
-         TxBodyContent {
-           txIns                :: [(TxIn, BuildTxWith build (Witness WitCtxTxIn era))],
-           txInsCollateral      :: TxInsCollateral era,
-           txInsReference       :: TxInsReference build era,
-           txOuts               :: [TxOut CtxTx era],
-           txTotalCollateral    :: TxTotalCollateral era,
-           txReturnCollateral   :: TxReturnCollateral CtxTx era,
-           txFee                :: TxFee era,
-           txValidityLowerBound :: TxValidityLowerBound era,
-           txValidityUpperBound :: TxValidityUpperBound era,
-           txMetadata           :: TxMetadataInEra era,
-           txAuxScripts         :: TxAuxScripts era,
-           txExtraKeyWits       :: TxExtraKeyWitnesses era,
-           txProtocolParams     :: BuildTxWith build (Maybe (LedgerProtocolParameters era)),
-           txWithdrawals        :: TxWithdrawals  build era,
-           txCertificates       :: TxCertificates build era,
-           txUpdateProposal     :: TxUpdateProposal era,
-           txMintValue          :: TxMintValue    build era,
-           txScriptValidity     :: TxScriptValidity era,
-           txProposalProcedures :: Maybe (Featured ConwayEraOnwards era (TxProposalProcedures build era)),
-           txVotingProcedures   :: Maybe (Featured ConwayEraOnwards era (TxVotingProcedures build era)),
-           -- | Current treasury value
-           txCurrentTreasuryValue :: Maybe (Featured ConwayEraOnwards era L.Coin),
-           -- | Treasury donation to perform
-           txTreasuryDonation     :: Maybe (Featured ConwayEraOnwards era L.Coin)
-         }
-
-        -}
+    scriptOutputWithAda =
+      let TxOut addr _value datum script' = scriptOutput
+       in TxOut addr scriptOutputAdaValue datum script'
 
     txInsCollateral =
       let
@@ -255,11 +237,6 @@ txDeployScript networkInfo = do
         case currentEra of
           BabbageEraOnwardsBabbage → collInputs AlonzoEraOnwardsBabbage
           BabbageEraOnwardsConway → collInputs AlonzoEraOnwardsConway
-
-    bodyContent ∷ TxBodyContent BuildTx era =
-      defaultTxBodyContent shelleyBasedEra
-        & setTxInsCollateral txInsCollateral
-        & addTxOut scriptOutput
 
     overrideKeyWitnesses ∷ Maybe Word
     overrideKeyWitnesses = Nothing
@@ -283,6 +260,16 @@ txDeployScript networkInfo = do
             ReferenceScriptNone
         )
 
+    txIns ∷ TxIns BuildTx era
+    txIns =
+      (BuildTxWith (KeyWitness KeyWitnessForSpending) <$) <$> toList feeInputs
+
+    bodyContent ∷ TxBodyContent BuildTx era =
+      defaultTxBodyContent shelleyBasedEra
+        & setTxIns txIns
+        & setTxInsCollateral txInsCollateral
+        & addTxOut scriptOutputWithAda
+
     registeredPools ∷ Set PoolId
     registeredPools = Set.empty
 
@@ -293,7 +280,7 @@ txDeployScript networkInfo = do
     delegationsRewards = Map.empty
 
     witnesses ∷ [ShelleyWitnessSigningKey]
-    witnesses = []
+    witnesses = [$(todo "witnesses")]
 
   Oops.hoistEither . first (inAnyShelleyBasedEra shelleyBasedEra) $
     constructBalancedTx

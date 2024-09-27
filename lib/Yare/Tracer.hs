@@ -1,6 +1,7 @@
 module Yare.Tracer
   ( module Control.Tracer
-  , showTracer
+  , prefixTracer
+  , prefixTracerShow
   ) where
 
 import Relude
@@ -8,6 +9,12 @@ import Relude
 import Control.Tracer
 import String.ANSI (blackBg, faint)
 
-showTracer ∷ (Show a, Applicative m) ⇒ String → Tracer m a
-showTracer prefix =
-  faint . ((blackBg (" " <> prefix <> " ") <> " ") <>) . show >$< debugTracer
+prefixTracerShow ∷ (Show a, Applicative m) ⇒ String → Tracer m a
+prefixTracerShow prefix = show >$< prefixTracer prefix
+
+prefixTracer ∷ Applicative m ⇒ String → Tracer m Text
+prefixTracer prefix =
+  faint
+    . ((blackBg (" " <> prefix <> " ") <> " ") <>)
+    . toString
+    >$< debugTracer

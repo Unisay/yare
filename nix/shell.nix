@@ -14,7 +14,7 @@
 cabalProject: {
   name = "Yare";
 
-  packages = [ pkgs.figlet ];
+  packages = [ pkgs.figlet pkgs.haskellPackages.cabal-plan ];
 
   scripts = {
 

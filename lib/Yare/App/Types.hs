@@ -13,10 +13,10 @@ import Relude
 
 import Cardano.Api.Ledger (Network)
 import Cardano.Api.Shelley
-  ( LedgerEpochInfo
+  ( BabbageEraOnwards
+  , LedgerEpochInfo
   , LedgerProtocolParameters
   , SystemStart
-  , BabbageEraOnwards
   )
 import Control.Lens.TH (makeLenses)
 import Data.Tagged (Tagged)

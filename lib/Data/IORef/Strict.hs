@@ -7,11 +7,11 @@ module Data.IORef.Strict
   , atomicModifyIORef
   ) where
 
-import Relude hiding (readIORef, writeIORef, atomicModifyIORef, newIORef)
+import Relude hiding (atomicModifyIORef, newIORef, readIORef, writeIORef)
 
 import Control.Exception (throw)
 import Data.IORef qualified as Lazy
-import NoThunks.Class (NoThunks, noThunks, thunkContext)
+import NoThunks.Class (NoThunks (noThunks), ThunkInfo (..))
 import NoThunks.Class qualified as NoThunks
 
 type StrictIORef ∷ Type → Type
@@ -34,11 +34,12 @@ check x = do
   mThunk ← noThunks [] x
   case mThunk of
     Nothing → pass
-    Just thunk → throw $ ThunkException (thunkContext thunk) callStack
+    Just (ThunkInfo contextOrInfo) →
+      throw $ ThunkException contextOrInfo callStack
 
 type ThunkException ∷ Type
 data ThunkException = ThunkException
-  { thunkExceptionContext ∷ NoThunks.Context
+  { thunkExceptionContext ∷ Either NoThunks.Context NoThunks.Info
   , thunkExceptionCallStack ∷ CallStack
   }
   deriving stock (Show)

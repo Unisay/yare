@@ -60,7 +60,7 @@ import Yare.Query qualified as Query
 import Yare.Storage (Storage (..), zoomStorage)
 import Yare.Storage qualified as Storage
 import Yare.Submitter qualified as Submitter
-import Yare.Tracer (nullTracer, showTracer)
+import Yare.Tracer (nullTracer, prefixTracer, prefixTracerShow)
 
 {- |
 Starts several threads concurrently:
@@ -132,19 +132,25 @@ runWebServer App.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
           <$> Query.querySystemStart
           <*> Query.queryHistoryInterpreter
           <*> Query.queryCurrentPParams shelleyBasedEra
-    let epochInfo = toLedgerEpochInfo (EraHistory historyInterpreter)
-    protocolParameters ← either throwError pure errorOrProtocolParams
+    protocolParameters ←
+      case errorOrProtocolParams of
+        Left err → throwError err
+        Right ledgerProtocolParameters → pure ledgerProtocolParameters
     let networkInfo =
           NetworkInfo
             { network
             , systemStart
             , currentEra
-            , epochInfo
+            , epochInfo = toLedgerEpochInfo (EraHistory historyInterpreter)
             , protocolParameters
             }
     -- Running the server ------------------------------------------------
-    liftIO . Warp.run apiHttpPort . simpleCors . Http.application $
-      App.mkServices storage submitQ networkInfo
+
+    liftIO
+      . Warp.run apiHttpPort
+      . simpleCors
+      . Http.application (prefixTracer "HTTP")
+      $ App.mkServices storage submitQ networkInfo
 
 --------------------------------------------------------------------------------
 -- Node connection -------------------------------------------------------------
@@ -166,9 +172,9 @@ runNodeConnection App.Config {..} addresses storage queryQ submitQ = do
       (supportedNodeToClientVersions (Proxy @StdCardanoBlock))
       NetworkSubscriptionTracers
         { nsMuxTracer = nullTracer
-        , nsHandshakeTracer = showTracer "HS_"
-        , nsErrorPolicyTracer = showTracer "Err"
-        , nsSubscriptionTracer = runIdentity >$< showTracer "SUB"
+        , nsHandshakeTracer = prefixTracerShow "HS_"
+        , nsErrorPolicyTracer = prefixTracerShow "Err"
+        , nsSubscriptionTracer = runIdentity >$< prefixTracerShow "SUB"
         }
       ClientSubscriptionParams
         { cspAddress = nodeSocketLocalAddress nodeSocket

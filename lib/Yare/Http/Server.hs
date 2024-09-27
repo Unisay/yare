@@ -6,27 +6,31 @@ module Yare.Http.Server
 import Relude
 
 import Cardano.Api (InAnyShelleyBasedEra (..), TxBodyErrorAutoBalance)
+import Control.Tracer (natTracer)
 import Data.Variant (case_)
 import Network.Wai qualified as Wai
-import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, StandardCrypto)
+import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, EraMismatch (..), HardForkApplyTxErr (..), StandardCrypto)
 import Servant qualified
 import Servant.API (Get, JSON, Post, type (:<|>) (..), type (:>))
+import Text.Pretty.Simple (pShow)
 import Yare.App.Services (Services (serveCollateralAddresses))
 import Yare.App.Services qualified as App
 import Yare.Http.Address qualified as Http.Address
 import Yare.Http.Types qualified as Http
+import Yare.Tracer (Tracer, traceWith)
 
-application ∷ App.Services IO → Wai.Application
-application services = Servant.serve (Proxy @YareApi) do
-  ( endpointUtxo services
-      :<|> endpointChainTip services
-      :<|> endpointDeployScript services
-    )
-    :<|> ( endpointAddresses services
-            :<|> endpointAddressesChange services
-            :<|> endpointAddressesFees services
-            :<|> endpointAddressesCollateral services
-         )
+application ∷ Tracer IO Text → App.Services IO → Wai.Application
+application (natTracer liftIO → tracer) services =
+  Servant.serve (Proxy @YareApi) do
+    ( endpointUtxo services
+        :<|> endpointChainTip services
+        :<|> endpointDeployScript tracer services
+      )
+      :<|> ( endpointAddresses services
+              :<|> endpointAddressesChange services
+              :<|> endpointAddressesFees services
+              :<|> endpointAddressesCollateral services
+           )
 
 type YareApi ∷ Type
 type YareApi =
@@ -50,28 +54,78 @@ endpointUtxo services = liftIO $ Http.Utxo <$> App.serveUtxo services
 endpointChainTip ∷ App.Services IO → Servant.Handler Http.ChainTip
 endpointChainTip services = liftIO $ Http.ChainTip <$> App.serveTip services
 
-endpointDeployScript ∷ App.Services IO → Servant.Handler ()
-endpointDeployScript App.Services {deployScript} =
+endpointDeployScript
+  ∷ Tracer Servant.Handler Text
+  → App.Services IO
+  → Servant.Handler ()
+endpointDeployScript tracer App.Services {deployScript} = do
+  let err500 ∷ Text → Text → Servant.Handler a
+      err500 publicMsg privateMsg = do
+        traceWith tracer privateMsg
+        Servant.throwError $
+          Servant.err500 {Servant.errBody = encodeUtf8 publicMsg}
   whenJustM (liftIO deployScript) \err →
-    Servant.throwError $
-      case_
-        err
-        ( \(_err ∷ CardanoApplyTxErr StandardCrypto) →
-            Servant.err500 {Servant.errBody = "Tx application error"}
-        )
-        ( \( InAnyShelleyBasedEra _era e
-              ∷ InAnyShelleyBasedEra TxBodyErrorAutoBalance
-            ) →
-              Servant.err500
-                { Servant.errBody = "Tx balancing error: " <> show e
-                }
-        )
-        ( \(_err ∷ App.NoFeeInputs) →
-            Servant.err500 {Servant.errBody = "No fee inputs"}
-        )
-        ( \(_err ∷ App.NoCollateralInputs) →
-            Servant.err500 {Servant.errBody = "No collateral inputs"}
-        )
+    case_
+      err
+      ( \(cApplyTxErr ∷ CardanoApplyTxErr StandardCrypto) →
+          case cApplyTxErr of
+            ApplyTxErrByron e →
+              err500
+                "Byron tx application error"
+                ("Byron tx application error: " <> show e)
+            ApplyTxErrShelley e →
+              err500
+                "Shelley tx application error"
+                ("Shelley tx application error: " <> show e)
+            ApplyTxErrAllegra e →
+              err500
+                "Allegra tx application error"
+                ("Allegra tx application error: " <> show e)
+            ApplyTxErrMary e →
+              err500
+                "Mary tx application error"
+                ("Mary tx application error: " <> show e)
+            ApplyTxErrAlonzo e →
+              err500
+                "Alonzo tx application error"
+                ("Alonzo tx application error: " <> show e)
+            ApplyTxErrBabbage e →
+              err500
+                "Babbage tx application error"
+                ("Babbage tx application error: " <> show e)
+            ApplyTxErrConway e →
+              err500
+                "Conway tx application error"
+                ("Conway tx application error: " <> show e)
+            ApplyTxErrWrongEra eraMismatch →
+              err500
+                "Tx application error"
+                ( "Transaction from the "
+                    <> otherEraName eraMismatch
+                    <> " era applied to a ledger from the "
+                    <> ledgerEraName eraMismatch
+                    <> " era"
+                )
+      )
+      ( \( InAnyShelleyBasedEra era e
+            ∷ InAnyShelleyBasedEra TxBodyErrorAutoBalance
+          ) →
+            err500
+              "Tx balancing error"
+              -- \^ public message
+              ( "Tx balancing error in era "
+                  <> show era
+                  <> ": "
+                  <> fromLazy (pShow e)
+              )
+              -- \^ private message
+      )
+      ( \(_err ∷ App.NoFeeInputs) →
+          err500 "No fee inputs" "No fee inputs"
+      )
+      ( \(_err ∷ App.NoCollateralInputs) →
+          err500 "No collateral inputs" "No collateral inputs"
+      )
 
 endpointAddresses ∷ App.Services IO → Servant.Handler [Http.Address]
 endpointAddresses App.Services {serveAddresses} = liftIO do

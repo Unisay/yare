@@ -5,7 +5,7 @@ module NoThunks.Class.Extended
 
 import Relude
 
-import NoThunks.Class (NoThunks (..), ThunkInfo (thunkContext), unsafeNoThunks)
+import NoThunks.Class (NoThunks, unsafeNoThunks)
 import NoThunks.Class qualified as Reexport
 import NoThunks.Class.Orphans qualified as Reexport ()
 
@@ -19,8 +19,4 @@ repeatedly f = go
       let !b' = f b a
        in case unsafeNoThunks b' of
             Nothing → go b' as
-            Just thunk →
-              error
-                ( "Unexpected thunk with context "
-                    <> show (thunkContext thunk)
-                )
+            Just thunk → error ("Unexpected thunk with context " <> show thunk)
