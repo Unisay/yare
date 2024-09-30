@@ -21,6 +21,7 @@ common opts
     DeriveFunctor
     DeriveGeneric
     DerivingStrategies
+    DerivingVia
     ExistentialQuantification
     FlexibleContexts
     FlexibleInstances
@@ -43,6 +44,7 @@ common opts
     ScopedTypeVariables
     StandaloneDeriving
     StandaloneKindSignatures
+    TemplateHaskell
     TupleSections
     TypeApplications
     TypeFamilies
@@ -72,6 +74,7 @@ library
     , cardano-addresses              ^>=3.12
     , cardano-api
     , cardano-client
+    , cardano-crypto
     , cardano-crypto-class
     , cardano-crypto-wrapper
     , cardano-ledger-allegra
@@ -117,6 +120,7 @@ library
     , string-interpolate             ^>=0.3.3
     , text                           ^>=2.1.1
     , text-ansi                      ^>=0.3.0.1
+    , transformers                   ^>=0.6.1.0
     , wai                            ^>=3.2.4
     , wai-cors                       ^>=0.2.7
     , wai-extra                      ^>=3.1.15
@@ -131,7 +135,7 @@ library
 
   exposed-modules:
     Yare.Address
-    Yare.Addresses
+    Yare.Address.Derivation
     Yare.App
     Yare.App.Scripts
     Yare.App.Services
@@ -154,6 +158,7 @@ library
     Yare.Storage
     Yare.Submitter
     Yare.Tracer
+    Yare.Util.Tx.Construction
     Yare.Utxo
 
 executable yare

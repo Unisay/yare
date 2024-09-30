@@ -12,7 +12,6 @@ import Cardano.Api.Shelley
   , toLedgerEpochInfo
   )
 import Cardano.Client.Subscription (subscribe)
-import Cardano.Mnemonic (MkMnemonicError)
 import Control.Concurrent.Class.MonadSTM.TQueue (newTQueueIO)
 import Control.Exception (throwIO)
 import Control.Monad.Class.MonadAsync (concurrently_)
@@ -36,13 +35,9 @@ import Ouroboros.Network.NodeToClient
   , withIOManager
   )
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
-import Yare.Addresses
-  ( AddressConversionError (..)
-  , AddressDerivationError (..)
-  , Addresses
-  , NetworkMagicNoTagError (..)
-  )
-import Yare.Addresses qualified as Addresses
+import Yare.Address (Addresses)
+import Yare.Address qualified as Address
+import Yare.Address qualified as Addresses
 import Yare.App.Services qualified as App
 import Yare.App.Types
   ( AppState
@@ -72,8 +67,10 @@ Starts several threads concurrently:
 -}
 start ∷ App.Config → IO ()
 start config@App.Config {networkMagic, mnemonicFile} = do
-  addresses ← withHandledErrors do
+  addresses ←
     Addresses.deriveFromMnemonic networkMagic mnemonicFile
+      & Oops.onLeftThrow
+      & withHandledErrors
   queryQ ← liftIO newTQueueIO
   submitQ ← liftIO newTQueueIO
   let !appState = App.initialState addresses
@@ -125,7 +122,9 @@ runWebServer App.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
   withBabbageEraOnwards currentEra = do
     let shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
     -- Making NetworkInfo ------------------------------------------------
-    network ← Addresses.networkMagicToLedgerNetwork networkMagic
+    network ←
+      Addresses.networkMagicToLedgerNetwork networkMagic
+        & Oops.hoistEither
     (systemStart, historyInterpreter, errorOrProtocolParams) ←
       Query.submit queryQ $
         (,,)
@@ -206,10 +205,7 @@ type Errors ∷ Type
 type Errors =
   Variant
     [ UnsupportedEra
-    , NetworkMagicNoTagError
-    , AddressConversionError
-    , AddressDerivationError
-    , MkMnemonicError 8
+    , Address.Error
     , AcquireFailure
     , EraMismatch
     , Query.NoQueryInByronEra
@@ -223,10 +219,7 @@ exiting the process.
 withHandledErrors ∷ ExceptT Errors IO a → IO a
 withHandledErrors =
   crashOnUnsupportedEraError
-    >>> crashOnNetworkMagicNoTagError
-    >>> crashOnAddressConversionError
-    >>> crashOnAddressDerivationError
-    >>> crashOnMnemonicError
+    >>> crashOnAddressError
     >>> crashOnAcquireFailure
     >>> crashOnEraMismatch
     >>> crashOnNoQuery
@@ -241,29 +234,18 @@ crashOnUnsupportedEraError = Oops.catch \case
   UnsupportedEraShelley sbe →
     crash $ "Current node era (Shelley) is not supported: " <> show sbe
 
-crashOnNetworkMagicNoTagError
-  ∷ ExceptT (Variant (NetworkMagicNoTagError : e)) IO a
+crashOnAddressError
+  ∷ ExceptT (Variant (Address.Error : e)) IO a
   → ExceptT (Variant e) IO a
-crashOnNetworkMagicNoTagError = Oops.catch \(NetworkMagicNoTag magic) →
-  crash $ "Failed to determine a network tag for magic: " <> show magic
-
-crashOnAddressConversionError
-  ∷ ExceptT (Variant (AddressConversionError : e)) IO a
-  → ExceptT (Variant e) IO a
-crashOnAddressConversionError = Oops.catch \(AddressConversionError addr) →
-  crash $ "Failed to convert address: " <> show addr
-
-crashOnAddressDerivationError
-  ∷ ExceptT (Variant (AddressDerivationError : e)) IO a
-  → ExceptT (Variant e) IO a
-crashOnAddressDerivationError = Oops.catch \NoAddressesDerived →
-  crash "Failed to derive addresses from mnemonic"
-
-crashOnMnemonicError
-  ∷ ExceptT (Variant (MkMnemonicError 8 : e)) IO a
-  → ExceptT (Variant e) IO a
-crashOnMnemonicError = Oops.catch \(err ∷ MkMnemonicError 8) →
-  crash $ "Failed to parse mnemonic file: " <> show err
+crashOnAddressError = Oops.catch \case
+  Address.NetworkMagicNoTag magic →
+    crash $ "Failed to determine a network tag for magic: " <> show magic
+  Address.MnemonicError err →
+    crash $ "Failed to parse mnemonic file: " <> show err
+  Address.DerivationError err →
+    crash $ show err
+  Address.NoAddressesDerived →
+    crash "Failed to derive addresses from mnemonic"
 
 crashOnAcquireFailure
   ∷ ExceptT (Variant (AcquireFailure : e)) IO a

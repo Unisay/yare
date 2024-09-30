@@ -14,9 +14,6 @@ import Cardano.Mnemonic
   , mkMnemonic
   , mnemonicToText
   )
-import Control.Monad.Error.Class (MonadError)
-import Control.Monad.Oops (CouldBe, Variant)
-import Control.Monad.Oops qualified as Oops
 import Path (File, Path, toFilePath)
 
 genMnemonic ∷ IO (Mnemonic 24)
@@ -28,12 +25,9 @@ mnemonicToFile path mnemonic =
   writeFileText (toFilePath path) (unwords (mnemonicToText mnemonic) <> "\n")
 
 mnemonicFromFile
-  ∷ ( MonadIO m
-    , MonadError (Variant e) m
-    , e `CouldBe` MkMnemonicError 8
-    )
+  ∷ MonadIO m
   ⇒ Path absRel File
-  → m (Mnemonic 24)
-mnemonicFromFile path = do
-  mnemonic ← readFileBS (toFilePath path)
-  mkMnemonic @24 (words (decodeUtf8 mnemonic)) & Oops.hoistEither
+  → m (Either (MkMnemonicError 8) (Mnemonic 24))
+mnemonicFromFile path =
+  mkMnemonic @24 . words . decodeUtf8
+    <$> readFileBS (toFilePath path)

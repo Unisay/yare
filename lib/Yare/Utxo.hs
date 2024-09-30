@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Yare.Utxo -- is meant to be imported qualified
   ( Utxo
@@ -20,12 +20,13 @@ import Data.Set (member)
 import Data.Set qualified as Set
 import Fmt (Buildable (..), blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
+import NoThunks.Class (NoThunks (noThunks, showTypeOf, wNoThunks))
 import NoThunks.Class.Extended (NoThunks, repeatedly)
 import Ouroboros.Consensus.Block (pointSlot)
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Network.Block (blockPoint)
-import Yare.Addresses (Addresses, isOwnAddress)
+import Yare.Address (Addresses, isOwnAddress)
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Era (AnyEra (..))
 import Yare.Chain.Point (ChainPoint)
@@ -66,10 +67,15 @@ data Utxo = Utxo
   { reversibleUpdates ∷ ![(ChainPoint, [Update])]
   , finalState ∷ !Entries
   , usedInputs ∷ !(Set TxIn)
+  , submittedTransactions ∷ ![TxId]
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NoThunks)
 
+instance NoThunks TxId where
+  noThunks _ctx _txId = pure Nothing
+  wNoThunks = noThunks
+  showTypeOf _ = "TxId"
 instance Buildable Utxo where
   build Utxo {..} =
     "UTXO\n----\n"
@@ -96,6 +102,7 @@ initial =
     { reversibleUpdates = mempty
     , finalState = mempty
     , usedInputs = mempty
+    , submittedTransactions = mempty
     }
 
 {- | Enrich the UTXO set with the transactions from a block.
@@ -125,30 +132,31 @@ indexTx addresses point tx utxo =
   updateNonFinalState (reversibleUpdates utxo) <&> \updates →
     utxo {reversibleUpdates = updates}
  where
-  updateNonFinalState ∷ [(ChainPoint, [Update])] → Maybe [(ChainPoint, [Update])]
+  updateNonFinalState
+    ∷ [(ChainPoint, [Update])] → Maybe [(ChainPoint, [Update])]
   updateNonFinalState prevUpdates =
-    case updateUtxo addresses spendableTxInputs (transactionViewUtxo tx) of
+    case updateUtxo spendableTxInputs (transactionViewUtxo tx) of
       [] → Nothing
       updates → Just ((point, updates) : prevUpdates)
   spendableTxInputs = Map.keysSet (spendableEntries utxo)
 
-updateUtxo ∷ Addresses → Set TxIn → TxViewUtxo → [Update]
-updateUtxo addresses spendableInputs TxViewUtxo {..} =
-  mapMaybe (indexTxIn spendableInputs) txViewInputs
-    ++ mapMaybe (indexTxOut addresses txViewId) txViewOutputs
+  updateUtxo ∷ Set TxIn → TxViewUtxo → [Update]
+  updateUtxo spendableInputs TxViewUtxo {..} =
+    mapMaybe (indexTxIn spendableInputs) txViewInputs
+      ++ mapMaybe (indexTxOut txViewId) txViewOutputs
 
-indexTxIn ∷ Set TxIn → TxIn → Maybe Update
-indexTxIn spendableInputs input =
-  guard (input `member` spendableInputs)
-    $> SpendTxInput input
+  indexTxIn ∷ Set TxIn → TxIn → Maybe Update
+  indexTxIn spendableInputs input =
+    guard (input `member` spendableInputs)
+      $> SpendTxInput input
 
-indexTxOut ∷ Addresses → TxId → TxOutViewUtxo → Maybe Update
-indexTxOut addresses txId TxOutViewUtxo {..} =
-  guard (isOwnAddress addresses txOutViewUtxoAddress)
-    $> AddSpendableTxInput
-      (TxIn txId txOutViewUtxoIndex)
-      txOutViewUtxoAddress
-      txOutViewUtxoValue
+  indexTxOut ∷ TxId → TxOutViewUtxo → Maybe Update
+  indexTxOut txId TxOutViewUtxo {..} =
+    guard (isOwnAddress addresses txOutViewUtxoAddress)
+      $> AddSpendableTxInput
+        (TxIn txId txOutViewUtxoIndex)
+        txOutViewUtxoAddress
+        txOutViewUtxoValue
 
 rollbackTo ∷ ChainPoint → Utxo → Maybe Utxo
 rollbackTo point utxo = do

@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 module Yare.App.Types
   ( Config (..)
   , NetworkInfo (..)
@@ -24,7 +22,7 @@ import Network.Wai.Handler.Warp qualified as Warp
 import NoThunks.Class (NoThunks)
 import Ouroboros.Network.Magic (NetworkMagic)
 import Path (Abs, File, Path)
-import Yare.Addresses (Addresses)
+import Yare.Address (Addresses)
 import Yare.Chain.Follower (ChainState, initialChainState)
 import Yare.Chain.Point (ChainPoint)
 import Yare.Node.Socket (NodeSocket)

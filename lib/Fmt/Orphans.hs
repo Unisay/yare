@@ -4,7 +4,7 @@ module Fmt.Orphans () where
 
 import Relude
 
-import Cardano.Api
+import Cardano.Api.Shelley
   ( AssetId (..)
   , AssetName
   , PolicyId (..)

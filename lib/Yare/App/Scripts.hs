@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-full-laziness #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
@@ -13,13 +12,21 @@ module Yare.App.Scripts
   ( script
   ) where
 
-import Cardano.Api.Shelley (PlutusScript (..), PlutusScriptV3)
+import Cardano.Api.Shelley
+  ( PlutusScript (..)
+  , PlutusScriptV3
+  , PlutusScriptVersion (PlutusScriptV3)
+  , Script (PlutusScript)
+  )
 import PlutusLedgerApi.Common (serialiseCompiledCode)
 import PlutusTx (BuiltinData, CompiledCode, compile)
 import PlutusTx.Prelude (Bool (True), BuiltinUnit, check)
 
-script ∷ PlutusScript PlutusScriptV3
-script = PlutusScriptSerialised (serialiseCompiledCode compiledCode)
+script ∷ Script PlutusScriptV3
+script =
+  PlutusScript
+    PlutusScriptV3
+    (PlutusScriptSerialised (serialiseCompiledCode compiledCode))
 
 compiledCode ∷ CompiledCode (BuiltinData → BuiltinUnit)
 compiledCode = $$(compile [||validator||])
