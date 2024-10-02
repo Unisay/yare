@@ -1,17 +1,20 @@
+{-# HLINT ignore "Eta reduce" #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
 module Yare.Chain.Follower
   ( ChainFollower (..)
   , newChainFollower
   , initialChainState
-  , ChainState (..)
-  , utxo
-  , chainTip
+  , ChainState
+  , SomeChainState
   ) where
 
-import Relude
+import Relude hiding (get)
 
-import Control.Lens.TH (makeLenses)
+import Data.Row (Disjoint, Rec, (.!), (.+), (.==), type (.+), type (.==))
+import Data.Row.Records qualified as Rec
 import Fmt (pretty)
-import NoThunks.Class (NoThunks)
 import Ouroboros.Network.Block (Tip (TipGenesis))
 import Yare.Address (Addresses)
 import Yare.Chain.Block (StdCardanoBlock)
@@ -26,45 +29,56 @@ data ChainFollower m = ChainFollower
   , onRollback ∷ ChainPoint → ChainTip → m ()
   }
 
-newChainFollower ∷ Addresses → Storage IO ChainState → ChainFollower IO
+newChainFollower
+  ∷ Disjoint ChainState r
+  ⇒ Addresses
+  → Storage IO (SomeChainState r)
+  → ChainFollower IO
 newChainFollower addresses storage =
   ChainFollower
     { onNewBlock = \(block ∷ StdCardanoBlock) (tip ∷ ChainTip) →
-        overStorage storage ((,()) . indexBlock addresses block tip)
+        overStorage storage \chainState →
+          (indexBlock addresses block tip chainState, ())
     , onRollback = \(point ∷ ChainPoint) (tip ∷ ChainTip) →
-        overStorage storage ((,()) . rollbackTo point tip)
+        overStorage storage \chainState →
+          (rollbackTo point tip chainState, ())
     }
 
-type ChainState ∷ Type
-data ChainState = ChainState
-  { _utxo ∷ !Utxo
-  , _chainTip ∷ !ChainTip
-  }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (NoThunks)
+type ChainState = ("utxo" .== Utxo .+ "chainTip" .== ChainTip)
+type SomeChainState r = Rec (ChainState .+ r)
 
-initialChainState ∷ ChainState
-initialChainState =
-  ChainState
-    { _utxo = Utxo.initial
-    , _chainTip = TipGenesis
-    }
+initialChainState ∷ Rec ChainState
+initialChainState = (#utxo .== Utxo.initial) .+ (#chainTip .== TipGenesis)
 
 indexBlock
-  ∷ Addresses
+  ∷ Disjoint ChainState r
+  ⇒ Addresses
   → StdCardanoBlock
   → ChainTip
-  → ChainState
-  → ChainState
-indexBlock addresses block tip cs@ChainState {_utxo} =
-  case Utxo.indexBlock addresses block _utxo of
-    Nothing → cs {_chainTip = tip}
-    Just utxo → trace (pretty utxo) cs {_utxo = utxo, _chainTip = tip}
+  → SomeChainState r
+  → SomeChainState r
+indexBlock addresses block tip chainState =
+  case Utxo.indexBlock addresses block (chainState .! #utxo) of
+    Nothing →
+      Rec.update #chainTip tip chainState
+    Just utxo →
+      trace (pretty utxo) $
+        chainState
+          & Rec.update #utxo utxo
+          & Rec.update #chainTip tip
 
-rollbackTo ∷ ChainPoint → ChainTip → ChainState → ChainState
-rollbackTo point tip cs@ChainState {_utxo} =
-  case Utxo.rollbackTo point _utxo of
-    Nothing → cs {_chainTip = tip}
-    Just utxo → trace (pretty utxo) cs {_utxo = utxo, _chainTip = tip}
-
-$(makeLenses ''ChainState)
+rollbackTo
+  ∷ Disjoint ChainState r
+  ⇒ ChainPoint
+  → ChainTip
+  → SomeChainState r
+  → SomeChainState r
+rollbackTo point tip chainState =
+  case Utxo.rollbackTo point (chainState .! #utxo) of
+    Nothing →
+      Rec.update #chainTip tip chainState
+    Just utxo →
+      trace (pretty utxo) $
+        chainState
+          & Rec.update #utxo utxo
+          & Rec.update #chainTip tip

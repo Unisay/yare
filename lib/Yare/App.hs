@@ -19,6 +19,7 @@ import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.IORef.Strict qualified as Strict
+import Data.Row.Records (Disjoint)
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
@@ -39,20 +40,16 @@ import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address qualified as Addresses
 import Yare.App.Services qualified as App
-import Yare.App.Types
-  ( AppState
-  , Config (apiHttpPort)
-  , NetworkInfo (..)
-  , chainState
-  )
-import Yare.App.Types qualified as App
+import Yare.App.State qualified as Yare
+import Yare.App.Types (NetworkInfo (..))
+import Yare.App.Types qualified as Yare
 import Yare.Chain.Block (StdCardanoBlock)
-import Yare.Chain.Follower (ChainState (..), newChainFollower)
+import Yare.Chain.Follower (ChainState, SomeChainState, newChainFollower)
 import Yare.Http.Server qualified as Http
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (nodeSocketLocalAddress)
 import Yare.Query qualified as Query
-import Yare.Storage (Storage (..), zoomStorage)
+import Yare.Storage (Storage (..))
 import Yare.Storage qualified as Storage
 import Yare.Submitter qualified as Submitter
 import Yare.Tracer (nullTracer, prefixTracer, prefixTracerShow)
@@ -65,43 +62,32 @@ Starts several threads concurrently:
   * Local state query
   * Local transaction submission
 -}
-start ∷ App.Config → IO ()
-start config@App.Config {networkMagic, mnemonicFile} = do
+start ∷ Yare.Config → IO ()
+start config@Yare.Config {networkMagic, mnemonicFile} = do
   addresses ←
     Addresses.deriveFromMnemonic networkMagic mnemonicFile
       & Oops.onLeftThrow
       & withHandledErrors
   queryQ ← liftIO newTQueueIO
   submitQ ← liftIO newTQueueIO
-  let !appState = App.initialState addresses
+  let !appState = Yare.initialState addresses
   storage ← Storage.inMemory <$> Strict.newIORef appState
   concurrently_
-    ( runWebServer
-        config
-        storage
-        queryQ
-        submitQ
-    )
-    ( runNodeConnection
-        config
-        addresses
-        (zoomStorage chainState storage)
-        queryQ
-        submitQ
-    )
+    (runWebServer config storage queryQ submitQ)
+    (runNodeConnection config addresses storage queryQ submitQ)
 
 -- | Runs a web server serving web application via a RESTful API.
 runWebServer
-  ∷ Config
+  ∷ Yare.Config
   -- ^ Application configuration
-  → Storage IO AppState
+  → Storage IO Yare.State
   -- ^ Storage for the chain state
   → Query.Q
   -- ^ A queue used to send local state query requests
   → Submitter.Q
   -- ^ A queue used to send transaction submission requests
   → IO ()
-runWebServer App.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
+runWebServer Yare.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
   withHandledErrors do
     Query.submit queryQ Query.queryCurrentShelleyEra
       >>= Oops.hoistMaybe UnsupportedEraByron
@@ -156,13 +142,15 @@ runWebServer App.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
 
 -- | Connects to a Cardano Node socket and runs Node-to-Client mini-protocols.
 runNodeConnection
-  ∷ App.Config
+  ∷ ∀ r
+   . Disjoint ChainState r
+  ⇒ Yare.Config
   → Addresses
-  → Storage IO ChainState
+  → Storage IO (SomeChainState r)
   → Query.Q
   → Submitter.Q
   → IO Void
-runNodeConnection App.Config {..} addresses storage queryQ submitQ = do
+runNodeConnection Yare.Config {..} addresses storage queryQ submitQ = do
   let chainFollower = newChainFollower addresses storage
   withIOManager \ioManager →
     subscribe

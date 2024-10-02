@@ -13,18 +13,18 @@ import Cardano.Api.Shelley
   , TxIn
   , Value
   , renderTxIn
-  , valueToList
   )
 import Cardano.Slotting.Slot (SlotNo (unSlotNo), WithOrigin, withOrigin)
 import Fmt (Buildable (..), blockListF, nameF, (+|))
 import Fmt.Internal.Numeric (groupInt)
+import GHC.Exts qualified
 
 instance Buildable TxIn where
   build = build . renderTxIn
 
 instance Buildable Value where
   build value =
-    case valueToList value of
+    case GHC.Exts.toList value of
       [(AdaAssetId, quantity)] → build quantity +| " Lovelace"
       vs →
         blockListF

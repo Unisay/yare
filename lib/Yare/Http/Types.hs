@@ -12,6 +12,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Encoding (pairStr)
 import Data.Aeson.Encoding qualified as Json
 import Data.Map.Strict qualified as Map
+import GHC.Exts (IsList (toList))
 import Ouroboros.Network.Block qualified as NB
 import Yare.Chain.Types (ledgerAddressToText)
 import Yare.Chain.Types qualified as Y
@@ -31,7 +32,7 @@ instance ToJSON Utxo where
       object
         [ "txIn" .= txIn
         , "address" .= toJSON (ledgerAddressToText addr)
-        , "value" .= map (bimap assetIdToJSON toJSON) (CA.valueToList value)
+        , "value" .= map (bimap assetIdToJSON toJSON) (GHC.Exts.toList value)
         ]
    where
     assetIdToJSON ∷ CA.AssetId → Aeson.Value

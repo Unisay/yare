@@ -36,10 +36,7 @@ import Yare.Address.Derivation qualified as Derivation
 import Yare.Chain.Types (LedgerAddress)
 import Yare.Mnemonic (mnemonicFromFile)
 
-type Addresses ∷ Type
-newtype Addresses = Addresses
-  { externalAddresses ∷ NonEmpty AddressWithKey
-  }
+newtype Addresses = Addresses {externalAddresses ∷ NonEmpty AddressWithKey}
   deriving stock (Generic)
   deriving anyclass (NoThunks)
 

@@ -18,10 +18,8 @@ import Ouroboros.Network.Block (Tip)
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Point (ChainPoint, parseChainPoint)
 
-type ChainTip ∷ Type
 type ChainTip = Tip StdCardanoBlock
 
-type LedgerAddress ∷ Type
 type LedgerAddress = Addr StandardCrypto
 
 ledgerAddressToText ∷ LedgerAddress → Text

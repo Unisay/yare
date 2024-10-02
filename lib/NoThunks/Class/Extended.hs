@@ -5,7 +5,7 @@ module NoThunks.Class.Extended
 
 import Relude
 
-import NoThunks.Class (NoThunks, unsafeNoThunks)
+import NoThunks.Class (NoThunks(..), unsafeNoThunks)
 import NoThunks.Class qualified as Reexport
 import NoThunks.Class.Orphans qualified as Reexport ()
 

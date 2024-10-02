@@ -50,35 +50,29 @@ import Cardano.Api.Shelley
   )
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Ledger.Hashes qualified as Ledger
-import Control.Lens (Lens, Simple, lens, (.~), (^.), _1)
 import Control.Monad.Except (Except)
 import Control.Monad.Oops (CouldBe, Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.Map.Strict qualified as Map
+import Data.Row (Disjoint, (.!))
 import Data.Set qualified as Set
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
 import Text.Pretty.Simple (pShow)
-import Yare.Address (AddressWithKey (..), Addresses, externalAddresses)
+import Yare.Address (AddressWithKey (..), externalAddresses)
 import Yare.Address qualified as Address
 import Yare.App.Scripts (script)
-import Yare.App.Types (AppState, NetworkInfo (..), addressState, chainState)
-import Yare.Chain.Follower (ChainState (..), chainTip, utxo)
+import Yare.App.State qualified as Yare
+import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (ChainTip, LedgerAddress)
+import Yare.Funds (Funds, SomeFunds)
 import Yare.Funds qualified as Funds
-import Yare.Storage
-  ( Storage (..)
-  , readsStorage
-  , stateful'
-  , statefulMaybe
-  , zoomStorage
-  )
+import Yare.Storage (Storage (..), readStorageField)
 import Yare.Submitter qualified as Submitter
+import Yare.Util.State (stateField, stateMay)
 import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
-import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
 
 -- | Application services
-type Services ∷ (Type → Type) → Type
 data Services m = Services
   { serveAddresses ∷ m [LedgerAddress]
   , serveChangeAddresses ∷ m [LedgerAddress]
@@ -100,45 +94,43 @@ data Services m = Services
           )
   }
 
-mkServices ∷ Storage IO AppState → Submitter.Q → NetworkInfo era → Services IO
+mkServices
+  ∷ Storage IO Yare.State
+  → Submitter.Q
+  → NetworkInfo era
+  → Services IO
 mkServices storage submitQ networkInfo =
   Services
     { serveAddresses =
         toList . fmap ledgerAddress . externalAddresses
-          <$> readsStorage storage addressState
+          <$> readStorageField storage #addresses
     , serveChangeAddresses =
         pure . ledgerAddress . snd . Address.useForChange
-          <$> readsStorage storage addressState
+          <$> readStorageField storage #addresses
     , serveFeeAddresses =
         pure . ledgerAddress . snd . Address.useForFees
-          <$> readsStorage storage addressState
+          <$> readStorageField storage #addresses
     , serveCollateralAddresses =
         pure . ledgerAddress . snd . Address.useForCollateral
-          <$> readsStorage storage addressState
+          <$> readStorageField storage #addresses
     , serveUtxo =
-        Utxo.spendableEntries
-          <$> readsStorage chainStateStorage utxo
+        Utxo.spendableEntries . (.! #utxo) <$> readStorage storage
     , serveTip =
-        readsStorage chainStateStorage chainTip
+        (.! #chainTip) <$> readStorage storage
     , deployScript =
-        serviceDeployScript
-          (zoomStorage (both addressState (chainState . utxo)) storage)
-          submitQ
-          networkInfo
+        serviceDeployScript storage submitQ networkInfo
     }
- where
-  chainStateStorage ∷ Storage IO ChainState
-  chainStateStorage = zoomStorage chainState storage
 
 -- | Deploys a script on-chain by submitting a transaction.
 serviceDeployScript
-  ∷ ∀ era e
-   . ( e `CouldBe` CardanoApplyTxErr StandardCrypto
+  ∷ ∀ r era e
+   . ( Disjoint Funds r
+     , e `CouldBe` CardanoApplyTxErr StandardCrypto
      , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
      , e `CouldBe` NoFeeInputs
      , e `CouldBe` NoCollateralInputs
      )
-  ⇒ Storage IO (Addresses, Utxo)
+  ⇒ Storage IO (SomeFunds r)
   → Submitter.Q
   → NetworkInfo era
   → IO (Either (Variant e) TxId)
@@ -162,14 +154,15 @@ serviceDeployScript storage submitQ networkInfo = do
           Right (txEra, s') → (s', Right txEra)
 
 txDeployScript
-  ∷ ∀ era e
-   . ( e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
+  ∷ ∀ r era e
+   . ( Disjoint Funds r
+     , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
      , e `CouldBe` NoFeeInputs
      , e `CouldBe` NoCollateralInputs
      )
   ⇒ NetworkInfo era
   → Script PlutusScriptV3
-  → StateT (Addresses, Utxo) (Except (Variant e)) (Tx era)
+  → StateT (SomeFunds r) (Except (Variant e)) (Tx era)
 txDeployScript networkInfo plutusScript = do
   let NetworkInfo
         { protocolParameters
@@ -182,15 +175,15 @@ txDeployScript networkInfo plutusScript = do
       shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
 
   feeInputs ∷ NonEmpty (TxIn, (AddressWithKey, Value)) ←
-    statefulMaybe Funds.useFeeInputs
+    stateMay Funds.useFeeInputs
       & Oops.onNothingThrow NoFeeInputs
 
   colInputs ∷ NonEmpty (TxIn, (AddressWithKey, Value)) ←
-    statefulMaybe Funds.useCollateralInputs
+    stateMay Funds.useCollateralInputs
       & Oops.onNothingThrow NoCollateralInputs
 
   AddressWithKey {ledgerAddress = changeAddr} ←
-    stateful' _1 Address.useForChange
+    stateField #addresses Address.useForChange
 
   let
     scriptHash ∷ Ledger.ScriptHash StandardCrypto
@@ -253,21 +246,10 @@ txDeployScript networkInfo plutusScript = do
         witnesses
 
 --------------------------------------------------------------------------------
--- Lens utilities --------------------------------------------------------------
-
-both ∷ Simple Lens s a → Simple Lens s b → Simple Lens s (a, b)
-both l r =
-  lens
-    (\s → (s ^. l, s ^. r))
-    (\s (a, b) → s & l .~ a & r .~ b)
-
---------------------------------------------------------------------------------
 -- Error types -----------------------------------------------------------------
 
-type NoFeeInputs ∷ Type
 data NoFeeInputs = NoFeeInputs
   deriving stock (Show)
 
-type NoCollateralInputs ∷ Type
 data NoCollateralInputs = NoCollateralInputs
   deriving stock (Show)

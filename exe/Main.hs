@@ -26,7 +26,7 @@ import Ouroboros.Network.Magic (NetworkMagic (NetworkMagic))
 import Path (File, SomeBase (..), parseSomeFile)
 import Path.IO qualified as Path
 import Yare.App qualified as Yare
-import Yare.App.Types qualified as App
+import Yare.App.Types qualified as Yare
 import Yare.Chain.Point (ChainPoint, parseChainPoint)
 import Yare.Node.Socket (NodeSocket (..))
 
@@ -42,7 +42,7 @@ main = withUtf8 do
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
   Yare.start
-    App.Config
+    Yare.Config
       { apiHttpPort = 9999
       , nodeSocket
       , networkMagic
@@ -50,7 +50,6 @@ main = withUtf8 do
       , syncFrom
       }
 
-type Args ∷ Type
 data Args = Args
   { nodeSocketPath ∷ SomeBase File
   , networkMagic ∷ NetworkMagic
@@ -60,10 +59,7 @@ data Args = Args
 
 parseArguments ∷ IO Args
 parseArguments =
-  execParser $
-    info
-      (options <**> helper)
-      (fullDesc <> progDesc "Yare")
+  execParser $ info (options <**> helper) (fullDesc <> progDesc "Yare")
 
 options ∷ Parser Args
 options =

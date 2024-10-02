@@ -2,6 +2,7 @@
 
 module Yare.Utxo -- is meant to be imported qualified
   ( Utxo
+  , HasUtxo (..)
   , Entries
   , useByAddress
   , spendableEntries
@@ -14,14 +15,13 @@ module Yare.Utxo -- is meant to be imported qualified
 import Relude hiding (fromList, show)
 
 import Cardano.Api (TxIn (..), Value, renderTxIn)
-import Control.Lens.TH (makeLenses)
+import Control.Lens.TH (makeClassy, makeLenses)
 import Data.Map.Strict qualified as Map
 import Data.Set (member)
 import Data.Set qualified as Set
 import Fmt (Buildable (..), blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
-import NoThunks.Class (NoThunks (noThunks, showTypeOf, wNoThunks))
-import NoThunks.Class.Extended (NoThunks, repeatedly)
+import NoThunks.Class.Extended (NoThunks (..), repeatedly)
 import Ouroboros.Consensus.Block (pointSlot)
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
@@ -40,10 +40,8 @@ import Yare.Chain.Tx
   )
 import Yare.Chain.Types (LedgerAddress, ledgerAddressToText)
 
-type Entries ∷ Type
 type Entries = Map TxIn (LedgerAddress, Value)
 
-type Update ∷ Type
 data Update
   = -- | Add a new spendable input to the UTXO set.
     AddSpendableTxInput !TxIn !LedgerAddress Value
@@ -62,7 +60,6 @@ instance Buildable Update where
     SpendTxInput input →
       "SpendTxInput " +| renderTxIn input |+ ""
 
-type Utxo ∷ Type
 data Utxo = Utxo
   { reversibleUpdates ∷ ![(ChainPoint, [Update])]
   , finalState ∷ !Entries
@@ -76,6 +73,7 @@ instance NoThunks TxId where
   noThunks _ctx _txId = pure Nothing
   wNoThunks = noThunks
   showTypeOf _ = "TxId"
+
 instance Buildable Utxo where
   build Utxo {..} =
     "UTXO\n----\n"
@@ -211,5 +209,9 @@ spendableEntries utxo = nonFinalSpendableInputs <> finalSpendableInputs
 
 totalValue ∷ Utxo → Value
 totalValue =
-  Map.foldr' (\(_addr, value) acc → value <> acc) mempty
-    . spendableEntries
+  Map.foldr' (\(_addr, value) acc → value <> acc) mempty . spendableEntries
+
+--------------------------------------------------------------------------------
+-- TH Splices ------------------------------------------------------------------
+
+$(makeClassy ''Utxo)
