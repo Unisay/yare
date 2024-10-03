@@ -4,7 +4,7 @@ module Yare.Mnemonic
   , mnemonicFromFile
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Mnemonic
   ( MkMnemonicError

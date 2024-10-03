@@ -3,7 +3,7 @@ module Yare.Http.Server
   , application
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Api (InAnyShelleyBasedEra (..), TxBodyErrorAutoBalance, TxId)
 import Control.Tracer (natTracer)

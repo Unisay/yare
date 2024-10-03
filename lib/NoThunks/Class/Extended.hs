@@ -3,7 +3,7 @@ module NoThunks.Class.Extended
   , repeatedly
   ) where
 
-import Relude
+import Yare.Prelude
 
 import NoThunks.Class (NoThunks(..), unsafeNoThunks)
 import NoThunks.Class qualified as Reexport

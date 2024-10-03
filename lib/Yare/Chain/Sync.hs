@@ -1,6 +1,6 @@
 module Yare.Chain.Sync (client) where
 
-import Relude
+import Yare.Prelude
 
 import Control.Concurrent (threadDelay)
 import Ouroboros.Consensus.Block (Point (GenesisPoint))

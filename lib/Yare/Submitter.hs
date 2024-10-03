@@ -6,7 +6,7 @@ module Yare.Submitter
   , submit
   ) where
 
-import Relude hiding (atomically)
+import Yare.Prelude hiding (atomically)
 
 import Cardano.Api.Shelley (TxInMode)
 import Cardano.Api.Shelley qualified as Api

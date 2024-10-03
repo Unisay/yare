@@ -4,7 +4,7 @@ module Yare.Http.Address
   , fromLedgerAddress
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Address (bech32)
 import Cardano.Address qualified as Cardano

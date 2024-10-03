@@ -4,7 +4,7 @@ Description: Reads command line arguments and starts the Yare application.
 -}
 module Main (main) where
 
-import Relude
+import Yare.Prelude
 
 import Data.Tagged (Tagged (..))
 import Main.Utf8 (withUtf8)

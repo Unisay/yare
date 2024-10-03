@@ -1,28 +1,34 @@
 module Yare.Funds
   ( Funds
-  , SomeFunds
+  , FundsRow
+  , HasFunds
   , useFeeInputs
   , useCollateralInputs
   ) where
 
+import Yare.Prelude
+
 import Cardano.Api.Shelley (TxIn, Value)
 import Data.List.NonEmpty qualified as NE
-import Data.Row (Disjoint, Rec, (.!), type (.+), type (.==))
 import Data.Row.Records qualified as Rec
-import Relude hiding (get)
 import Yare.Address (Addresses)
 import Yare.Address qualified as Addresses
 import Yare.Address.Derivation (AddressWithKey (ledgerAddress))
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
 
-type Funds = ("addresses" .== Addresses .+ "utxo" .== Utxo)
-type SomeFunds r = Rec (Funds .+ r)
+type FundsRow =
+  {--} ("addresses" .== Addresses)
+    .+ ("utxo" .== Utxo)
+
+type Funds = Rec FundsRow
+type HasFunds r = Open FundsRow r
+  
 
 useFeeInputs
-  ∷ Disjoint Funds r
-  ⇒ SomeFunds r
-  → Maybe (SomeFunds r, NonEmpty (TxIn, (AddressWithKey, Value)))
+  ∷ HasFunds r
+  ⇒ Rec r
+  → Maybe (Rec r, NonEmpty (TxIn, (AddressWithKey, Value)))
 useFeeInputs funds = do
   feeInputs ← NE.nonEmpty (first (const feeAddress) <<$>> feeEntries)
   pure (funds', feeInputs)
@@ -35,9 +41,9 @@ useFeeInputs funds = do
     Utxo.useByAddress (funds .! #utxo) (ledgerAddress feeAddress)
 
 useCollateralInputs
-  ∷ Disjoint Funds r
-  ⇒ SomeFunds r
-  → Maybe (SomeFunds r, NonEmpty (TxIn, (AddressWithKey, Value)))
+  ∷ HasFunds r
+  ⇒ Rec r
+  → Maybe (Rec r, NonEmpty (TxIn, (AddressWithKey, Value)))
 useCollateralInputs funds = do
   colInputs ← NE.nonEmpty collateralEntries
   pure (funds', first (const collateralAddressWithKey) <<$>> colInputs)

@@ -2,7 +2,7 @@
 
 module Fmt.Orphans () where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Api.Shelley
   ( AssetId (..)

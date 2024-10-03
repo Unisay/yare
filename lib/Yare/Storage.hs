@@ -1,21 +1,21 @@
 module Yare.Storage
   ( Storage
   , overStorage
-  , overStorageState
+  -- , overStorageState
   , readOverStorage
   , readStorage
   , readStorageField
   , inMemory
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Data.IORef.Strict (StrictIORef)
 import Data.IORef.Strict qualified as Strict
-import Data.Row.Records (KnownSymbol, Label, Rec, (.!), type (.!), type (≈))
+import NoThunks.Class (NoThunks)
 
 data Storage (m ∷ Type → Type) (s ∷ Type) = Storage
-  { overStorage ∷ ∀ a. (s → (s, a)) → m a
+  { overStorage ∷ ∀ a b. (s → (s, a)) → (a → m b) → m b
   -- ^ The workhorse of the storage that acts as a bridge
   -- between a pure core and impure imperative shell (runtime):
   -- takes a pure function that modifies the state
@@ -34,8 +34,9 @@ readOverStorage overStorage = overStorage \s → (s, s)
 {- | Given a storage and a pure stateful computation,
 | produces an impure computation.
 -}
-overStorageState ∷ ∀ s m a. Storage m s → State s a → m a
-overStorageState storage st = overStorage storage (swap . runState st)
+
+-- overStorageState ∷ ∀ s m a. Storage m s → State s a → m a
+-- overStorageState storage st = overStorage storage (swap . runState st)
 
 readStorageField
   ∷ ∀ s l a m
@@ -51,9 +52,12 @@ readStorageField storage label = do
   pure $ s .! label
 
 -- | A simple in-memory storage.
-inMemory ∷ StrictIORef s → Storage IO s
+inMemory ∷ NoThunks s ⇒ StrictIORef s → Storage IO s
 inMemory ref =
   Storage
-    { overStorage = Strict.atomicModifyIORef ref
+    { overStorage = \f before → do
+        s ← Strict.readIORef ref
+        let (s', a) = f s
+        before a >>= (Strict.writeIORef ref s' $>)
     , readStorage = Strict.readIORef ref
     }

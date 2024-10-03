@@ -3,7 +3,7 @@ module Yare.Util.Tx.Construction
   , mkUtxoFromInputs
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Api qualified as CA
 import Cardano.Api.Shelley

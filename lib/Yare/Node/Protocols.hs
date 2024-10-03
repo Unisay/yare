@@ -1,6 +1,6 @@
 module Yare.Node.Protocols (makeNodeToClientProtocols) where
 
-import Relude hiding (atomically)
+import Yare.Prelude hiding (atomically)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.Client.Subscription (MuxMode (..))

@@ -12,7 +12,7 @@ module Yare.Utxo -- is meant to be imported qualified
   , rollbackTo
   ) where
 
-import Relude hiding (fromList, show)
+import Yare.Prelude hiding (fromList, show)
 
 import Cardano.Api (TxIn (..), Value, renderTxIn)
 import Control.Lens.TH (makeClassy, makeLenses)

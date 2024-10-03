@@ -1,6 +1,7 @@
 -- | Utility functions for working with stateful computations.
 module Yare.Util.State
   ( stateField
+  , overStateField
   , stateMay
   ) where
 
@@ -48,6 +49,24 @@ stateField
 stateField fieldLabel f = state \oritinalRecord →
   let (newFieldValue, a) = f (oritinalRecord .! fieldLabel)
    in (a, Rec.update fieldLabel newFieldValue oritinalRecord)
+
+{- | Lift a field modification function to
+a stateful computation acting on the whole state.
+-}
+overStateField
+  ∷ ∀ m s row label
+   . ( row .! label ≈ s
+     , KnownSymbol label
+     , MonadState (Rec row) m
+     )
+  ⇒ Label label
+  -- ^ The label of the record field to update.
+  → (s → s)
+  -- ^ The state transition function to apply to the field value.
+  → m ()
+  -- ^ Resulting MonadState-ful computation
+overStateField fieldLabel f =
+  stateField fieldLabel \x → (f x, ())
 
 {- | Lift an optional (which may not be possible) state transition
 to a stateful computation.

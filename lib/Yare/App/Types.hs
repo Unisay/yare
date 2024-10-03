@@ -3,7 +3,7 @@ module Yare.App.Types
   , NetworkInfo (..)
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Api.Ledger (Network)
 import Cardano.Api.Shelley
@@ -28,7 +28,6 @@ data Config = Config
   , syncFrom ∷ Maybe ChainPoint -- TODO: let app decide it based on the persistent state
   }
 
-type NetworkInfo ∷ Type → Type
 data NetworkInfo era = NetworkInfo
   { network ∷ Network
   , systemStart ∷ SystemStart

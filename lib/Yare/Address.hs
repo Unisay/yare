@@ -13,7 +13,7 @@ module Yare.Address
   , Error (..)
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Address (NetworkTag)
 import Cardano.Address.Style.Shelley (shelleyMainnet, shelleyTestnet)

@@ -2,7 +2,7 @@
 
 module NoThunks.Class.Orphans () where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Address (Address)
 import Cardano.Address.Derivation (Depth (PaymentK), XPrv)

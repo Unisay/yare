@@ -11,7 +11,7 @@ module Yare.Chain.Block
   , StdShelleyBlocks
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Ouroboros.Consensus.Byron.Ledger (ByronBlock)
 import Ouroboros.Consensus.Cardano.Block (CardanoShelleyEras)

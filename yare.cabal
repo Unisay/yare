@@ -16,6 +16,7 @@ common opts
     ApplicativeDo
     BangPatterns
     BlockArguments
+    ConstraintKinds
     DataKinds
     DeriveAnyClass
     DeriveFunctor
@@ -143,6 +144,7 @@ library
     Yare.App
     Yare.App.Scripts
     Yare.App.Services
+    Yare.App.Services.DeployScript
     Yare.App.State
     Yare.App.Types
     Yare.Chain.Block
@@ -159,6 +161,7 @@ library
     Yare.Mnemonic
     Yare.Node.Protocols
     Yare.Node.Socket
+    Yare.Prelude
     Yare.Query
     Yare.Storage
     Yare.Submitter

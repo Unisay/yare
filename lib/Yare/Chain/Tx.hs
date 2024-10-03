@@ -19,7 +19,7 @@ module Yare.Chain.Tx
   , transactionViewUtxo
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Api (TxId, TxIn)
 import Cardano.Api qualified as CA

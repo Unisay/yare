@@ -3,7 +3,7 @@ module Yare.Chain.Point
   , parseChainPoint
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Ledger.BaseTypes (WithOrigin (..))
 import Cardano.Slotting.Slot (SlotNo (..))

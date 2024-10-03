@@ -8,7 +8,7 @@ module Yare.Address.Derivation
   , Error (..)
   ) where
 
-import Relude hiding (show)
+import Yare.Prelude hiding (show)
 
 import Cardano.Address (Address, NetworkTag (..), unAddress)
 import Cardano.Address.Derivation

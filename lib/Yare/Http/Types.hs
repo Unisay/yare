@@ -4,7 +4,7 @@ module Yare.Http.Types
   , ChainTip (..)
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Api qualified as CA
 import Data.Aeson (ToJSON (..), object, pairs, (.=))

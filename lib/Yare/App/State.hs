@@ -3,14 +3,14 @@
 
 module Yare.App.State
   ( State
+  , StateRow
+  , HasAppState
   , initialState
   ) where
 
-import Relude hiding (State)
+import Yare.Prelude hiding (State)
 
 import Cardano.Api (TxId)
-import Data.Row (Forall, Rec, (.+), (.==), type (.+), type (.==))
-import Data.Row.Records (erase)
 import NoThunks.Class (NoThunks (..), allNoThunks)
 import Yare.Address (Addresses)
 import Yare.Chain.Follower (initialChainState)
@@ -21,9 +21,10 @@ type StateRow =
   {--} ("utxo" .== Utxo)
     .+ ("chainTip" .== ChainTip)
     .+ ("addresses" .== Addresses)
-    .+ ("submitted" .== Seq TxId)
+    .+ ("submitted" .== [TxId])
 
 type State = Rec StateRow
+type HasAppState r = Open StateRow r
 
 instance (Forall r NoThunks, r ~ StateRow) ⇒ NoThunks (Rec r) where
   wNoThunks ctx = allNoThunks . erase @NoThunks (wNoThunks ctx)

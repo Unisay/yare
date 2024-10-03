@@ -1,7 +1,7 @@
 -- | Description: Yare application entry point
 module Yare.App (start) where
 
-import Relude hiding (atomically)
+import Yare.Prelude hiding (atomically)
 
 import Cardano.Api.Shelley
   ( AnyShelleyBasedEra (..)
@@ -19,7 +19,7 @@ import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.IORef.Strict qualified as Strict
-import Data.Row.Records (Disjoint)
+import Data.Row.Records (Rec, type (≈))
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
@@ -40,11 +40,12 @@ import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address qualified as Addresses
 import Yare.App.Services qualified as App
+import Yare.App.State (HasAppState)
 import Yare.App.State qualified as Yare
 import Yare.App.Types (NetworkInfo (..))
 import Yare.App.Types qualified as Yare
 import Yare.Chain.Block (StdCardanoBlock)
-import Yare.Chain.Follower (ChainState, SomeChainState, newChainFollower)
+import Yare.Chain.Follower (HasChainState, newChainFollower)
 import Yare.Http.Server qualified as Http
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (nodeSocketLocalAddress)
@@ -74,7 +75,7 @@ start config@Yare.Config {networkMagic, mnemonicFile} = do
   storage ← Storage.inMemory <$> Strict.newIORef appState
   concurrently_
     (runWebServer config storage queryQ submitQ)
-    (runNodeConnection config addresses storage queryQ submitQ)
+    (runNodeConnection config storage queryQ submitQ)
 
 -- | Runs a web server serving web application via a RESTful API.
 runWebServer
@@ -142,16 +143,15 @@ runWebServer Yare.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
 
 -- | Connects to a Cardano Node socket and runs Node-to-Client mini-protocols.
 runNodeConnection
-  ∷ ∀ r
-   . Disjoint ChainState r
+  ∷ ∀ r state
+   . (HasAppState r, Rec r ≈ state)
   ⇒ Yare.Config
-  → Addresses
-  → Storage IO (SomeChainState r)
+  → Storage IO state
   → Query.Q
   → Submitter.Q
   → IO Void
-runNodeConnection Yare.Config {..} addresses storage queryQ submitQ = do
-  let chainFollower = newChainFollower addresses storage
+runNodeConnection Yare.Config {..} storage queryQ submitQ = do
+  let chainFollower = newChainFollower storage
   withIOManager \ioManager →
     subscribe
       (localSnocket ioManager)
@@ -179,17 +179,14 @@ runNodeConnection Yare.Config {..} addresses storage queryQ submitQ = do
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------
 
-type UnsupportedEra ∷ Type
 data UnsupportedEra
   = UnsupportedEraByron
   | UnsupportedEraShelley AnyShelleyBasedEra
   deriving stock (Show)
 
-type InvalidTxIdHash ∷ Type
 newtype InvalidTxIdHash = InvalidTxIdHash ByteString
   deriving stock (Show)
 
-type Errors ∷ Type
 type Errors =
   Variant
     [ UnsupportedEra

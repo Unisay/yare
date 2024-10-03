@@ -15,7 +15,7 @@ module Control.Concurrent.Exchange
 
 import Control.Concurrent.Class.MonadMVar (MonadMVar (..))
 
-import Relude hiding (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
+import Yare.Prelude hiding (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
 
 type Exchange ∷ (Type → Type) → Type → Type → Type
 data Exchange m i o = Exchange (MVar m i) (MVar m o)

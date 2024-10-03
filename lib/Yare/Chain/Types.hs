@@ -6,7 +6,7 @@ module Yare.Chain.Types
   , ledgerAddressToText
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Cardano.Api.Shelley qualified as Api
 import Cardano.Ledger.Address (Addr (..))

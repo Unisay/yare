@@ -4,7 +4,7 @@ module Yare.Tracer
   , prefixTracerShow
   ) where
 
-import Relude
+import Yare.Prelude
 
 import Control.Tracer
 import String.ANSI (blackBg, faint)

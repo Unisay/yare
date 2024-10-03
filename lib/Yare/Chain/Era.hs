@@ -15,7 +15,7 @@ module Yare.Chain.Era
   ) where
 
 import Control.Category (Category (..))
-import Relude hiding (id, (.))
+import Yare.Prelude hiding (id, (.))
 
 type Era ∷ Type
 data Era = Byron | Shelley | Allegra | Mary | Alonzo | Babbage | Conway

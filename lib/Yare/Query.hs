@@ -19,7 +19,7 @@ module Yare.Query
   , NoQueryInByronEra (..)
   ) where
 
-import Relude hiding (atomically)
+import Yare.Prelude hiding (atomically)
 
 import Cardano.Api.Shelley
   ( AnyCardanoEra (..)
