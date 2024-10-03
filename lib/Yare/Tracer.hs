@@ -1,20 +1,18 @@
 module Yare.Tracer
   ( module Control.Tracer
-  , prefixTracer
-  , prefixTracerShow
+  , prettyTracer
+  , withPrefix
   ) where
 
 import Yare.Prelude
 
 import Control.Tracer
+import Fmt (Buildable, pretty)
 import String.ANSI (blackBg, faint)
 
-prefixTracerShow ∷ (Show a, Applicative m) ⇒ String → Tracer m a
-prefixTracerShow prefix = show >$< prefixTracer prefix
+prettyTracer ∷ (Buildable a, Applicative m) ⇒ Tracer m a
+prettyTracer = pretty >$< debugTracer
 
-prefixTracer ∷ Applicative m ⇒ String → Tracer m Text
-prefixTracer prefix =
-  faint
-    . ((blackBg (" " <> prefix <> " ") <> " ") <>)
-    . toString
-    >$< debugTracer
+withPrefix ∷ String → Tracer m String → Tracer m String
+withPrefix prefix tr =
+  faint . ((blackBg (" " <> toString prefix <> " ") <> " ") <>) >$< tr

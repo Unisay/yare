@@ -19,7 +19,6 @@ import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.IORef.Strict qualified as Strict
-import Data.Row.Records (Rec, type (≈))
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
@@ -36,7 +35,6 @@ import Ouroboros.Network.NodeToClient
   , withIOManager
   )
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
-import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address qualified as Addresses
 import Yare.App.Services qualified as App
@@ -45,7 +43,7 @@ import Yare.App.State qualified as Yare
 import Yare.App.Types (NetworkInfo (..))
 import Yare.App.Types qualified as Yare
 import Yare.Chain.Block (StdCardanoBlock)
-import Yare.Chain.Follower (HasChainState, newChainFollower)
+import Yare.Chain.Follower (newChainFollower)
 import Yare.Http.Server qualified as Http
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (nodeSocketLocalAddress)
@@ -53,7 +51,7 @@ import Yare.Query qualified as Query
 import Yare.Storage (Storage (..))
 import Yare.Storage qualified as Storage
 import Yare.Submitter qualified as Submitter
-import Yare.Tracer (nullTracer, prefixTracer, prefixTracerShow)
+import Yare.Tracer (debugTracer, nullTracer, prettyTracer, withPrefix)
 
 {- |
 Starts several threads concurrently:
@@ -135,7 +133,7 @@ runWebServer Yare.Config {networkMagic, apiHttpPort} storage queryQ submitQ =
     liftIO
       . Warp.run apiHttpPort
       . simpleCors
-      . Http.application (prefixTracer "HTTP")
+      . Http.application (toString >$< withPrefix "HTTP" debugTracer)
       $ App.mkServices storage submitQ networkInfo
 
 --------------------------------------------------------------------------------
@@ -151,17 +149,21 @@ runNodeConnection
   → Submitter.Q
   → IO Void
 runNodeConnection Yare.Config {..} storage queryQ submitQ = do
-  let chainFollower = newChainFollower storage
+  let chainFollower = newChainFollower prettyTracer storage
   withIOManager \ioManager →
     subscribe
       (localSnocket ioManager)
       networkMagic
       (supportedNodeToClientVersions (Proxy @StdCardanoBlock))
       NetworkSubscriptionTracers
-        { nsMuxTracer = nullTracer
-        , nsHandshakeTracer = prefixTracerShow "HS_"
-        , nsErrorPolicyTracer = prefixTracerShow "Err"
-        , nsSubscriptionTracer = runIdentity >$< prefixTracerShow "SUB"
+        { nsMuxTracer =
+            nullTracer
+        , nsHandshakeTracer =
+            show >$< withPrefix "HS_" debugTracer
+        , nsErrorPolicyTracer =
+            show >$< withPrefix "Err" debugTracer
+        , nsSubscriptionTracer =
+            show . runIdentity >$< withPrefix "SUB" debugTracer
         }
       ClientSubscriptionParams
         { cspAddress = nodeSocketLocalAddress nodeSocket

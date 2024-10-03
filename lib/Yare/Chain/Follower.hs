@@ -7,13 +7,11 @@ module Yare.Chain.Follower
   , newChainFollower
   , initialChainState
   , ChainState
-  , HasChainState
   ) where
 
 import Yare.Prelude
 
 import Data.Row.Records qualified as Rec
-import Fmt (pretty)
 import Ouroboros.Network.Block (Tip (TipGenesis))
 import Relude.Extra (dup)
 import Relude.Extra.Tuple (toFst)
@@ -21,6 +19,7 @@ import Yare.Address (Addresses)
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Types (ChainPoint, ChainTip)
 import Yare.Storage (Storage (overStorage))
+import Yare.Tracer (Tracer, traceWith)
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
 
@@ -31,31 +30,33 @@ data ChainFollower (m ∷ Type → Type) = ChainFollower
 
 type ChainStateRow = "utxo" .== Utxo .+ "chainTip" .== ChainTip
 type ChainState = Rec ChainStateRow
-type HasChainState r = Open ChainStateRow r
 
 newChainFollower
-  ∷ ( HasChainState r
+  ∷ ( HasType "utxo" Utxo r
+    , HasType "chainTip" ChainTip r
     , HasType "addresses" Addresses r
     , state ≈ Rec r
     )
-  ⇒ Storage IO state
+  ⇒ Tracer IO Utxo
+  → Storage IO state
   → ChainFollower IO
-newChainFollower storage =
+newChainFollower tr storage =
   ChainFollower
     { onNewBlock = \(block ∷ StdCardanoBlock) (tip ∷ ChainTip) →
         overStorage storage (indexBlock block tip) \case
           Nothing → pass -- UTxO was not updated
-          Just updatedUtxo → putStrLn $ pretty updatedUtxo
+          Just updatedUtxo → traceWith tr updatedUtxo
     , onRollback = \(point ∷ ChainPoint) (tip ∷ ChainTip) →
         overStorage storage (dup . rollbackTo point tip) do
-          putStrLn . pretty . (.! #utxo)
+          traceWith tr . (.! #utxo)
     }
 
 initialChainState ∷ ChainState
 initialChainState = #utxo .== Utxo.initial .+ #chainTip .== TipGenesis
 
 indexBlock
-  ∷ ( HasChainState r
+  ∷ ( HasType "utxo" Utxo r
+    , HasType "chainTip" ChainTip r
     , HasType "addresses" Addresses r
     , state ≈ Rec r
     )
@@ -73,7 +74,10 @@ indexBlock block tip state =
           & Rec.update #chainTip tip
 
 rollbackTo
-  ∷ (HasChainState r, state ≈ Rec r)
+  ∷ ( HasType "utxo" Utxo r
+    , HasType "chainTip" ChainTip r
+    , state ≈ Rec r
+    )
   ⇒ ChainPoint
   → ChainTip
   → state

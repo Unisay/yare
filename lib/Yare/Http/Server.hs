@@ -32,7 +32,6 @@ application (natTracer liftIO → tracer) services =
               :<|> endpointAddressesCollateral services
            )
 
-type YareApi ∷ Type
 type YareApi =
   "api"
     :> ( ( "utxo" :> Get '[JSON] Http.Utxo
@@ -58,14 +57,8 @@ endpointDeployScript
   ∷ Tracer Servant.Handler Text
   → App.Services IO
   → Servant.Handler TxId
-endpointDeployScript tracer App.Services {deployScript} = do
-  let err500 ∷ Text → Text → Servant.Handler a
-      err500 publicMsg privateMsg = do
-        traceWith tracer privateMsg
-        Servant.throwError $
-          Servant.err500 {Servant.errBody = encodeUtf8 publicMsg}
-  errorsOrTxId ← liftIO deployScript
-  case errorsOrTxId of
+endpointDeployScript tracer App.Services {deployScript} =
+  liftIO deployScript >>= \case
     Left errors →
       case_
         errors
@@ -129,6 +122,12 @@ endpointDeployScript tracer App.Services {deployScript} = do
             err500 "No collateral inputs" "No collateral inputs"
         )
     Right txId → pure txId
+ where
+  err500 ∷ Text → Text → Servant.Handler a
+  err500 publicMsg privateMsg = do
+    traceWith tracer privateMsg
+    Servant.throwError $
+      Servant.err500 {Servant.errBody = encodeUtf8 publicMsg}
 
 endpointAddresses ∷ App.Services IO → Servant.Handler [Http.Address]
 endpointAddresses App.Services {serveAddresses} = liftIO do
