@@ -14,7 +14,6 @@ import Cardano.Api.Shelley
   )
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Monad.Oops (Variant)
-import Data.Row ((.!))
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
 import Yare.Address (AddressWithKey (..), externalAddresses)
 import Yare.Address qualified as Address

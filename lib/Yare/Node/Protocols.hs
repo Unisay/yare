@@ -40,7 +40,7 @@ import Yare.Chain.Point (ChainPoint)
 import Yare.Chain.Sync qualified as ChainSync
 import Yare.Query qualified as Query
 import Yare.Submitter qualified as Submitter
-import Yare.Tracer (debugTracer, withPrefix)
+import Yare.Tracer (debugTracer, withPrefix, withFaint)
 
 makeNodeToClientProtocols
   ∷ ∀ ntcAddr
@@ -109,7 +109,7 @@ makeNodeToClientProtocols
           Void
     localStateQueryProtocol =
       InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-        ( show >$< withPrefix "Query" debugTracer
+        ( show >$< withPrefix "Query" (withFaint debugTracer)
         , cStateQueryCodec
         , localStateQueryClientPeer $ Query.client queryQ
         )

@@ -9,6 +9,7 @@ import NoThunks.Class (NoThunks(..), unsafeNoThunks)
 import NoThunks.Class qualified as Reexport
 import NoThunks.Class.Orphans qualified as Reexport ()
 
+-- | Left fold over a list, checking for thunks at each step.
 repeatedly ∷ ∀ a b. (NoThunks b, HasCallStack) ⇒ (b → a → b) → b → [a] → b
 repeatedly f = go
  where

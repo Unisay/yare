@@ -21,15 +21,26 @@ addr_test1vq0amecwrrqlj8hdrvpwsh6j9n9n70mrrwrn2yvmjqu6dnsz0zjgj
 addr_test1vqanydm9xzrt5js7cqpyyqs3rknhu6hg3emghp00ll0ccxqldzwvh
 addr_test1vrgpvuvjfnwj92kqx3z87hh0s2euf6m8su636qun680py9sjgst0u
 
-# Funding:
+# UTxO entries:
 
-Address: addr_test1vqq934tq2lnxp9urlltl0vj3sejl92dznu82ngzdj8g4fpc7vnz95
-Tx hash: 85ca051bf5225ade34b1724d78d5833d6d82b3d7d7d23f35f585d504e068ee5a
-   Slot: 41683151
-
-Address: addr_test1vrgpvuvjfnwj92kqx3z87hh0s2euf6m8su636qun680py9sjgst0u
-Tx hash: 3677567c7e5a7d1c026f13cded1409c41731e6207c129c4ea382f8ea8e07c516
-   Slot: 42065142
+- Tx Input: 008c24db9c36fbae8e7e1fabeef6e44b19b52c1841c8d5002771f6fee4f931e8#0
+  Address: addr_test1vrzfhl7qdw0zzedrtnw6dwmehg50unk4jzs4tqmag2eak0cfrc9pf
+  Value: 913_720 Lovelace
+- Tx Input: 008c24db9c36fbae8e7e1fabeef6e44b19b52c1841c8d5002771f6fee4f931e8#1
+  Address: addr_test1vqq934tq2lnxp9urlltl0vj3sejl92dznu82ngzdj8g4fpc7vnz95
+  Value: 9_998_907_007 Lovelace
+- Tx Input: 03d735a9ee025b4b298962099707d9dd9f76747cc45454e0febc7b4212e970af#0
+  Address: addr_test1vrzfhl7qdw0zzedrtnw6dwmehg50unk4jzs4tqmag2eak0cfrc9pf
+  Value: 10_000_000 Lovelace
+- Tx Input: 3677567c7e5a7d1c026f13cded1409c41731e6207c129c4ea382f8ea8e07c516#0
+  Address: addr_test1vrgpvuvjfnwj92kqx3z87hh0s2euf6m8su636qun680py9sjgst0u
+  Value: 10_000_000_000 Lovelace
+- Tx Input: 7ee69a7b2a9c17beb0701587bb4595c3cda46763e84135b5621208ae1bf6020e#0
+  Address: addr_test1vqq934tq2lnxp9urlltl0vj3sejl92dznu82ngzdj8g4fpc7vnz95
+  Value: 10_000_000_000 Lovelace
+- Tx Input: 85ca051bf5225ade34b1724d78d5833d6d82b3d7d7d23f35f585d504e068ee5a#0
+  Address: addr_test1vqq934tq2lnxp9urlltl0vj3sejl92dznu82ngzdj8g4fpc7vnz95
+  Value: 10_000_000_000 Lovelace
 
 ## Re-balancing:
 

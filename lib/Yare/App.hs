@@ -8,6 +8,7 @@ import Cardano.Api.Shelley
   , BabbageEraOnwards (BabbageEraOnwardsBabbage, BabbageEraOnwardsConway)
   , EraHistory (..)
   , ShelleyBasedEra (..)
+  , SlotNo
   , babbageEraOnwardsToShelleyBasedEra
   , toLedgerEpochInfo
   )
@@ -19,6 +20,7 @@ import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.IORef.Strict qualified as Strict
+import Fmt (pretty)
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
@@ -51,7 +53,15 @@ import Yare.Query qualified as Query
 import Yare.Storage (Storage (..))
 import Yare.Storage qualified as Storage
 import Yare.Submitter qualified as Submitter
-import Yare.Tracer (debugTracer, nullTracer, prettyTracer, withPrefix)
+import Yare.Tracer
+  ( Tracer
+  , debugTracer
+  , lineTracer
+  , nullTracer
+  , withFaint
+  , withPrefix
+  )
+import Yare.Utxo (Utxo)
 
 {- |
 Starts several threads concurrently:
@@ -149,7 +159,7 @@ runNodeConnection
   → Submitter.Q
   → IO Void
 runNodeConnection Yare.Config {..} storage queryQ submitQ = do
-  let chainFollower = newChainFollower prettyTracer storage
+  let chainFollower = newChainFollower utxoTracer progressTracer storage
   withIOManager \ioManager →
     subscribe
       (localSnocket ioManager)
@@ -159,24 +169,29 @@ runNodeConnection Yare.Config {..} storage queryQ submitQ = do
         { nsMuxTracer =
             nullTracer
         , nsHandshakeTracer =
-            show >$< withPrefix "HS_" debugTracer
+            show >$< withPrefix "HS_" (withFaint debugTracer)
         , nsErrorPolicyTracer =
-            show >$< withPrefix "Err" debugTracer
+            show >$< withPrefix "Err" (withFaint debugTracer)
         , nsSubscriptionTracer =
-            show . runIdentity >$< withPrefix "SUB" debugTracer
+            show . runIdentity >$< withPrefix "SUB" (withFaint debugTracer)
         }
       ClientSubscriptionParams
         { cspAddress = nodeSocketLocalAddress nodeSocket
         , cspConnectionAttemptDelay = Nothing
         , cspErrorPolicies =
-            networkErrorPolicies <> consensusErrorPolicy (Proxy @StdCardanoBlock)
+            networkErrorPolicies
+              <> consensusErrorPolicy (Proxy @StdCardanoBlock)
         }
-      ( makeNodeToClientProtocols
-          chainFollower
-          syncFrom
-          queryQ
-          submitQ
-      )
+      (makeNodeToClientProtocols chainFollower syncFrom queryQ submitQ)
+
+--------------------------------------------------------------------------------
+-- Tracers ---------------------------------------------------------------------
+
+utxoTracer ∷ Tracer IO Utxo
+utxoTracer = mappend "\n" . pretty >$< withPrefix "UTxO" debugTracer
+
+progressTracer ∷ Tracer IO SlotNo
+progressTracer = pretty >$< withPrefix "Slot" lineTracer
 
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------

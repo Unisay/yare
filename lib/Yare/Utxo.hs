@@ -1,8 +1,5 @@
-{-# OPTIONS_GHC -Wno-orphans #-}
-
 module Yare.Utxo -- is meant to be imported qualified
   ( Utxo
-  , HasUtxo (..)
   , Entries
   , useByAddress
   , spendableEntries
@@ -10,16 +7,16 @@ module Yare.Utxo -- is meant to be imported qualified
   , initial
   , indexBlock
   , rollbackTo
+  , makeFinal
   ) where
 
 import Yare.Prelude hiding (fromList, show)
 
 import Cardano.Api (TxIn (..), Value, renderTxIn)
-import Control.Lens.TH (makeClassy, makeLenses)
 import Data.Map.Strict qualified as Map
 import Data.Set (member)
 import Data.Set qualified as Set
-import Fmt (Buildable (..), blockListF, nameF, (+|), (|+))
+import Fmt (Buildable (..), Builder, blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
 import NoThunks.Class.Extended (NoThunks (..), repeatedly)
 import Ouroboros.Consensus.Block (pointSlot)
@@ -64,35 +61,38 @@ data Utxo = Utxo
   { reversibleUpdates ∷ ![(ChainPoint, [Update])]
   , finalState ∷ !Entries
   , usedInputs ∷ !(Set TxIn)
-  , submittedTransactions ∷ ![TxId]
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NoThunks)
 
-instance NoThunks TxId where
-  noThunks _ctx _txId = pure Nothing
-  wNoThunks = noThunks
-  showTypeOf _ = "TxId"
-
 instance Buildable Utxo where
-  build Utxo {..} =
-    "UTXO\n----\n"
-      <> nameF "Reversible Updates" do
+  build utxo@Utxo {..} =
+    nameF "Reversible UTxO updates" do
+      blockListF
+        [ nameF "Slot" (build (pointSlot chainPoint)) <> blockListF updates
+        | (chainPoint, updates) ← reversibleUpdates
+        ]
+      <> nameF "Final UTxO entries" do
         blockListF
-          [ nameF "Slot" (build (pointSlot chainPoint)) <> blockListF updates
-          | (chainPoint, updates) ← reversibleUpdates
+          [ buildTxIn txIn addr value
+          | (txIn, (addr, value)) ← Map.toList finalState
           ]
-      <> nameF "Final state" do
-        blockListF
-          [ nameF "Tx Input" (build txIn)
-            <> nameF "Address" (build (ledgerAddressToText ledgerAddr))
-            <> nameF "Value" (build value)
-          | (txIn, (ledgerAddr, value)) ← Map.toList finalState
-          ]
-      <> nameF "Used inputs" do
-        blockListF usedInputs
-
-$(makeLenses ''Utxo)
+      <> nameF "Inputs used by submitted transactions" (blockListF usedInputs)
+      <> if null reversibleUpdates
+        then "\n"
+        else nameF "Applied UTXO updates" do
+          blockListF
+            [ buildTxIn txIn addr value
+            | (txIn, (addr, value)) ← Map.toList (spendableEntries utxo)
+            ]
+   where
+    buildTxIn ∷ TxIn → LedgerAddress → Value → Builder
+    buildTxIn txIn ledgerAddr value =
+      fold
+        [ nameF "Tx Input" (build txIn)
+        , nameF "Address" (build (ledgerAddressToText ledgerAddr))
+        , nameF "Value" (build value)
+        ]
 
 initial ∷ Utxo
 initial =
@@ -100,16 +100,18 @@ initial =
     { reversibleUpdates = mempty
     , finalState = mempty
     , usedInputs = mempty
-    , submittedTransactions = mempty
     }
 
 {- | Enrich the UTXO set with the transactions from a block.
 | Returns the updated UTXO set or 'Nothing' if the block is irrelevant.
 -}
-indexBlock ∷ Addresses → StdCardanoBlock → Utxo → Maybe Utxo
-indexBlock addresses block =
+indexBlock ∷ Addresses → StdCardanoBlock → Bool → Utxo → Maybe Utxo
+indexBlock addresses block isFinal =
   repeatedly forEachTx (const Nothing) (blockTransactions block)
+    <<&>> if isFinal then makeFinal else id
  where
+  chainPoint ∷ ChainPoint = blockPoint block
+
   forEachTx ∷ (Utxo → Maybe Utxo) → AnyEra Tx → Utxo → Maybe Utxo
   forEachTx !prevUpdate !tx utxo =
     case prevUpdate utxo of
@@ -118,9 +120,6 @@ indexBlock addresses block =
         case indexTx addresses chainPoint tx utxo' of
           Nothing → Just utxo'
           Just utxo'' → Just utxo''
-
-  chainPoint ∷ ChainPoint
-  chainPoint = blockPoint block
 
 {- | Enrich the UTXO set with the information from a transaction.
 | Returns the updated UTXO set or 'Nothing' if the transaction is irrelevant.
@@ -178,6 +177,13 @@ useByAddress utxo addr = (utxo', entries)
     guard $ addr == outputAddr
     pure entry
 
+makeFinal ∷ Utxo → Utxo
+makeFinal utxo =
+  utxo
+    { finalState = spendableEntries utxo
+    , reversibleUpdates = []
+    }
+
 --------------------------------------------------------------------------------
 -- State queries ---------------------------------------------------------------
 
@@ -194,15 +200,13 @@ spendableEntries utxo = nonFinalSpendableInputs <> finalSpendableInputs
     overUpdates (_cp, !updates) = repeatedly overUpdate id updates
      where
       overUpdate ∷ (Entries → Entries) → Update → (Entries → Entries)
-      overUpdate !prevUpdate !update =
-        case update of
-          AddSpendableTxInput input _addr _val
-            | input `member` usedInputs utxo →
-                prevUpdate
-          AddSpendableTxInput input addr val →
-            Map.insert input (addr, val) . prevUpdate
-          SpendTxInput input →
-            Map.delete input . prevUpdate
+      overUpdate !prevUpdate = \case
+        AddSpendableTxInput input _addr _val
+          | input `member` usedInputs utxo → prevUpdate
+        AddSpendableTxInput input addr val →
+          Map.insert input (addr, val) . prevUpdate
+        SpendTxInput input →
+          Map.delete input . prevUpdate
 
   finalSpendableInputs ∷ Entries
   finalSpendableInputs = finalState utxo
@@ -210,8 +214,3 @@ spendableEntries utxo = nonFinalSpendableInputs <> finalSpendableInputs
 totalValue ∷ Utxo → Value
 totalValue =
   Map.foldr' (\(_addr, value) acc → value <> acc) mempty . spendableEntries
-
---------------------------------------------------------------------------------
--- TH Splices ------------------------------------------------------------------
-
-$(makeClassy ''Utxo)

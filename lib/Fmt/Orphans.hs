@@ -25,7 +25,8 @@ instance Buildable TxIn where
 instance Buildable Value where
   build value =
     case GHC.Exts.toList value of
-      [(AdaAssetId, quantity)] → build quantity +| " Lovelace"
+      [(AdaAssetId, Quantity quantity)] →
+        groupInt 3 '_' quantity +| " Lovelace"
       vs →
         blockListF
           [nameF (build asset) (build quantity) | (asset, quantity) ← vs]
@@ -50,4 +51,7 @@ instance Buildable Quantity where
   build (Quantity quantity) = build quantity
 
 instance Buildable (WithOrigin SlotNo) where
-  build = withOrigin (build (0 ∷ Int)) (groupInt 3 '_' . unSlotNo)
+  build = withOrigin (build (0 ∷ Int)) build
+
+instance Buildable SlotNo where
+  build = groupInt 3 '_' . unSlotNo

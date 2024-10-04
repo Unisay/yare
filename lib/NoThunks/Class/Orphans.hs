@@ -7,12 +7,17 @@ import Yare.Prelude
 import Cardano.Address (Address)
 import Cardano.Address.Derivation (Depth (PaymentK), XPrv)
 import Cardano.Address.Style.Shelley (Shelley)
-import Cardano.Api (TxIn, Value)
+import Cardano.Api (TxId, TxIn, Value)
 import NoThunks.Class (NoThunks (..))
 
 instance NoThunks TxIn where
   wNoThunks _ctx _txIn = pure Nothing
   showTypeOf _proxy = "TxIn"
+
+instance NoThunks TxId where
+  noThunks _ctx _txId = pure Nothing
+  wNoThunks = noThunks
+  showTypeOf _proxy = "TxId"
 
 instance NoThunks Value where
   wNoThunks _ctx _value = pure Nothing
