@@ -26,9 +26,14 @@ import Cardano.Address.Derivation
   )
 import Cardano.Address.Style.Shelley qualified as CAddr
 import Cardano.Api.Shelley qualified as CApi
+import Cardano.Ledger.Address (Addr (..))
+import Cardano.Ledger.Api (StandardCrypto)
 import Cardano.Ledger.Api.Tx.Address qualified as Ledger
+import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
 import Data.Traversable (for)
+import Fmt (Buildable (..))
+import Fmt.Orphans ()
 import NoThunks.Class (InspectHeap (..))
 import NoThunks.Class.Extended (NoThunks)
 import Text.Show (show)
@@ -42,6 +47,12 @@ data AddressWithKey = AddressWithKey
   }
   deriving stock (Generic)
   deriving anyclass (NoThunks, NFData)
+
+instance Buildable AddressWithKey where
+  build AddressWithKey {ledgerAddress} =
+    build ledgerAddress
+      <> "\n"
+      <> build (toPaymentCredential ledgerAddress)
 
 -- Orphan instance
 instance NFData CApi.ShelleyWitnessSigningKey where
@@ -141,6 +152,11 @@ toLedgerAddress ∷ Address → Either Error LedgerAddress
 toLedgerAddress address =
   maybeToRight (ToLedgerAddrConversionError address) $
     Ledger.decodeAddr (unAddress address)
+
+toPaymentCredential ∷ LedgerAddress → Maybe (PaymentCredential StandardCrypto)
+toPaymentCredential = \case
+  Addr _ paymentCredential _ → Just paymentCredential
+  AddrBootstrap {} → Nothing
 
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------

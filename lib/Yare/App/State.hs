@@ -10,7 +10,8 @@ module Yare.App.State
 
 import Yare.Prelude hiding (State)
 
-import Cardano.Api (TxId)
+import Cardano.Api.Shelley (TxId)
+import Data.Strict.List (List (Nil))
 import NoThunks.Class (NoThunks (..), allNoThunks)
 import Yare.Address (Addresses)
 import Yare.Chain.Follower (initialChainState)
@@ -21,7 +22,7 @@ type StateRow =
   {--} ("utxo" .== Utxo)
     .+ ("chainTip" .== ChainTip)
     .+ ("addresses" .== Addresses)
-    .+ ("submitted" .== [TxId])
+    .+ ("submitted" .== List TxId)
 
 type State = Rec StateRow
 type HasAppState r = Open StateRow r
@@ -34,4 +35,4 @@ initialState ∷ Addresses → State
 initialState addresses' =
   initialChainState
     .+ (#addresses .== addresses')
-    .+ (#submitted .== mempty)
+    .+ (#submitted .== Nil)

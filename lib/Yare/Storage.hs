@@ -1,7 +1,6 @@
 module Yare.Storage
   ( Storage
   , overStorage
-  -- , overStorageState
   , readOverStorage
   , readStorage
   , readStorageField
@@ -31,19 +30,10 @@ data Storage (m ∷ Type → Type) (s ∷ Type) = Storage
 readOverStorage ∷ (∀ a. (s → (s, a)) → m a) → m s
 readOverStorage overStorage = overStorage \s → (s, s)
 
-{- | Given a storage and a pure stateful computation,
-| produces an impure computation.
--}
-
--- overStorageState ∷ ∀ s m a. Storage m s → State s a → m a
--- overStorageState storage st = overStorage storage (swap . runState st)
-
+-- | Reads a field value from the storage state.
 readStorageField
   ∷ ∀ s l a m
-   . ( KnownSymbol l
-     , Functor m
-     , s .! l ≈ a
-     )
+   . (KnownSymbol l, Functor m, HasType l a s)
   ⇒ Storage m (Rec s)
   → Label l
   → m a

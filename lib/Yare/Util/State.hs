@@ -1,13 +1,14 @@
 -- | Utility functions for working with stateful computations.
 module Yare.Util.State
   ( stateField
+  , setStateField
   , overStateField
   , stateMay
   ) where
 
+import Yare.Prelude
+
 import Control.Monad.State.Class (MonadState (state))
-import Data.Maybe (Maybe (..))
-import Data.Row.Records (KnownSymbol, Label, Rec, (.!), type (.!), type (≈))
 import Data.Row.Records qualified as Rec
 
 {- | Provides a way to interact with a record field in a stateful manner.
@@ -35,38 +36,53 @@ increments it, and returns the old value as a string. 'myFunction' then
 updates the record with the new 'field1' value and returns the string.
 -}
 stateField
-  ∷ ∀ m s row a label
-   . ( row .! label ≈ s
-     , KnownSymbol label
-     , MonadState (Rec row) m
+  ∷ ∀ m s r a l
+   . ( HasType l s r
+     , KnownSymbol l
+     , MonadState (Rec r) m
      )
-  ⇒ Label label
+  ⇒ Label l
   -- ^ The label of the record field to update.
   → (s → (s, a))
   -- ^ The state transition function to apply to the field value.
   → m a
   -- ^ Resulting MonadState-ful computation
 stateField fieldLabel f = state \oritinalRecord →
-  let (newFieldValue, a) = f (oritinalRecord .! fieldLabel)
+  let (!newFieldValue, !a) = f (oritinalRecord .! fieldLabel)
    in (a, Rec.update fieldLabel newFieldValue oritinalRecord)
 
 {- | Lift a field modification function to
 a stateful computation acting on the whole state.
 -}
 overStateField
-  ∷ ∀ m s row label
-   . ( row .! label ≈ s
-     , KnownSymbol label
-     , MonadState (Rec row) m
+  ∷ ∀ m s r l
+   . ( HasType l s r
+     , KnownSymbol l
+     , MonadState (Rec r) m
      )
-  ⇒ Label label
+  ⇒ Label l
   -- ^ The label of the record field to update.
   → (s → s)
   -- ^ The state transition function to apply to the field value.
   → m ()
   -- ^ Resulting MonadState-ful computation
 overStateField fieldLabel f =
-  stateField fieldLabel \x → (f x, ())
+  stateField fieldLabel \x → let !a = f x in (a, ())
+
+setStateField
+  ∷ ∀ m s r l
+   . ( HasType l s r
+     , KnownSymbol l
+     , MonadState (Rec r) m
+     )
+  ⇒ Label l
+  -- ^ The label of the record field to update.
+  → s
+  -- ^ The new value of the field.
+  → m ()
+  -- ^ Resulting MonadState-ful computation
+setStateField fieldLabel !s =
+  stateField fieldLabel \_oldValue → (s, ())
 
 {- | Lift an optional (which may not be possible) state transition
 to a stateful computation.

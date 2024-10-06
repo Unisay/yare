@@ -5,7 +5,7 @@ module Yare.Http.Server
 
 import Yare.Prelude
 
-import Cardano.Api (InAnyShelleyBasedEra (..), TxBodyErrorAutoBalance, TxId)
+import Cardano.Api (InAnyShelleyBasedEra (..), TxBodyErrorAutoBalance, TxIn)
 import Control.Tracer (natTracer)
 import Data.Variant (case_)
 import Network.Wai qualified as Wai
@@ -36,7 +36,7 @@ type YareApi =
   "api"
     :> ( ( "utxo" :> Get '[JSON] Http.Utxo
             :<|> "tip" :> Get '[JSON] Http.ChainTip
-            :<|> "deploy" :> Post '[JSON] TxId
+            :<|> "deploy" :> Post '[JSON] TxIn
          )
           :<|> ( "addresses"
                   :> ( Get '[JSON] [Http.Address]
@@ -56,7 +56,7 @@ endpointChainTip services = liftIO $ Http.ChainTip <$> App.serveTip services
 endpointDeployScript
   ∷ Tracer Servant.Handler Text
   → App.Services IO
-  → Servant.Handler TxId
+  → Servant.Handler TxIn
 endpointDeployScript tracer App.Services {deployScript} =
   liftIO deployScript >>= \case
     Left errors →
@@ -121,7 +121,7 @@ endpointDeployScript tracer App.Services {deployScript} =
         ( \(_err ∷ App.NoCollateralInputs) →
             err500 "No collateral inputs" "No collateral inputs"
         )
-    Right txId → pure txId
+    Right txIn → pure txIn
  where
   err500 ∷ Text → Text → Servant.Handler a
   err500 publicMsg privateMsg = do

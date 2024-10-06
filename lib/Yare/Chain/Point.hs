@@ -14,7 +14,6 @@ import Ouroboros.Network.Block (Point (..))
 import Ouroboros.Network.Point (Block (..))
 import Yare.Chain.Block (StdCardanoBlock)
 
-type ChainPoint ∷ Type
 type ChainPoint = Point StdCardanoBlock
 
 parseChainPoint ∷ String → Either String ChainPoint

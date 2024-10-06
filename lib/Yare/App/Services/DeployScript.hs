@@ -2,7 +2,7 @@ module Yare.App.Services.DeployScript
   ( service
   , NoFeeInputs
   , NoCollateralInputs
-) where
+  ) where
 
 import Yare.Prelude
 
@@ -26,9 +26,10 @@ import Cardano.Api.Shelley
   , TxBodyContent (..)
   , TxBodyErrorAutoBalance
   , TxId
-  , TxIn
+  , TxIn (..)
   , TxInMode (..)
   , TxInsCollateral (..)
+  , TxIx (..)
   , TxOut (..)
   , TxOutDatum (..)
   , Value
@@ -38,6 +39,7 @@ import Cardano.Api.Shelley
   , constructBalancedTx
   , defaultTxBodyContent
   , fromShelleyAddrIsSbe
+  , getTxBody
   , getTxId
   , hashScript
   , inAnyShelleyBasedEra
@@ -54,25 +56,28 @@ import Control.Monad.Oops (CouldBe, Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Strict (List ((:!)))
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
 import Text.Pretty.Simple (pShow)
+import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address.Derivation (AddressWithKey (..))
 import Yare.App.Scripts (script)
 import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (LedgerAddress)
-import Yare.Funds (HasFunds)
 import Yare.Funds qualified as Funds
 import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (overStateField, stateField, stateMay)
 import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
+import Yare.Utxo (ScriptDeployment (Deployed), Utxo, setScriptDeployment)
 
 -- | Deploys a script on-chain by submitting a transaction.
 service
   ∷ ∀ r era e state
-   . ( HasFunds r
-     , r .! "submitted" ≈ [TxId]
+   . ( HasType "utxo" Utxo r
+     , HasType "addresses" Addresses r
+     , HasType "submitted" (List TxId) r
      , state ≈ Rec r
      , e `CouldBe` CardanoApplyTxErr StandardCrypto
      , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
@@ -82,51 +87,60 @@ service
   ⇒ Storage IO state
   → Submitter.Q
   → NetworkInfo era
-  → IO (Either (Variant e) TxId)
+  → IO (Either (Variant e) TxIn)
 service storage submitQ networkInfo = do
   let NetworkInfo {currentEra} = networkInfo
       shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
 
   overStorage storage makeAndSubmitScriptTx \case
     Left err → pure (Left err)
-    Right tx@(Tx body _witnesses) → do
+    Right (tx, txInput) → do
       putTextLn "Submitting the transaction:"
       putTextLn . toStrict $ pShow tx
-      maybeToLeft (getTxId body)
+      maybeToLeft txInput
         <$> Submitter.submit submitQ (TxInMode shelleyBasedEra tx)
  where
-  makeAndSubmitScriptTx ∷ state → (state, Either (Variant e) (Tx era))
+  makeAndSubmitScriptTx ∷ state → (state, Either (Variant e) (Tx era, TxIn))
   makeAndSubmitScriptTx s =
     case runExcept (runStateT (deployScript networkInfo script) s) of
       Left e → (s, Left e)
-      Right (txEra, s') → (s', Right txEra)
+      Right (txAndScriptDeployment, s') → (s', Right txAndScriptDeployment)
 
 deployScript
   ∷ ∀ r era e
-   . ( HasFunds r
-     , r .! "submitted" ≈ [TxId]
+   . ( HasType "utxo" Utxo r
+     , HasType "addresses" Addresses r
+     , HasType "submitted" (List TxId) r
      , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
      , e `CouldBe` NoFeeInputs
      , e `CouldBe` NoCollateralInputs
      )
   ⇒ NetworkInfo era
   → Script PlutusScriptV3
-  → StateT (Rec r) (Except (Variant e)) (Tx era)
-deployScript networkInfo plutusScript =
-  constructTx networkInfo plutusScript
-    >>= \tx@(Tx (getTxId → txId) _witnesses) →
-      tx <$ overStateField #submitted (txId :)
+  → StateT
+      (Rec r)
+      (Except (Variant e))
+      ( Tx era -- The transaction that deploys the script.
+      , TxIn -- The input that references the script.
+      )
+deployScript networkInfo plutusScript = do
+  res@(tx, txIn) ← constructTx networkInfo plutusScript
+  let txId = getTxId (getTxBody tx)
+  overStateField #submitted (txId :!)
+  overStateField #utxo (setScriptDeployment (Deployed txIn))
+  pure res
 
 constructTx
   ∷ ∀ r era e
-   . ( HasFunds r
+   . ( HasType "utxo" Utxo r
+     , HasType "addresses" Addresses r
      , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
      , e `CouldBe` NoFeeInputs
      , e `CouldBe` NoCollateralInputs
      )
   ⇒ NetworkInfo era
   → Script PlutusScriptV3
-  → StateT (Rec r) (Except (Variant e)) (Tx era)
+  → StateT (Rec r) (Except (Variant e)) (Tx era, TxIn)
 constructTx networkInfo plutusScript = do
   let NetworkInfo
         { protocolParameters
@@ -180,8 +194,7 @@ constructTx networkInfo plutusScript = do
           | (txIn, _addrWithKeyAndValue) ← toList feeInputs
           ]
         & setTxInsCollateral txInsCollateral
-        & addTxOut scriptOutput
-
+        & addTxOut scriptOutput -- The script output has index 0
     witnesses ∷ [ShelleyWitnessSigningKey]
     witnesses =
       [ witness addr
@@ -189,13 +202,13 @@ constructTx networkInfo plutusScript = do
       ]
 
   -- Pure construction of the transaction:
-  Oops.hoistEither . first (inAnyShelleyBasedEra shelleyBasedEra) $
+  Oops.hoistEither $ first (inAnyShelleyBasedEra shelleyBasedEra) do
     let
       overrideKeyWitnesses ∷ Maybe Word = Nothing
       registeredPools ∷ Set PoolId = Set.empty
       delegations ∷ Map StakeCredential L.Coin = Map.empty
       rewards ∷ Map (Credential DRepRole StandardCrypto) L.Coin = Map.empty
-     in
+    tx ←
       constructBalancedTx
         shelleyBasedEra
         bodyContent
@@ -209,6 +222,15 @@ constructTx networkInfo plutusScript = do
         delegations
         rewards
         witnesses
+
+    let
+      -- TxIn containing the script output
+      txId = getTxId (getTxBody tx)
+      txIx = TxIx 0 -- `constructBalancedTx` appends change outputs to the tail
+      -- of the outputs list so our script output index remains 0
+      txIn = TxIn txId txIx
+
+    pure (tx, txIn)
 
 --------------------------------------------------------------------------------
 -- Error types -----------------------------------------------------------------

@@ -23,7 +23,7 @@ type FundsRow =
 
 type Funds = Rec FundsRow
 type HasFunds r = Open FundsRow r
-  
+
 
 useFeeInputs
   ∷ HasFunds r

@@ -10,7 +10,7 @@ import Yare.Prelude
 import Cardano.Api.Shelley
   ( InAnyShelleyBasedEra (..)
   , TxBodyErrorAutoBalance
-  , TxId
+  , TxIn
   )
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Monad.Oops (Variant)
@@ -43,7 +43,7 @@ data Services m = Services
                   , DeployScript.NoCollateralInputs
                   ]
               )
-              TxId
+              TxIn
           )
   }
 

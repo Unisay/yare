@@ -10,7 +10,7 @@ import Yare.Prelude
 
 import Control.Tracer
 import Fmt (Buildable, pretty)
-import String.ANSI (blackBg, faint)
+import String.ANSI (faint, underline)
 
 prettyTracer ∷ (Buildable a, Applicative m) ⇒ Tracer m a
 prettyTracer = pretty >$< debugTracer
@@ -20,7 +20,7 @@ withFaint tr = faint >$< tr
 
 withPrefix ∷ String → Tracer m String → Tracer m String
 withPrefix prefix tr =
-  ((blackBg (" " <> toString prefix <> " ") <> " ") <>) >$< tr
+  ((underline (toString prefix) <> " ") <>) >$< tr
 
 {- | A tracer that prints to stdout a single line of text
 overwriting the previous one.

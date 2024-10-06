@@ -18,27 +18,45 @@ import Yare.Prelude
 import Cardano.Address (NetworkTag)
 import Cardano.Address.Style.Shelley (shelleyMainnet, shelleyTestnet)
 import Cardano.Api.Ledger qualified as Ledger
-import Cardano.Ledger.Address qualified as Ledger
+import Cardano.Ledger.Api (Addr (..), StandardCrypto)
 import Cardano.Ledger.Api qualified as Ledger
+import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (MkMnemonicError)
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Trans.Except (except, withExceptT)
 import Data.List.NonEmpty qualified as NE
 import Data.Tagged (Tagged, untag)
+import Fmt (Buildable (build), blockListF, nameF)
 import NoThunks.Class.Extended (NoThunks)
-import Ouroboros.Network.Magic (NetworkMagic, unNetworkMagic)
+import Ouroboros.Network.Magic (NetworkMagic (..), unNetworkMagic)
 import Path (Abs, File, Path)
 import Yare.Address.Derivation
   ( AddressWithKey (..)
   , externalPaymentAdressesKeys
+  , internalPaymentAdressesKeys
   )
 import Yare.Address.Derivation qualified as Derivation
 import Yare.Chain.Types (LedgerAddress)
 import Yare.Mnemonic (mnemonicFromFile)
 
-newtype Addresses = Addresses {externalAddresses ∷ NonEmpty AddressWithKey}
+data Addresses = Addresses
+  { network ∷ !Ledger.Network
+  , externalAddresses ∷ !(NonEmpty AddressWithKey)
+  , internalAddresses ∷ !(NonEmpty AddressWithKey)
+  , paymentCredentials ∷ ![PaymentCredential StandardCrypto]
+  -- ^ Payment credentials of the external addresses cached for faster lookups.
+  }
   deriving stock (Generic)
   deriving anyclass (NoThunks)
+
+instance Buildable Addresses where
+  build Addresses {network, externalAddresses, internalAddresses} =
+    nameF "Addresses" $
+      blockListF
+        [ nameF "Network" (show network)
+        , nameF "Internal addresses" (blockListF internalAddresses)
+        , nameF "External addresses" (blockListF externalAddresses)
+        ]
 
 deriveFromMnemonic
   ∷ MonadIO m
@@ -46,25 +64,54 @@ deriveFromMnemonic
   → Tagged "mnemonic" (Path Abs File)
   → m (Either Error Addresses)
 deriveFromMnemonic networkMagic mnemonicFile = runExceptT do
-  nt ← except $ networkMagicToAddressesTag networkMagic
+  networkTag ← except $ networkMagicToAddressesTag networkMagic
+  ledgerNetwork ← except $ networkMagicToLedgerNetwork networkMagic
   mnemonic ←
     mnemonicFromFile (untag mnemonicFile)
       & ExceptT
       & withExceptT MnemonicError
-  externalLedgerAddrs ∷ NonEmpty AddressWithKey ← do
-    keys ←
-      externalPaymentAdressesKeys nt mnemonic
-        & except
-        & withExceptT DerivationError
-    -- At least 2 addresses are needed:
-    -- 1 for change, fees and collateral and 1 for the ref script.
-    NE.nonEmpty (take 20 keys)
-      & maybe (throwError NoAddressesDerived) pure
-  pure Addresses {externalAddresses = force externalLedgerAddrs}
+  let deriveAddresses paymentAddrKeys = do
+        keys ←
+          paymentAddrKeys networkTag mnemonic
+            & except
+            & withExceptT DerivationError
+        -- At least 2 addresses are needed:
+        -- 1 for change, fees and collateral and 1 for the ref script.
+        NE.nonEmpty (take 20 keys)
+          & maybe (throwError NoAddressesDerived) pure
 
+  externalLedgerAddrs ∷ NonEmpty AddressWithKey ←
+    deriveAddresses externalPaymentAdressesKeys
+
+  internalLedgerAddrs ∷ NonEmpty AddressWithKey ←
+    deriveAddresses internalPaymentAdressesKeys
+
+  pure
+    Addresses
+      { network = ledgerNetwork
+      , externalAddresses = force externalLedgerAddrs
+      , internalAddresses = force internalLedgerAddrs
+      , paymentCredentials =
+          force
+            [ cred
+            | AddressWithKey {ledgerAddress} ←
+                toList externalLedgerAddrs <> toList internalLedgerAddrs
+            , cred ← case ledgerAddress of
+                Addr _ paymentCredential _ → [paymentCredential]
+                AddrBootstrap {} → []
+            ]
+      }
+
+{- | Checks if the given address is one of the own addresses.
+The address is considered own if its payment credential matches one of the
+payment credentials of our external addresses. This way staking credentials
+are not considered.
+-}
 isOwnAddress ∷ Addresses → LedgerAddress → Bool
-isOwnAddress Addresses {externalAddresses} address =
-  address `elem` fmap ledgerAddress externalAddresses
+isOwnAddress Addresses {network, paymentCredentials} = \case
+  AddrBootstrap {} → False
+  Addr addrNnetwork paymentCred _stakeCred →
+    network == addrNnetwork && paymentCred `elem` paymentCredentials
 
 useForChange ∷ Addresses → (Addresses, AddressWithKey)
 useForChange a@Addresses {externalAddresses} =

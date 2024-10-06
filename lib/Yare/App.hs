@@ -9,6 +9,7 @@ import Cardano.Api.Shelley
   , EraHistory (..)
   , ShelleyBasedEra (..)
   , SlotNo
+  , TxId
   , babbageEraOnwardsToShelleyBasedEra
   , toLedgerEpochInfo
   )
@@ -21,6 +22,7 @@ import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.IORef.Strict qualified as Strict
 import Fmt (pretty)
+import Fmt.Orphans ()
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors (simpleCors)
@@ -46,6 +48,7 @@ import Yare.App.Types (NetworkInfo (..))
 import Yare.App.Types qualified as Yare
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower (newChainFollower)
+import Yare.Chain.Point (ChainPoint)
 import Yare.Http.Server qualified as Http
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (nodeSocketLocalAddress)
@@ -77,6 +80,10 @@ start config@Yare.Config {networkMagic, mnemonicFile} = do
     Addresses.deriveFromMnemonic networkMagic mnemonicFile
       & Oops.onLeftThrow
       & withHandledErrors
+
+  putStrLn "Derived addresses:"
+  putStrLn $ pretty addresses
+
   queryQ ← liftIO newTQueueIO
   submitQ ← liftIO newTQueueIO
   let !appState = Yare.initialState addresses
@@ -159,7 +166,7 @@ runNodeConnection
   → Submitter.Q
   → IO Void
 runNodeConnection Yare.Config {..} storage queryQ submitQ = do
-  let chainFollower = newChainFollower utxoTracer progressTracer storage
+  let chainFollower = newChainFollower tracers storage
   withIOManager \ioManager →
     subscribe
       (localSnocket ioManager)
@@ -187,11 +194,32 @@ runNodeConnection Yare.Config {..} storage queryQ submitQ = do
 --------------------------------------------------------------------------------
 -- Tracers ---------------------------------------------------------------------
 
-utxoTracer ∷ Tracer IO Utxo
-utxoTracer = mappend "\n" . pretty >$< withPrefix "UTxO" debugTracer
+type TracersRow =
+  ("tracerTxId" .== Tracer IO TxId)
+    .+ ("tracerUtxo" .== Tracer IO Utxo)
+    .+ ("tracerSync" .== Tracer IO SlotNo)
+    .+ ("tracerRollback" .== Tracer IO ChainPoint)
 
-progressTracer ∷ Tracer IO SlotNo
-progressTracer = pretty >$< withPrefix "Slot" lineTracer
+type Tracers = Rec TracersRow
+
+tracers ∷ Tracers
+tracers =
+  (#tracerTxId .== tracerTxId)
+    .+ (#tracerUtxo .== tracerUtxo)
+    .+ (#tracerSync .== tracerSync)
+    .+ (#tracerRollback .== tracerRollback)
+
+tracerTxId ∷ Tracer IO TxId
+tracerTxId = pretty >$< withPrefix "Tx Id" debugTracer
+
+tracerUtxo ∷ Tracer IO Utxo
+tracerUtxo = mappend "\n" . pretty >$< withPrefix "UTxO" debugTracer
+
+tracerSync ∷ Tracer IO SlotNo
+tracerSync = pretty >$< withPrefix "Slot" lineTracer
+
+tracerRollback ∷ Tracer IO ChainPoint
+tracerRollback = pretty >$< withPrefix "Rollback" debugTracer
 
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------
