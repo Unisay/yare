@@ -45,9 +45,9 @@ readStorageField storage label = do
 inMemory ∷ NoThunks s ⇒ StrictIORef s → Storage IO s
 inMemory ref =
   Storage
-    { overStorage = \f before → do
+    { overStorage = \f after → do
         s ← Strict.readIORef ref
         let (s', a) = f s
-        before a >>= (Strict.writeIORef ref s' $>)
+        after a >>= (Strict.writeIORef ref s' $>)
     , readStorage = Strict.readIORef ref
     }

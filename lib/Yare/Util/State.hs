@@ -36,20 +36,21 @@ increments it, and returns the old value as a string. 'myFunction' then
 updates the record with the new 'field1' value and returns the string.
 -}
 stateField
-  ∷ ∀ m s r a l
-   . ( HasType l s r
+  ∷ ∀ m r l a b state
+   . ( HasType l a r
      , KnownSymbol l
-     , MonadState (Rec r) m
+     , MonadState state m
+     , state ≈ Rec r
      )
   ⇒ Label l
   -- ^ The label of the record field to update.
-  → (s → (s, a))
+  → (a → (a, b))
   -- ^ The state transition function to apply to the field value.
-  → m a
+  → m b
   -- ^ Resulting MonadState-ful computation
 stateField fieldLabel f = state \oritinalRecord →
-  let (!newFieldValue, !a) = f (oritinalRecord .! fieldLabel)
-   in (a, Rec.update fieldLabel newFieldValue oritinalRecord)
+  let (!newFieldValue, !b) = f (oritinalRecord .! fieldLabel)
+   in (b, Rec.update fieldLabel newFieldValue oritinalRecord)
 
 {- | Lift a field modification function to
 a stateful computation acting on the whole state.

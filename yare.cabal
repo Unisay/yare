@@ -11,7 +11,6 @@ build-type:    Simple
 common opts
   default-language:   Haskell2010
   default-extensions:
-    NoImplicitPrelude
     AllowAmbiguousTypes
     ApplicativeDo
     BangPatterns
@@ -35,6 +34,7 @@ common opts
     LiberalTypeSynonyms
     MultiParamTypeClasses
     NamedFieldPuns
+    NoImplicitPrelude
     NumericUnderscores
     OverloadedLabels
     OverloadedStrings
@@ -136,6 +136,7 @@ library
 
   other-modules:
     Data.IORef.Strict
+    Data.Row.Records.Extended
     Fmt.Orphans
     NoThunks.Class.Extended
     NoThunks.Class.Orphans
@@ -187,8 +188,14 @@ executable yare
   ghc-options:    -threaded -rtsopts -Wall
 
 test-suite yare-test
-  import:         opts
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is:        Main.hs
-  build-depends:  yare
+  import:             opts
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  main-is:            Spec.hs
+  other-modules:      UtxoSpec
+  build-tool-depends: sydtest-discover:sydtest-discover
+  ghc-options:        -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+    , sydtest           ^>=0.17
+    , sydtest-discover  ^>=0.0.0.4
+    , yare

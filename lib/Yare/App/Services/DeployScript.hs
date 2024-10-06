@@ -55,6 +55,7 @@ import Control.Monad.Except (Except)
 import Control.Monad.Oops (CouldBe, Variant)
 import Control.Monad.Oops qualified as Oops
 import Data.Map.Strict qualified as Map
+import Data.Row.Records.Extended qualified as Rec
 import Data.Set qualified as Set
 import Data.Strict (List ((:!)))
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
@@ -68,7 +69,7 @@ import Yare.Chain.Types (LedgerAddress)
 import Yare.Funds qualified as Funds
 import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
-import Yare.Util.State (overStateField, stateField, stateMay)
+import Yare.Util.State (stateField, stateMay)
 import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
 import Yare.Utxo (ScriptDeployment (Deployed), Utxo, setScriptDeployment)
 
@@ -126,8 +127,9 @@ deployScript
 deployScript networkInfo plutusScript = do
   res@(tx, txIn) ← constructTx networkInfo plutusScript
   let txId = getTxId (getTxBody tx)
-  overStateField #submitted (txId :!)
-  overStateField #utxo (setScriptDeployment (Deployed txIn))
+  modify' $
+    Rec.over #submitted (txId :!)
+      . Rec.over #utxo (setScriptDeployment (Deployed txIn))
   pure res
 
 constructTx

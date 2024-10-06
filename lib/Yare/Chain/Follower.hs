@@ -15,10 +15,8 @@ import Cardano.Api.Shelley (TxId)
 import Cardano.Slotting.Slot (fromWithOrigin)
 import Data.Row.Records qualified as Rec
 import Data.Strict (List)
-import Data.Tagged (Tagged (..))
 import Ouroboros.Network.Block
   ( BlockNo (..)
-
   , SlotNo (..)
   , Tip (..)
   , blockNo
@@ -31,7 +29,7 @@ import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Types (ChainPoint, ChainTip)
 import Yare.Storage (Storage (overStorage))
 import Yare.Tracer (Tracer, traceWith)
-import Yare.Utxo (Utxo, UtxoUpdate (..))
+import Yare.Utxo (Finality (..), Utxo, UtxoUpdate (..))
 import Yare.Utxo qualified as Utxo
 
 data ChainFollower (m ∷ Type → Type) = ChainFollower
@@ -43,16 +41,17 @@ type ChainStateRow = "utxo" .== Utxo .+ "chainTip" .== ChainTip
 type ChainState = Rec ChainStateRow
 
 newChainFollower
-  ∷ ( HasType "utxo" Utxo r
-    , HasType "chainTip" ChainTip r
-    , HasType "addresses" Addresses r
-    , HasType "submitted" (List TxId) r
-    , state ≈ Rec r
-    , HasType "tracerUtxo" (Tracer IO Utxo) env
-    , HasType "tracerTxId" (Tracer IO TxId) env
-    , HasType "tracerSync" (Tracer IO SlotNo) env
-    , HasType "tracerRollback" (Tracer IO ChainPoint) env
-    )
+  ∷ ∀ r env state
+   . ( HasType "utxo" Utxo r
+     , HasType "chainTip" ChainTip r
+     , HasType "addresses" Addresses r
+     , HasType "submitted" (List TxId) r
+     , state ≈ Rec r
+     , HasType "tracerUtxo" (Tracer IO Utxo) env
+     , HasType "tracerTxId" (Tracer IO TxId) env
+     , HasType "tracerSync" (Tracer IO SlotNo) env
+     , HasType "tracerRollback" (Tracer IO ChainPoint) env
+     )
   ⇒ Rec env
   → Storage IO state
   → ChainFollower IO
@@ -60,12 +59,8 @@ newChainFollower env storage =
   ChainFollower
     { onNewBlock = \(block ∷ StdCardanoBlock) (tip ∷ ChainTip) →
         overStorage storage (indexBlock block tip) \case
-          UtxoNotUpdated → do
-            -- UTxO was not updated
-            let slotNo@(SlotNo slot) = blockSlot block
-            -- Trace progress every 100th slot
-            when (slot `mod` 100 == 0) do
-              traceWith (env .! #tracerSync) slotNo
+          UtxoNotUpdated →
+            traceWith (env .! #tracerSync) (blockSlot block)
           UtxoUpdated updatedUtxo txIds → do
             for_ txIds $ traceWith (env .! #tracerTxId)
             traceWith (env .! #tracerUtxo) updatedUtxo
@@ -108,11 +103,14 @@ indexBlock block tip state = (state', utxoUpdate)
       (state .! #submitted)
       (state .! #addresses)
       block
-      isFinal
+      finality
       (state .! #utxo)
 
-  isFinal ∷ Tagged "isFinal" Bool
-  isFinal = Tagged (thisBlockNo < tipBlockNo - securityParam)
+  finality ∷ Finality
+  finality =
+    if thisBlockNo < tipBlockNo - securityParam
+      then Final
+      else NotFinal
    where
     BlockNo tipBlockNo = fromWithOrigin 0 (getTipBlockNo tip)
     BlockNo thisBlockNo = blockNo block

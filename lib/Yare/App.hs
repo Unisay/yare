@@ -8,7 +8,7 @@ import Cardano.Api.Shelley
   , BabbageEraOnwards (BabbageEraOnwardsBabbage, BabbageEraOnwardsConway)
   , EraHistory (..)
   , ShelleyBasedEra (..)
-  , SlotNo
+  , SlotNo (..)
   , TxId
   , babbageEraOnwardsToShelleyBasedEra
   , toLedgerEpochInfo
@@ -58,6 +58,7 @@ import Yare.Storage qualified as Storage
 import Yare.Submitter qualified as Submitter
 import Yare.Tracer
   ( Tracer
+  , condTracing
   , debugTracer
   , lineTracer
   , nullTracer
@@ -216,7 +217,9 @@ tracerUtxo ∷ Tracer IO Utxo
 tracerUtxo = mappend "\n" . pretty >$< withPrefix "UTxO" debugTracer
 
 tracerSync ∷ Tracer IO SlotNo
-tracerSync = pretty >$< withPrefix "Slot" lineTracer
+tracerSync =
+  condTracing (\(SlotNo slot) → slot `mod` 100 == 0) $
+    pretty >$< withPrefix "Slot" lineTracer
 
 tracerRollback ∷ Tracer IO ChainPoint
 tracerRollback = pretty >$< withPrefix "Rollback" debugTracer

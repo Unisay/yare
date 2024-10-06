@@ -3,6 +3,7 @@ module Yare.Utxo -- is meant to be imported qualified
   , UtxoUpdate (..)
   , ScriptDeployment (..)
   , Entries
+  , Finality (..)
 
     -- * Updtes
   , indexBlock
@@ -22,14 +23,14 @@ import Yare.Prelude
 import Cardano.Api (TxIn (..), Value, renderTxIn)
 import Cardano.Slotting.Slot (SlotNo (..), fromWithOrigin)
 import Data.DList (DList)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set (member)
 import Data.Set qualified as Set
 import Data.Strict (List)
-import Data.Tagged (Tagged (unTagged))
 import Fmt (Buildable (..), Builder, blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
-import NoThunks.Class.Extended (NoThunks (..), repeatedly)
+import NoThunks.Class.Extended (NoThunks (..), foldlNoThunks)
 import Ouroboros.Consensus.Block (blockSlot, pointSlot)
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
@@ -76,7 +77,7 @@ data ScriptDeployment = NotInitiated | Submitted !TxIn | Deployed !TxIn
   deriving anyclass (NoThunks)
 
 data Utxo = Utxo
-  { reversibleUpdates ∷ ![(SlotNo, [Update])]
+  { reversibleUpdates ∷ ![(SlotNo, NonEmpty Update)]
   , finalEntries ∷ !Entries
   , usedInputs ∷ !(Set TxIn)
   , scriptDeployment ∷ !ScriptDeployment
@@ -122,15 +123,13 @@ initial =
     , scriptDeployment = NotInitiated
     }
 
+data Finality = Final | NotFinal
+  deriving stock (Eq, Show, Generic)
+
 data UtxoUpdate
   = -- | The UTxO set which was updated by these transaction IDs
     UtxoUpdated Utxo (DList TxId)
   | UtxoNotUpdated
-
-mapUpdate ∷ (Utxo → Utxo) → (DList TxId → DList TxId) → UtxoUpdate → UtxoUpdate
-mapUpdate f g = \case
-  UtxoUpdated utxo txIds → UtxoUpdated (f utxo) (g txIds)
-  UtxoNotUpdated → UtxoNotUpdated
 
 {- | Enrich the UTxO set with the transactions from a block.
 | Returns the updated UTxO set or 'Nothing' if the block is irrelevant.
@@ -142,21 +141,30 @@ indexBlock
   -- ^ Addresses of the wallet
   → StdCardanoBlock
   -- ^ The block to index.
-  → Tagged "isFinal" Bool
+  → Finality
   -- ^ Whether the block is final.
   → Utxo
   -- ^ The previous UTxO set.
   → UtxoUpdate
   -- ^ The updated UTxO set or 'Nothing' if the block is irrelevant.
-indexBlock submittedTxs addresses block isFinal prevUtxo =
-  repeatedly forEachTx (const UtxoNotUpdated) (blockTransactions block) prevUtxo
-    & if unTagged isFinal then mapUpdate (finalise slot) id else id
+indexBlock submittedTxs addresses block finality prevUtxo =
+  case utxoUpdate of
+    UtxoUpdated utxo txIds →
+      case finality of
+        Final → UtxoUpdated (finalise slot utxo) txIds
+        NotFinal → utxoUpdate
+    UtxoNotUpdated → UtxoNotUpdated
  where
-  slot ∷ SlotNo
-  slot = blockSlot block
+  utxoUpdate ∷ UtxoUpdate
+  utxoUpdate =
+    foldlNoThunks
+      forEachTx
+      (\_utxo → UtxoNotUpdated)
+      (blockTransactions block)
+      prevUtxo
 
   forEachTx ∷ (Utxo → UtxoUpdate) → AnyEra Tx → Utxo → UtxoUpdate
-  forEachTx !prevUpdate !tx utxo =
+  forEachTx prevUpdate !tx utxo =
     case prevUpdate utxo of
       UtxoNotUpdated → indexTx submittedTxs addresses slot tx utxo
       previous@(UtxoUpdated utxo' txIds) →
@@ -164,28 +172,26 @@ indexBlock submittedTxs addresses block isFinal prevUtxo =
           UtxoNotUpdated → previous
           UtxoUpdated utxo'' txIds' → UtxoUpdated utxo'' (txIds <> txIds')
 
+  slot ∷ SlotNo
+  slot = blockSlot block
+
 {- | Enrich the UTxO set with the information from a transaction.
 | Returns the updated UTxO set or 'Nothing' if the transaction is irrelevant.
 -}
 indexTx ∷ List TxId → Addresses → SlotNo → AnyEra Tx → Utxo → UtxoUpdate
-indexTx submittedTxs addresses point tx utxo = do
+indexTx submittedTxs addresses slot tx utxo@Utxo {reversibleUpdates} = do
   let txView = transactionViewUtxo tx
       txId = txViewId txView
-  case updateNonFinalState (reversibleUpdates utxo) of
-    Just updates →
-      UtxoUpdated utxo {reversibleUpdates = updates} (pure txId)
+  case NE.nonEmpty (updateUtxo spendableTxInputs (transactionViewUtxo tx)) of
     Nothing →
       if txViewId txView `elem` submittedTxs
         then error $ "Submitted transaction is not indexed: " <> show txView
         else UtxoNotUpdated
+    Just updates →
+      UtxoUpdated
+        utxo {reversibleUpdates = (slot, updates) : reversibleUpdates}
+        (pure txId)
  where
-  updateNonFinalState
-    ∷ [(SlotNo, [Update])]
-    → Maybe [(SlotNo, [Update])]
-  updateNonFinalState prevUpdates =
-    case updateUtxo spendableTxInputs (transactionViewUtxo tx) of
-      [] → Nothing
-      updates → Just ((point, updates) : prevUpdates)
   spendableTxInputs = Map.keysSet (spendableEntries utxo)
 
   updateUtxo ∷ Set TxIn → TxViewUtxo → [Update]
@@ -229,26 +235,32 @@ useByAddress utxo addr = (utxo', entries)
 
 -- | Finalize the UTxO set up to the given slot.
 finalise ∷ SlotNo → Utxo → Utxo
-finalise immutableSlot utxo@Utxo {scriptDeployment, reversibleUpdates} =
-  utxo
-    { reversibleUpdates = reversibleUpdates'
-    , finalEntries = updatesToEntries irreversibleUpdates
-    , scriptDeployment =
-        case scriptDeployment of
-          NotInitiated → NotInitiated
-          Deployed txIn → Deployed txIn
-          Submitted expectedInput →
-            fromMaybe scriptDeployment $
-              listToMaybe
-                [ Deployed input
-                | (_point, pointUpdates) ← irreversibleUpdates
-                , ConfirmScriptDeployment input ← pointUpdates
-                , input == expectedInput
-                ]
-    }
- where
-  (reversibleUpdates', irreversibleUpdates) =
-    span (fst >>> (> immutableSlot)) reversibleUpdates
+finalise
+  immutableSlot
+  utxo@Utxo
+    { scriptDeployment
+    , reversibleUpdates
+    , finalEntries
+    } =
+    utxo
+      { reversibleUpdates = reversibleUpdates'
+      , finalEntries = updatesToEntries irreversibleUpdates <> finalEntries
+      , scriptDeployment =
+          case scriptDeployment of
+            NotInitiated → NotInitiated
+            Deployed txIn → Deployed txIn
+            Submitted expectedInput →
+              fromMaybe scriptDeployment $
+                listToMaybe
+                  [ Deployed input
+                  | (_slot, slotUpdates) ← irreversibleUpdates
+                  , ConfirmScriptDeployment input ← toList slotUpdates
+                  , input == expectedInput
+                  ]
+      }
+   where
+    (reversibleUpdates', irreversibleUpdates) =
+      span (fst >>> (> immutableSlot)) reversibleUpdates
 
 setScriptDeployment ∷ ScriptDeployment → Utxo → Utxo
 setScriptDeployment scriptDeployment utxo = utxo {scriptDeployment}
@@ -273,11 +285,11 @@ totalValue =
   Map.foldr' (\(_addr, value) acc → value <> acc) mempty . spendableEntries
 
 -- | Converts a list of UTxO updates to a map of UTxO entries.
-updatesToEntries ∷ [(SlotNo, [Update])] → Entries
+updatesToEntries ∷ [(SlotNo, NonEmpty Update)] → Entries
 updatesToEntries = foldr overUpdates mempty
  where
-  overUpdates ∷ (SlotNo, [Update]) → Entries → Entries
-  overUpdates (_cp, !updates) = repeatedly overUpdate id updates
+  overUpdates ∷ (SlotNo, NonEmpty Update) → Entries → Entries
+  overUpdates (_slot, !updates) = foldlNoThunks overUpdate id (toList updates)
    where
     overUpdate ∷ (Entries → Entries) → Update → (Entries → Entries)
     overUpdate !prevUpdate = \case
