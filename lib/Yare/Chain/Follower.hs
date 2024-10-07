@@ -29,8 +29,10 @@ import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Types (ChainPoint, ChainTip)
 import Yare.Storage (Storage (overStorage))
 import Yare.Tracer (Tracer, traceWith)
-import Yare.Utxo (Finality (..), Utxo, UtxoUpdate (..))
+import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
+import Yare.Utxo.Indexer (UtxoUpdate (..))
+import Yare.Utxo.Indexer qualified as Utxo
 
 data ChainFollower (m ∷ Type → Type) = ChainFollower
   { onNewBlock ∷ StdCardanoBlock → ChainTip → m ()
@@ -87,18 +89,17 @@ indexBlock
   → (state, UtxoUpdate)
 indexBlock block tip state = (state', utxoUpdate)
  where
-  state' ∷ state
-  state' = case utxoUpdate of
-    UtxoNotUpdated →
-      state
-        & Rec.update #chainTip tip
-    UtxoUpdated utxo' _txIds →
-      state
-        & Rec.update #utxo utxo'
-        & Rec.update #chainTip tip
+  state' ∷ state =
+    case utxoUpdate of
+      UtxoNotUpdated →
+        state
+          & Rec.update #chainTip tip
+      UtxoUpdated utxo' _txIds →
+        state
+          & Rec.update #utxo utxo'
+          & Rec.update #chainTip tip
 
-  utxoUpdate ∷ UtxoUpdate
-  utxoUpdate =
+  utxoUpdate ∷ UtxoUpdate =
     Utxo.indexBlock
       (state .! #submitted)
       (state .! #addresses)
@@ -106,11 +107,10 @@ indexBlock block tip state = (state', utxoUpdate)
       finality
       (state .! #utxo)
 
-  finality ∷ Finality
-  finality =
+  finality ∷ Utxo.Finality =
     if thisBlockNo < tipBlockNo - securityParam
-      then Final
-      else NotFinal
+      then Utxo.Final
+      else Utxo.NotFinal
    where
     BlockNo tipBlockNo = fromWithOrigin 0 (getTipBlockNo tip)
     BlockNo thisBlockNo = blockNo block

@@ -58,9 +58,9 @@ common opts
   ghc-options:
     -Weverything -Wno-unused-packages -Wno-unsafe -Wno-safe
     -Wno-unticked-promoted-constructors -Wno-missing-safe-haskell-mode
-    -Wno-missing-import-lists -fprint-explicit-foralls
-    -Wno-missing-kind-signatures -Werror=missing-fields
-    -fprint-expanded-synonyms
+    -Wno-missing-import-lists -Wno-missing-export-lists
+    -fprint-explicit-foralls -Wno-missing-kind-signatures
+    -Werror=missing-fields -fprint-expanded-synonyms
 
   build-depends:
     , base    ^>=4.18
@@ -172,6 +172,7 @@ library
     Yare.Util.State
     Yare.Util.Tx.Construction
     Yare.Utxo
+    Yare.Utxo.Indexer
 
 executable yare
   import:         opts
@@ -196,6 +197,9 @@ test-suite yare-test
   build-tool-depends: sydtest-discover:sydtest-discover
   ghc-options:        -threaded -rtsopts -with-rtsopts=-N
   build-depends:
+    , cardano-api
+    , cardano-slotting
+    , QuickCheck        ^>=2.15
     , sydtest           ^>=0.17
     , sydtest-discover  ^>=0.0.0.4
     , yare
