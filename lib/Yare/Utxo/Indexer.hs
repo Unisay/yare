@@ -37,11 +37,13 @@ import Yare.Utxo
   , spendableTxInputs
   , updateUtxo
   )
+import Yare.Utxo qualified as Utxo
 
 data UtxoUpdate
   = -- | The UTxO set which was updated by these transaction IDs
     UtxoUpdated Utxo [TxId]
   | UtxoNotUpdated
+  | UtxoUpdateError Utxo.UpdateError
 
 {- | Enrich the UTxO set with the transactions from a block.
 | Returns the updated UTxO set or 'Nothing' if the block is irrelevant.
@@ -61,14 +63,18 @@ indexBlock
   -- ^ The updated UTxO set or 'Nothing' if the block is irrelevant.
 indexBlock submittedTxs addresses block finality prevUtxo =
   case utxoUpdate of
+    UtxoNotUpdated → UtxoNotUpdated
+    UtxoUpdateError err → UtxoUpdateError err
     UtxoUpdated utxo txIds →
       case finality of
         Final → UtxoUpdated (finalise slot utxo) txIds
         NotFinal → utxoUpdate
-    UtxoNotUpdated → UtxoNotUpdated
  where
   utxoUpdate ∷ UtxoUpdate
   utxoUpdate =
+    -- Transaction indexing is implemented as a fold (and not as map/traverse)
+    -- such that indexing of a next transaction takes
+    -- into account the updates to UTxO made by the previous ones.
     foldlNoThunks
       forEachTx
       (\_utxo → UtxoNotUpdated)
@@ -78,16 +84,22 @@ indexBlock submittedTxs addresses block finality prevUtxo =
   forEachTx ∷ (Utxo → UtxoUpdate) → AnyEra Tx → Utxo → UtxoUpdate
   forEachTx prevUpdate !tx utxo =
     case prevUpdate utxo of
+      UtxoUpdateError err →
+        UtxoUpdateError err
       UtxoNotUpdated →
         case indexTx submittedTxs addresses tx utxo of
           Nothing → UtxoNotUpdated
-          Just (txId, updates) →
-            UtxoUpdated (updateUtxo slot updates utxo) (pure txId)
+          Just (txId, updates) → do
+            case updateUtxo slot updates utxo of
+              Left updateErr → UtxoUpdateError updateErr
+              Right utxo' → UtxoUpdated utxo' (pure txId)
       previous@(UtxoUpdated utxo' txIds) →
         case indexTx submittedTxs addresses tx utxo' of
           Nothing → previous
           Just (txId, updates) →
-            UtxoUpdated (updateUtxo slot updates utxo') (txId : txIds)
+            case updateUtxo slot updates utxo' of
+              Left updateErr → UtxoUpdateError updateErr
+              Right utxo'' → UtxoUpdated utxo'' (txId : txIds)
 
   slot ∷ SlotNo
   slot = blockSlot block

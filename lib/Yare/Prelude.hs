@@ -13,6 +13,7 @@ import Data.Row.Records as Reexport hiding
   , traverse
   , zip
   )
+import Development.Placeholders as Reexport
 import Relude as Reexport hiding (get, state)
 
 type family Open (r ∷ Row Type) (rest ∷ Row Type) ∷ Constraint where

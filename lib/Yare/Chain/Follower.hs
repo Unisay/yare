@@ -13,6 +13,7 @@ import Yare.Prelude
 
 import Cardano.Api.Shelley (TxId)
 import Cardano.Slotting.Slot (fromWithOrigin)
+import Control.Monad.Class.MonadThrow (throwIO)
 import Data.Row.Records qualified as Rec
 import Data.Strict (List)
 import Ouroboros.Network.Block
@@ -66,6 +67,8 @@ newChainFollower env storage =
           UtxoUpdated updatedUtxo txIds → do
             for_ txIds $ traceWith (env .! #tracerTxId)
             traceWith (env .! #tracerUtxo) updatedUtxo
+          UtxoUpdateError err →
+            throwIO err
     , onRollback = \(point ∷ ChainPoint) (tip ∷ ChainTip) → do
         traceWith (env .! #tracerRollback) point
         overStorage storage (dup . rollbackTo point tip) do
@@ -91,6 +94,9 @@ indexBlock block tip state = (state', utxoUpdate)
  where
   state' ∷ state =
     case utxoUpdate of
+      UtxoUpdateError {} →
+        state
+          & Rec.update #chainTip tip
       UtxoNotUpdated →
         state
           & Rec.update #chainTip tip

@@ -193,13 +193,19 @@ test-suite yare-test
   type:               exitcode-stdio-1.0
   hs-source-dirs:     test
   main-is:            Spec.hs
-  other-modules:      UtxoSpec
   build-tool-depends: sydtest-discover:sydtest-discover
   ghc-options:        -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     , cardano-api
+    , cardano-ledger-api
+    , cardano-ledger-core:testlib
+    , cardano-ledger-mary:testlib
     , cardano-slotting
-    , QuickCheck        ^>=2.15
-    , sydtest           ^>=0.17
-    , sydtest-discover  ^>=0.0.0.4
+    , QuickCheck                   ^>=2.15
+    , sydtest                      ^>=0.17
+    , sydtest-discover             ^>=0.0.0.4
     , yare
+
+  other-modules:
+    Gen
+    UtxoSpec

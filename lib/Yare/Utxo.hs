@@ -3,6 +3,7 @@ module Yare.Utxo -- is meant to be imported qualified
   , Finality (..)
   , ScriptDeployment (..)
   , Update (..)
+  , UpdateError (..)
   , Utxo
 
     -- * Updates
@@ -25,7 +26,9 @@ import Yare.Prelude
 import Cardano.Api (TxIn (..), Value, renderTxIn)
 import Cardano.Slotting.Slot (SlotNo (..))
 import Data.Map.Strict qualified as Map
+import Data.Set (member)
 import Data.Set qualified as Set
+import Data.Traversable (for)
 import Fmt (Buildable (..), Builder, blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
 import NoThunks.Class.Extended (NoThunks (..), foldlNoThunks)
@@ -60,6 +63,13 @@ instance Buildable Update where
       "SpendTxInput " +| renderTxIn input |+ ""
     ConfirmScriptDeployment input →
       "ConfirmScriptDeployment " +| renderTxIn input |+ ""
+
+data UpdateError
+  = NoTxInputToSpend TxIn
+  | InvalidScriptDeploymentConfirmation ScriptDeployment TxIn
+  | InputAlreadyExists TxIn
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (NoThunks, Exception)
 
 data ScriptDeployment = NotInitiated | Submitted !TxIn | Deployed !TxIn
   deriving stock (Eq, Show, Generic)
@@ -118,9 +128,29 @@ data Finality = Final | NotFinal
 --------------------------------------------------------------------------------
 -- UTxO updates ----------------------------------------------------------------
 
-updateUtxo ∷ SlotNo → NonEmpty Update → Utxo → Utxo
+updateUtxo ∷ SlotNo → NonEmpty Update → Utxo → Either UpdateError Utxo
 updateUtxo slot updates utxo =
   utxo {reversibleUpdates = (slot, updates) : reversibleUpdates utxo}
+    `maybeToLeft` guardValidUpdates
+ where
+  guardValidUpdates ∷ Maybe UpdateError =
+    head <$> for updates \case
+      AddSpendableTxInput txIn _addr _value →
+        guard (txIn `member` Map.keysSet (allEntries utxo))
+          $> InputAlreadyExists txIn
+      SpendTxInput txIn →
+        guard (txIn `member` Map.keysSet (allEntries utxo))
+          $> NoTxInputToSpend txIn
+      ConfirmScriptDeployment txIn →
+        let prev = scriptDeployment utxo
+         in case prev of
+              NotInitiated →
+                pure $ InvalidScriptDeploymentConfirmation prev txIn
+              Deployed _txIn →
+                pure $ InvalidScriptDeploymentConfirmation prev txIn
+              Submitted submittedTxIn →
+                guard (txIn /= submittedTxIn)
+                  $> InvalidScriptDeploymentConfirmation prev txIn
 
 rollback ∷ SlotNo → Utxo → Maybe Utxo
 rollback rollbackSlot utxo =
