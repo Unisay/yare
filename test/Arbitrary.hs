@@ -7,14 +7,16 @@ module Arbitrary where
 import Yare.Prelude
 
 import Cardano.Api.Ledger qualified as L
-import Cardano.Api.Shelley (ShelleyLedgerEra)
+import Cardano.Api.Shelley (ShelleyLedgerEra, SlotNo (..))
 import Cardano.Api.Shelley qualified as A
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
+import Data.Map qualified as Map
 import Test.Cardano.Ledger.Core.Arbitrary ()
 import Test.Cardano.Ledger.Mary.Arbitrary ()
 import Test.QuickCheck
   ( Arbitrary (..)
+  , Gen
   , arbitrary
   , arbitraryBoundedEnum
   , shrinkBoundedEnum
@@ -41,9 +43,47 @@ instance Arbitrary ScriptDeployment where
       , (1, Utxo.Deployed <$> arbitrary)
       ]
 
+newtype NonEmptyUtxo = NonEmptyUtxo Utxo
+  deriving newtype (Eq, Show)
+
+instance Arbitrary NonEmptyUtxo where
+  arbitrary = do
+    n <- Gen.chooseInt (0, 3)
+    updates ←
+      Gen.vectorOf n $
+        Gen.frequency
+          [ (3, untag <$> arbitrary @(Tag "AddSpendableTxInput" Utxo.Update))
+          , (1, untag <$> arbitrary @(Tag "SpendTxInput" Utxo.Update))
+          ]
+
+    scriptDeployment ← arbitrary
+    finalEntries ← arbitrary
+
+    NonEmptyUtxo
+      <$> if null updates
+        then do
+          txIn ← arbitrary
+          value ← arbitrary
+          pure
+            Utxo
+              { reversibleUpdates = []
+              , finalEntries = Map.insert txIn value finalEntries
+              , usedInputs = mempty
+              , scriptDeployment
+              }
+        else do
+          slot ← arbitrary
+          pure
+            Utxo
+              { reversibleUpdates = [(slot, NE.fromList updates)]
+              , finalEntries
+              , usedInputs = mempty
+              , scriptDeployment
+              }
+
 instance Arbitrary Utxo where
   arbitrary = do
-    numMods ← Gen.chooseInt (0, 10)
+    numMods ← Gen.chooseInt (0, 8)
     mods ←
       vectorOf numMods $
         Gen.frequency
@@ -109,13 +149,33 @@ instance Arbitrary (Tag "ConfirmScriptDeployment" Utxo.Update) where
 --------------------------------------------------------------------------------
 -- Cardano API -----------------------------------------------------------------
 
+data TwoSlots = TwoSlots {slotEarlier ∷ SlotNo, slotLater ∷ SlotNo}
+  deriving stock (Eq, Show)
+
+instance Arbitrary TwoSlots where
+  arbitrary = do
+    slotEarlier ← arbitrary
+    interval ← Gen.chooseWord64 (1, maxBound)
+    pure $ TwoSlots slotEarlier (slotEarlier + SlotNo interval)
+
+newtype NonUnique a = NonUnique a
+  deriving newtype (Eq, Show)
+
 instance Arbitrary A.TxIn where
+  arbitrary = A.TxIn <$> arbitrary <*> arbitrary
+  shrink (A.TxIn ixId txIx) =
+    [ A.TxIn ixId' txIx'
+    | (ixId', txIx') ← shrink (ixId, txIx)
+    ]
+
+instance Arbitrary (NonUnique A.TxIn) where
   arbitrary =
-    Gen.frequency
-      [ (10, A.TxIn <$> arbitrary <*> arbitrary)
-      , (1, pure fixedTxIn)
-      ]
-  shrink _ = [fixedTxIn]
+    NonUnique
+      <$> Gen.frequency
+        [ (10, A.TxIn <$> arbitrary <*> arbitrary)
+        , (1, pure fixedTxIn)
+        ]
+  shrink _ = [NonUnique fixedTxIn]
 
 fixedTxIn ∷ A.TxIn
 fixedTxIn = A.TxIn fixedTxId (A.TxIx 0)
@@ -129,8 +189,23 @@ deriving newtype instance Arbitrary A.TxId
 
 instance Arbitrary A.Value where
   arbitrary =
-    A.fromLedgerValue A.ShelleyBasedEraConway
-      <$> arbitrary @(L.Value (ShelleyLedgerEra A.ConwayEra))
+    Gen.frequency [(3, someValue), (1, A.lovelaceToValue <$> arbitrary)]
+   where
+    someValue =
+      A.fromLedgerValue A.ShelleyBasedEraConway
+        <$> arbitrary @(L.Value (ShelleyLedgerEra A.ConwayEra))
+
   shrink v =
-    map (A.fromLedgerValue A.ShelleyBasedEraConway) . shrink $
-      A.toLedgerValue A.MaryEraOnwardsConway v
+    A.lovelaceToValue (A.selectLovelace v)
+      : map
+        (A.fromLedgerValue A.ShelleyBasedEraConway)
+        (shrink (A.toLedgerValue A.MaryEraOnwardsConway v))
+
+--------------------------------------------------------------------------------
+-- QuickCheck utilities --------------------------------------------------------
+
+genNonEmpty ∷ Gen a → Gen (NonEmpty a)
+genNonEmpty gen = do
+  a ← gen
+  as ← Gen.listOf gen
+  pure $ a :| as

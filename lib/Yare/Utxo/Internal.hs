@@ -1,8 +1,18 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Yare.Utxo.Internal where
 
 import Yare.Prelude
 
-import Cardano.Api (TxIn (..), Value, renderTxIn)
+import Cardano.Api
+  ( MaryEraOnwards (MaryEraOnwardsConway)
+  , TxId (..)
+  , TxIn (..)
+  , TxIx (..)
+  , Value
+  , renderTxIn
+  )
+import Cardano.Api.Shelley (toLedgerValue)
 import Cardano.Slotting.Slot (SlotNo (..))
 import Data.Map.Strict qualified as Map
 import Data.Set (member, notMember)
@@ -28,7 +38,17 @@ data Update
     --  is in the blockchain.
     ConfirmScriptDeployment !TxIn
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (NoThunks)
+  deriving anyclass (NFData, NoThunks)
+
+deriving stock instance Generic TxIn
+deriving anyclass instance NFData TxIn
+
+deriving newtype instance NFData TxId
+
+deriving newtype instance NFData TxIx
+
+instance NFData Value where
+  rnf = rnf . toLedgerValue MaryEraOnwardsConway
 
 instance Buildable Update where
   build = \case
@@ -51,7 +71,7 @@ data UpdateError
 
 data ScriptDeployment = NotInitiated | Submitted !TxIn | Deployed !TxIn
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (NoThunks)
+  deriving anyclass (NFData, NoThunks)
 
 data Utxo = Utxo
   { reversibleUpdates ∷ ![(SlotNo, NonEmpty Update)]
@@ -60,7 +80,7 @@ data Utxo = Utxo
   , scriptDeployment ∷ !ScriptDeployment
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (NoThunks)
+  deriving anyclass (NFData, NoThunks)
 
 instance Buildable Utxo where
   build utxo@Utxo {..} =
@@ -195,6 +215,9 @@ including both reversible and final inputs.
 -}
 spendableEntries ∷ Utxo → Entries
 spendableEntries utxo = Map.withoutKeys (allEntries utxo) (usedInputs utxo)
+
+txInputs ∷ Utxo → Set TxIn
+txInputs = Map.keysSet . allEntries
 
 spendableTxInputs ∷ Utxo → Set TxIn
 spendableTxInputs = Map.keysSet . spendableEntries
