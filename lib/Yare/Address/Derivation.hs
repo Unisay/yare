@@ -24,6 +24,7 @@ import Cardano.Address.Derivation
   , nextIndex
   , toXPub
   )
+import Cardano.Address.Derivation qualified as Crypto.HD
 import Cardano.Address.Style.Shelley qualified as CAddr
 import Cardano.Api.Shelley qualified as CApi
 import Cardano.Ledger.Address (Addr (..))
@@ -31,6 +32,8 @@ import Cardano.Ledger.Api (StandardCrypto)
 import Cardano.Ledger.Api.Tx.Address qualified as Ledger
 import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
+import Codec.Serialise.Class (Serialise)
+import Codec.Serialise.Class.Orphans ()
 import Data.Traversable (for)
 import Fmt (Buildable (..))
 import Fmt.Orphans ()
@@ -43,10 +46,10 @@ type AddressWithKey ∷ Type
 data AddressWithKey = AddressWithKey
   { cardanoAddress ∷ !Address
   , ledgerAddress ∷ !LedgerAddress
-  , witness ∷ !CApi.ShelleyWitnessSigningKey
+  , paymentKey ∷ CAddr.Shelley PaymentK XPrv
   }
   deriving stock (Generic)
-  deriving anyclass (NoThunks, NFData)
+  deriving anyclass (NoThunks, NFData, Serialise)
 
 instance Buildable AddressWithKey where
   build AddressWithKey {ledgerAddress} =
@@ -54,6 +57,7 @@ instance Buildable AddressWithKey where
       <> "\n"
       <> build (toPaymentCredential ledgerAddress)
 
+{-
 -- Orphan instance
 instance NFData CApi.ShelleyWitnessSigningKey where
   rnf = \case
@@ -95,6 +99,7 @@ deriving via
   InspectHeap CApi.ShelleyWitnessSigningKey
   instance
     NoThunks CApi.ShelleyWitnessSigningKey
+-}
 
 externalPaymentAdressesKeys
   ∷ NetworkTag
@@ -125,12 +130,8 @@ paymentAddressesKeys role networkTag mnemonic =
     ⇒ Index (AddressIndexDerivationType CAddr.Shelley) PaymentK
     → Either Error AddressWithKey
   makePaymentAddressWithKey paymentAddrIx = do
-    let witness =
-          CApi.WitnessPaymentExtendedKey $
-            CApi.PaymentExtendedSigningKey $
-              CAddr.getKey paymentKey
     ledgerAddress ← toLedgerAddress cardanoAddress
-    pure AddressWithKey {cardanoAddress, ledgerAddress, witness = witness}
+    pure AddressWithKey {cardanoAddress, ledgerAddress, paymentKey}
    where
     cardanoAddress ∷ Address =
       CAddr.paymentAddress networkTag $

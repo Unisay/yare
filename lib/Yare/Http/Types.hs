@@ -22,7 +22,6 @@ import Yare.Utxo qualified as Y
 --------------------------------------------------------------------------------
 -- UTXO ------------------------------------------------------------------------
 
-type Utxo ∷ Type
 newtype Utxo = Utxo Y.Entries
   deriving stock (Eq, Show)
 
@@ -43,7 +42,6 @@ instance ToJSON Utxo where
 --------------------------------------------------------------------------------
 -- Chain Tip -------------------------------------------------------------------
 
-type ChainTip ∷ Type
 newtype ChainTip = ChainTip Y.ChainTip
   deriving stock (Eq, Show)
 

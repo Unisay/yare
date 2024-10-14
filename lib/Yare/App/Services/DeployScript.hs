@@ -6,6 +6,7 @@ module Yare.App.Services.DeployScript
 
 import Yare.Prelude
 
+import Cardano.Address.Style.Shelley qualified as CAddr
 import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
 import Cardano.Api.Ledger qualified as L
 import Cardano.Api.Shelley
@@ -49,6 +50,7 @@ import Cardano.Api.Shelley
   , toScriptInAnyLang
   , toShelleyScriptHash
   )
+import Cardano.Api.Shelley qualified as CApi
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Ledger.Hashes qualified as Ledger
 import Control.Monad.Except (Except)
@@ -199,7 +201,8 @@ constructTx networkInfo plutusScript = do
         & addTxOut scriptOutput -- The script output has index 0
     witnesses ∷ [ShelleyWitnessSigningKey]
     witnesses =
-      [ witness addr
+      [ CApi.WitnessPaymentExtendedKey
+        (CApi.PaymentExtendedSigningKey (CAddr.getKey (paymentKey addr)))
       | (_txIn, (addr, _value)) ← toList (feeInputs <> colInputs)
       ]
 

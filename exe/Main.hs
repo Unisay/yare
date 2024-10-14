@@ -32,13 +32,18 @@ import Yare.Node.Socket (NodeSocket (..))
 
 main ∷ IO ()
 main = withUtf8 do
-  Args {networkMagic, nodeSocketPath, mnemonicPath, syncFrom} ← parseArguments
+  Args {networkMagic, nodeSocketPath, mnemonicPath, databasePath, syncFrom} ←
+    parseArguments
   nodeSocket ←
     NodeSocket <$> case nodeSocketPath of
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
   mnemonicFile ←
     Tagged @"mnemonic" <$> case mnemonicPath of
+      Path.Abs a → pure a
+      Path.Rel r → Path.makeAbsolute r
+  databaseFile ←
+    case databasePath of
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
   Yare.start
@@ -48,6 +53,7 @@ main = withUtf8 do
       , networkMagic
       , mnemonicFile
       , syncFrom
+      , databaseFile
       }
 
 data Args = Args
@@ -55,6 +61,7 @@ data Args = Args
   , networkMagic ∷ NetworkMagic
   , mnemonicPath ∷ SomeBase File
   , syncFrom ∷ Maybe ChainPoint
+  , databasePath ∷ SomeBase File
   }
 
 parseArguments ∷ IO Args
@@ -68,6 +75,7 @@ options =
     <*> networkMagicOption
     <*> mnemonicFileOption
     <*> optional syncFromChainPoint
+    <*> databaseFileOption
  where
   nodeSocketPathOption ∷ Parser (SomeBase File) =
     option
@@ -99,6 +107,18 @@ options =
               Just
                 "Path to a file with mnemonic phrase \
                 \(space separated list of 24 BIP-39 dictionary words)."
+          ]
+      )
+
+  databaseFileOption ∷ Parser (SomeBase File) =
+    option
+      (eitherReader (first displayException . parseSomeFile))
+      ( fold
+          [ metavar "DATABASE_FILE"
+          , long "database-file"
+          , helpDoc $
+              Just
+                "Path to a file where the application will store its state."
           ]
       )
 

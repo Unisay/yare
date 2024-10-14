@@ -88,8 +88,7 @@ indexBlock
      )
   ⇒ StdCardanoBlock
   → ChainTip
-  → state
-  → (state, UtxoUpdate)
+  → (state → (state, UtxoUpdate))
 indexBlock block tip state = (state', utxoUpdate)
  where
   state' ∷ state =

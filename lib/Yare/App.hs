@@ -14,13 +14,13 @@ import Cardano.Api.Shelley
   , toLedgerEpochInfo
   )
 import Cardano.Client.Subscription (subscribe)
+import Codec.Serialise.Class.Orphans ()
 import Control.Concurrent.Class.MonadSTM.TQueue (newTQueueIO)
 import Control.Exception (throwIO)
 import Control.Monad.Class.MonadAsync (concurrently_)
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
-import Data.IORef.Strict qualified as Strict
 import Fmt (pretty)
 import Fmt.Orphans ()
 import GHC.IO.Exception (userError)
@@ -76,7 +76,7 @@ Starts several threads concurrently:
   * Local transaction submission
 -}
 start ∷ Yare.Config → IO ()
-start config@Yare.Config {networkMagic, mnemonicFile} = do
+start config@Yare.Config {networkMagic, mnemonicFile, databaseFile} = do
   addresses ←
     Addresses.deriveFromMnemonic networkMagic mnemonicFile
       & Oops.onLeftThrow
@@ -88,7 +88,7 @@ start config@Yare.Config {networkMagic, mnemonicFile} = do
   queryQ ← liftIO newTQueueIO
   submitQ ← liftIO newTQueueIO
   let !appState = Yare.initialState addresses
-  storage ← Storage.inMemory <$> Strict.newIORef appState
+  storage ← Storage.onDisk databaseFile appState
   concurrently_
     (runWebServer config storage queryQ submitQ)
     (runNodeConnection config storage queryQ submitQ)

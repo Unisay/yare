@@ -26,6 +26,7 @@ data Config = Config
   , networkMagic ∷ NetworkMagic
   , mnemonicFile ∷ Tagged "mnemonic" (Path Abs File)
   , syncFrom ∷ Maybe ChainPoint -- TODO: let app decide it based on the persistent state
+  , databaseFile ∷ Path Abs File
   }
 
 data NetworkInfo era = NetworkInfo

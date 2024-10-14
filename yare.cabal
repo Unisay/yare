@@ -41,6 +41,7 @@ common opts
     PartialTypeSignatures
     PatternSynonyms
     PolyKinds
+    QuasiQuotes
     RankNTypes
     RecordWildCards
     ScopedTypeVariables
@@ -74,7 +75,7 @@ library
   build-depends:
     , aeson                          ^>=2.2.3
     , base16-bytestring              ^>=1.0.2
-    , bytestring                     ^>=0.11.5.3
+    , bytestring
     , cardano-addresses              ^>=3.12
     , cardano-api
     , cardano-client
@@ -91,6 +92,7 @@ library
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-ledger-shelley
+    , cardano-lmdb-simple            ^>=0.7
     , cardano-slotting
     , cardano-strict-containers
     , cborg                          ^>=0.2.10
@@ -114,11 +116,12 @@ library
     , ouroboros-network-framework
     , ouroboros-network-protocols
     , placeholders                   ^>=0.1
-    , plutus-ledger-api              ^>=1.32.1
-    , plutus-tx                      ^>=1.32.1
-    , plutus-tx-plugin               ^>=1.32.1
+    , plutus-ledger-api
+    , plutus-tx
+    , plutus-tx-plugin
     , pretty-simple                  ^>=4.1.2
     , row-types                      ^>=1.0.1.2
+    , serialise                      ^>=0.2
     , servant                        ^>=0.20.1
     , servant-server                 ^>=0.20
     , stm                            ^>=2.5.1
@@ -135,6 +138,8 @@ library
     , Win32-network                  ^>=0.2
 
   other-modules:
+    Cardano.Api.Orphans
+    Codec.Serialise.Class.Orphans
     Data.IORef.Strict
     Data.Row.Records.Extended
     Fmt.Orphans

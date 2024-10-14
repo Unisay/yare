@@ -5,13 +5,17 @@ module Yare.Storage
   , readStorage
   , readStorageField
   , inMemory
+  , onDisk
   ) where
 
 import Yare.Prelude
 
-import Data.IORef.Strict (StrictIORef)
+import Codec.Serialise (Serialise)
 import Data.IORef.Strict qualified as Strict
+import Database.LMDB.Simple qualified as LMDB
+import Database.LMDB.Simple.Internal qualified as LMDBI
 import NoThunks.Class (NoThunks)
+import Path (Abs, File, Path, toFilePath)
 
 data Storage (m ∷ Type → Type) (s ∷ Type) = Storage
   { overStorage ∷ ∀ a b. (s → (s, a)) → (a → m b) → m b
@@ -42,12 +46,43 @@ readStorageField storage label = do
   pure $ s .! label
 
 -- | A simple in-memory storage.
-inMemory ∷ NoThunks s ⇒ StrictIORef s → Storage IO s
-inMemory ref =
-  Storage
-    { overStorage = \f after → do
-        s ← Strict.readIORef ref
-        let (s', a) = f s
-        after a >>= (Strict.writeIORef ref s' $>)
-    , readStorage = Strict.readIORef ref
-    }
+inMemory ∷ NoThunks s ⇒ s → IO (Storage IO s)
+inMemory s0 = do
+  ref ← Strict.newIORef s0
+  pure
+    Storage
+      { overStorage = \f after → do
+          s ← Strict.readIORef ref
+          let (s', a) = f s
+          after a >>= (Strict.writeIORef ref s' $>)
+      , readStorage = Strict.readIORef ref
+      }
+
+onDisk ∷ ∀ s. Serialise s ⇒ Path Abs File → s → IO (Storage IO s)
+onDisk (toFilePath → fp) s0 = do
+  lmdb ← LMDB.openReadWriteEnvironment fp LMDB.defaultLimits
+  pure
+    Storage
+      { overStorage = \f after → LMDB.readWriteTransaction lmdb do
+          s ∷ s ← readStoredData
+          let (s', a) = f s
+          b ← liftIO (after a)
+          writeStoredData s'
+          pure b
+      , readStorage = LMDB.readOnlyTransaction lmdb readStoredData
+      }
+ where
+  readStoredData ∷ LMDBI.IsMode m ⇒ LMDB.Transaction m s
+  readStoredData = do
+    db ∷ LMDB.Database Word s ← LMDB.getDatabase databaseName
+    LMDB.get db databaseSlot >>= \case
+      Nothing → pure s0 -- Should only happen first time
+      Just as → pure as
+
+  writeStoredData ∷ s → LMDBI.Transaction LMDBI.ReadWrite ()
+  writeStoredData s = do
+    db ∷ LMDB.Database Word s ← LMDB.getDatabase databaseName
+    LMDB.put db databaseSlot (Just s)
+
+  databaseName ∷ Maybe String = Nothing -- "Anonymous" database has no name
+  databaseSlot ∷ Word = 0 -- The only key in the database

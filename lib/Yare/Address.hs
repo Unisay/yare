@@ -22,6 +22,8 @@ import Cardano.Ledger.Api (Addr (..), StandardCrypto)
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (MkMnemonicError)
+import Codec.Serialise (Serialise)
+import Codec.Serialise.Class.Orphans ()
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Trans.Except (except, withExceptT)
 import Data.List.NonEmpty qualified as NE
@@ -47,7 +49,7 @@ data Addresses = Addresses
   -- ^ Payment credentials of the external addresses cached for faster lookups.
   }
   deriving stock (Generic)
-  deriving anyclass (NoThunks)
+  deriving anyclass (NoThunks, Serialise)
 
 instance Buildable Addresses where
   build Addresses {network, externalAddresses, internalAddresses} =
