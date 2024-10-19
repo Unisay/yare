@@ -1,12 +1,11 @@
-{-# HLINT ignore "Eta reduce" #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module Yare.Chain.Follower
   ( ChainFollower (..)
   , newChainFollower
-  , initialChainState
   , ChainState
+  , ChainStateᵣ
+  , initialChainState
   ) where
 
 import Yare.Prelude
@@ -14,22 +13,22 @@ import Yare.Prelude
 import Cardano.Api.Shelley (TxId)
 import Cardano.Slotting.Slot (fromWithOrigin)
 import Control.Monad.Class.MonadThrow (throwIO)
-import Data.Row.Records qualified as Rec
+import Control.Tracer.Extended (Tracer, traceWith)
 import Data.Strict (List)
 import Ouroboros.Network.Block
   ( BlockNo (..)
-  , SlotNo (..)
   , Tip (..)
   , blockNo
+  , blockPoint
   , blockSlot
   , getTipBlockNo
   )
 import Relude.Extra (dup)
 import Yare.Address (Addresses)
 import Yare.Chain.Block (StdCardanoBlock)
-import Yare.Chain.Types (ChainPoint, ChainTip)
+import Yare.Chain.Types (ChainPoint, ChainTip, SyncFrom)
 import Yare.Storage (Storage (overStorage))
-import Yare.Tracer (Tracer, traceWith)
+import Yare.Tracers (Tracersᵣ)
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
 import Yare.Utxo.Indexer (UtxoUpdate (..))
@@ -40,77 +39,62 @@ data ChainFollower (m ∷ Type → Type) = ChainFollower
   , onRollback ∷ ChainPoint → ChainTip → m ()
   }
 
-type ChainStateRow = "utxo" .== Utxo .+ "chainTip" .== ChainTip
-type ChainState = Rec ChainStateRow
-
 newChainFollower
-  ∷ ∀ r env state
-   . ( HasType "utxo" Utxo r
-     , HasType "chainTip" ChainTip r
-     , HasType "addresses" Addresses r
-     , HasType "submitted" (List TxId) r
-     , state ≈ Rec r
-     , HasType "tracerUtxo" (Tracer IO Utxo) env
-     , HasType "tracerTxId" (Tracer IO TxId) env
-     , HasType "tracerSync" (Tracer IO SlotNo) env
-     , HasType "tracerRollback" (Tracer IO ChainPoint) env
+  ∷ ∀ state env
+   . ( (Storage IO state : Addresses : Tracersᵣ) ∈∈ env
+     , [Utxo, ChainTip, List TxId, SyncFrom] ∈∈ state
      )
-  ⇒ Rec env
-  → Storage IO state
+  ⇒ env
   → ChainFollower IO
-newChainFollower env storage =
+newChainFollower env =
   ChainFollower
     { onNewBlock = \(block ∷ StdCardanoBlock) (tip ∷ ChainTip) →
-        overStorage storage (indexBlock block tip) \case
+        overStorage storage (indexBlock (look @Addresses env) block tip) \case
           UtxoNotUpdated →
-            traceWith (env .! #tracerSync) (blockSlot block)
+            traceWith (look env) (blockSlot block)
           UtxoUpdated updatedUtxo txIds → do
-            for_ txIds $ traceWith (env .! #tracerTxId)
-            traceWith (env .! #tracerUtxo) updatedUtxo
+            for_ txIds $ traceWith (look env)
+            traceWith (look env) updatedUtxo
           UtxoUpdateError err →
             throwIO err
     , onRollback = \(point ∷ ChainPoint) (tip ∷ ChainTip) → do
-        traceWith (env .! #tracerRollback) point
+        traceWith (look @(Tracer IO ChainPoint) env) point
         overStorage storage (dup . rollbackTo point tip) do
-          traceWith (env .! #tracerUtxo) . (.! #utxo)
+          traceWith (look @(Tracer IO Utxo) env) . look @Utxo
     }
+ where
+  storage ∷ Storage IO state = look env
+
+type ChainState = HList ChainStateᵣ
+type ChainStateᵣ = [Utxo, ChainTip]
 
 initialChainState ∷ ChainState
-initialChainState = #utxo .== Utxo.initial .+ #chainTip .== TipGenesis
+initialChainState = Utxo.initial .*. TipGenesis .*. HNil
 
 indexBlock
-  ∷ ∀ r state
-   . ( HasType "utxo" Utxo r
-     , HasType "chainTip" ChainTip r
-     , HasType "addresses" Addresses r
-     , HasType "submitted" (List TxId) r
-     , state ≈ Rec r
-     )
-  ⇒ StdCardanoBlock
+  ∷ ∀ state
+   . [Utxo, ChainTip, List TxId, SyncFrom] ∈∈ state
+  ⇒ Addresses
+  → StdCardanoBlock
   → ChainTip
   → (state → (state, UtxoUpdate))
-indexBlock block tip state = (state', utxoUpdate)
+indexBlock addresses block tip state = (state', utxoUpdate)
  where
   state' ∷ state =
     case utxoUpdate of
-      UtxoUpdateError {} →
-        state
-          & Rec.update #chainTip tip
-      UtxoNotUpdated →
-        state
-          & Rec.update #chainTip tip
-      UtxoUpdated utxo' _txIds →
-        state
-          & Rec.update #utxo utxo'
-          & Rec.update #chainTip tip
+      UtxoUpdateError {} → state
+      UtxoNotUpdated → state
+      UtxoUpdated utxo' _txIds → setter utxo' state
+      & setter tip
+      & setter (Tagged @"syncFrom" (Just (blockPoint block)))
 
   utxoUpdate ∷ UtxoUpdate =
     Utxo.indexBlock
-      (state .! #submitted)
-      (state .! #addresses)
+      (look @(List TxId) state)
+      addresses
       block
       finality
-      (state .! #utxo)
+      (look @Utxo state)
 
   finality ∷ Utxo.Finality =
     if thisBlockNo < tipBlockNo - securityParam
@@ -121,21 +105,16 @@ indexBlock block tip state = (state', utxoUpdate)
     BlockNo thisBlockNo = blockNo block
 
 rollbackTo
-  ∷ ( HasType "utxo" Utxo r
-    , HasType "chainTip" ChainTip r
-    , state ≈ Rec r
-    )
+  ∷ [Utxo, ChainTip, SyncFrom] ∈∈ state
   ⇒ ChainPoint
   → ChainTip
   → state
   → state
 rollbackTo point tip chainState =
-  case Utxo.rollbackTo point (chainState .! #utxo) of
-    Nothing → Rec.update #chainTip tip chainState
-    Just utxo →
-      chainState
-        & Rec.update #utxo utxo
-        & Rec.update #chainTip tip
+  chainState
+    & setter tip
+    & setter (Tagged @"syncFrom" (Just point))
+    & maybe id setter (Utxo.rollbackTo point (look @Utxo chainState))
 
 {- | The security parameter is a non-updatable one:
 After how many blocks is the blockchain considered to be final,

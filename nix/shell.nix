@@ -50,6 +50,7 @@ cabalProject: {
           --node-socket $CARDANO_NODE_SOCKET_PATH \
           --network-magic $TESTNET_MAGIC \
           --mnemonic-file test/data/mnemonic24.txt \
+          --database-file lmdb/testnet.lmdb \
           --sync-from-chain-point 'b0b33e2980f01dcee60c8884ee46a3a601b945055eadd1f01ba1c24c8f9e7fc5:41683132'
       '';
     };

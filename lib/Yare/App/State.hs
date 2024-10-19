@@ -1,38 +1,21 @@
-{-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
-
 module Yare.App.State
-  ( State
-  , StateRow
-  , HasAppState
-  , initialState
+  ( initialState
+  , State
   ) where
 
 import Yare.Prelude hiding (State)
 
 import Cardano.Api.Shelley (TxId)
 import Data.Strict.List (List (Nil))
-import NoThunks.Class (NoThunks (..), allNoThunks)
-import Yare.Address (Addresses)
-import Yare.Chain.Follower (initialChainState)
-import Yare.Chain.Types (ChainTip)
-import Yare.Utxo (Utxo)
+import Yare.Chain.Follower (ChainStateᵣ, initialChainState)
+import Yare.Chain.Types (SyncFrom)
 
-type StateRow =
-  {--} ("utxo" .== Utxo)
-    .+ ("chainTip" .== ChainTip)
-    .+ ("addresses" .== Addresses)
-    .+ ("submitted" .== List TxId)
+type Stateᵣ = List TxId : SyncFrom : ChainStateᵣ
+type State = HList Stateᵣ
 
-type State = Rec StateRow
-type HasAppState r = Open StateRow r
-
-instance (Forall r NoThunks, r ~ StateRow) ⇒ NoThunks (Rec r) where
-  wNoThunks ctx = allNoThunks . erase @NoThunks (wNoThunks ctx)
-  showTypeOf _proxy = "App.State"
-
-initialState ∷ Addresses → State
-initialState addresses' =
-  initialChainState
-    .+ (#addresses .== addresses')
-    .+ (#submitted .== Nil)
+initialState ∷ SyncFrom ∈ config ⇒ config → State
+initialState config =
+  submitted .*. syncFrom .*. initialChainState
+ where
+  submitted ∷ List TxId = Nil
+  syncFrom ∷ SyncFrom = look config

@@ -1,6 +1,6 @@
 module UtxoSpec (spec) where
 
-import Yare.Prelude
+import Yare.Prelude hiding (untag)
 
 import Arbitrary (NonEmptyUtxo (..), TwoSlots (..), untag)
 import Data.List.NonEmpty qualified as NE

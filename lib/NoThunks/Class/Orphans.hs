@@ -9,7 +9,7 @@ import Cardano.Address.Derivation (Depth (PaymentK), XPrv)
 import Cardano.Address.Style.Shelley (Shelley)
 import Cardano.Api (TxId, TxIn, Value)
 import Data.Strict (List)
-import NoThunks.Class (NoThunks (..))
+import NoThunks.Class (NoThunks (..), allNoThunks)
 
 instance NoThunks TxIn where
   wNoThunks _ctx _txIn = pure Nothing
@@ -35,3 +35,11 @@ instance NoThunks (Shelley PaymentK XPrv) where
 instance NoThunks a ⇒ NoThunks (List a) where
   wNoThunks _ctx _strictList = pure Nothing
   showTypeOf _proxy = "Data.Strict.List a"
+
+instance NoThunks (HList '[]) where
+  wNoThunks _ctx _hNil = pure Nothing
+  showTypeOf _proxy = "HList '[]"
+
+instance (NoThunks x, NoThunks (HList xs)) ⇒ NoThunks (HList (x ': xs)) where
+  wNoThunks ctx (HCons x xs) = allNoThunks [noThunks ctx x, noThunks ctx xs]
+  showTypeOf _proxy = "HList (x ': xs)"

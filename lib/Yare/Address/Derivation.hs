@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-orphans #-}
-
 module Yare.Address.Derivation
   ( externalPaymentAdressesKeys
   , internalPaymentAdressesKeys
@@ -24,82 +22,33 @@ import Cardano.Address.Derivation
   , nextIndex
   , toXPub
   )
-import Cardano.Address.Derivation qualified as Crypto.HD
 import Cardano.Address.Style.Shelley qualified as CAddr
-import Cardano.Api.Shelley qualified as CApi
 import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Api (StandardCrypto)
 import Cardano.Ledger.Api.Tx.Address qualified as Ledger
 import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
-import Codec.Serialise.Class (Serialise)
 import Codec.Serialise.Class.Orphans ()
 import Data.Traversable (for)
 import Fmt (Buildable (..))
 import Fmt.Orphans ()
-import NoThunks.Class (InspectHeap (..))
 import NoThunks.Class.Extended (NoThunks)
 import Text.Show (show)
 import Yare.Chain.Types (LedgerAddress)
 
-type AddressWithKey ∷ Type
 data AddressWithKey = AddressWithKey
   { cardanoAddress ∷ !Address
   , ledgerAddress ∷ !LedgerAddress
   , paymentKey ∷ CAddr.Shelley PaymentK XPrv
   }
   deriving stock (Generic)
-  deriving anyclass (NoThunks, NFData, Serialise)
+  deriving anyclass (NoThunks, NFData)
 
 instance Buildable AddressWithKey where
   build AddressWithKey {ledgerAddress} =
     build ledgerAddress
       <> "\n"
       <> build (toPaymentCredential ledgerAddress)
-
-{-
--- Orphan instance
-instance NFData CApi.ShelleyWitnessSigningKey where
-  rnf = \case
-    CApi.WitnessPaymentKey
-      (CApi.PaymentSigningKey !_PaymentKey) → ()
-    CApi.WitnessPaymentExtendedKey
-      (CApi.PaymentExtendedSigningKey !_PaymentExtendedKey) → ()
-    CApi.WitnessStakeKey
-      (CApi.StakeSigningKey !_StakeKey) → ()
-    CApi.WitnessStakeExtendedKey
-      (CApi.StakeExtendedSigningKey !_StakeExtendedKey) → ()
-    CApi.WitnessStakePoolKey
-      (CApi.StakePoolSigningKey !_StakePoolKey) → ()
-    CApi.WitnessGenesisKey
-      (CApi.GenesisSigningKey !_GenesisKey) → ()
-    CApi.WitnessGenesisExtendedKey
-      (CApi.GenesisExtendedSigningKey !_GenesisExtendedKey) → ()
-    CApi.WitnessGenesisDelegateKey
-      (CApi.GenesisDelegateSigningKey !_GenesisDelegateKey) → ()
-    CApi.WitnessGenesisDelegateExtendedKey
-      (CApi.GenesisDelegateExtendedSigningKey !_GenesisDelegateExtendedKey) → ()
-    CApi.WitnessGenesisUTxOKey
-      (CApi.GenesisUTxOSigningKey !_GenesisUTxOKey) → ()
-    CApi.WitnessCommitteeColdKey
-      (CApi.CommitteeColdSigningKey !_CommitteeColdKey) → ()
-    CApi.WitnessCommitteeColdExtendedKey
-      (CApi.CommitteeColdExtendedSigningKey !_CommitteeColdExtendedKey) → ()
-    CApi.WitnessCommitteeHotKey
-      (CApi.CommitteeHotSigningKey !_CommitteeHotKey) → ()
-    CApi.WitnessCommitteeHotExtendedKey
-      (CApi.CommitteeHotExtendedSigningKey !_CommitteeHotExtendedKey) → ()
-    CApi.WitnessDRepKey
-      (CApi.DRepSigningKey !_DRepKey) → ()
-    CApi.WitnessDRepExtendedKey
-      (CApi.DRepExtendedSigningKey !_DRepExtendedKey) → ()
-
--- Orphan instance
-deriving via
-  InspectHeap CApi.ShelleyWitnessSigningKey
-  instance
-    NoThunks CApi.ShelleyWitnessSigningKey
--}
 
 externalPaymentAdressesKeys
   ∷ NetworkTag
@@ -162,7 +111,6 @@ toPaymentCredential = \case
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------
 
-type Error ∷ Type
 data Error where
   XPrvConversionError ∷ Error
   ToLedgerAddrConversionError ∷ Address → Error

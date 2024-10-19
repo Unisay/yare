@@ -2,19 +2,12 @@ module Yare.Utxo.Internal where
 
 import Yare.Prelude
 
-import Cardano.Api
-  ( MaryEraOnwards (MaryEraOnwardsConway)
-  , TxId (..)
-  , TxIn (..)
-  , TxIx (..)
-  , Value
-  , renderTxIn
-  )
+import Cardano.Api (TxIn (..), Value, renderTxIn)
 import Cardano.Api.Orphans ()
-import Cardano.Api.Shelley (toLedgerValue)
 import Cardano.Slotting.Slot (SlotNo (..))
 import Codec.Serialise (Serialise)
 import Codec.Serialise.Class.Orphans ()
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set (member, notMember)
 import Data.Set qualified as Set
@@ -23,6 +16,8 @@ import Fmt.Orphans ()
 import NoThunks.Class.Extended (NoThunks (..), foldlNoThunks)
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
+import Yare.Address (AddressWithKey (..), Addresses)
+import Yare.Address qualified as Addresses
 import Yare.Chain.Types (LedgerAddress, ledgerAddressToText)
 
 --------------------------------------------------------------------------------
@@ -116,6 +111,37 @@ data Finality = Final | NotFinal
 
 --------------------------------------------------------------------------------
 -- UTxO updates ----------------------------------------------------------------
+
+useFeeInputs
+  ∷ ∀ state
+   . Utxo ∈ state
+  ⇒ Addresses
+  → state
+  → Maybe (state, NonEmpty (TxIn, (AddressWithKey, Value)))
+useFeeInputs addresses s = do
+  feeInputs ← NE.nonEmpty (first (const feeAddress) <<$>> feeEntries)
+  pure (s', feeInputs)
+ where
+  s' = setter utxo' s
+  feeAddress = Addresses.useForFees addresses
+  (utxo', feeEntries) = useByAddress utxo (ledgerAddress feeAddress)
+  utxo ∷ Utxo = look s
+
+useCollateralInputs
+  ∷ ∀ state
+   . Utxo ∈ state
+  ⇒ Addresses
+  → state
+  → Maybe (state, NonEmpty (TxIn, (AddressWithKey, Value)))
+useCollateralInputs addresses s = do
+  colInputs ← NE.nonEmpty collateralEntries
+  pure (s', first (const collateralAddressWithKey) <<$>> colInputs)
+ where
+  s' = setter utxo' s
+  collateralAddressWithKey = Addresses.useForCollateral addresses
+  (utxo', collateralEntries) = useByAddress utxo collateralAddr
+  collateralAddr = ledgerAddress collateralAddressWithKey
+  utxo ∷ Utxo = look s
 
 updateUtxo ∷ SlotNo → NonEmpty Update → Utxo → Either UpdateError Utxo
 updateUtxo slot updates utxo =

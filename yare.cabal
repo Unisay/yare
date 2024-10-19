@@ -100,6 +100,7 @@ library
     , dlist                          ^>=1.0
     , fmt                            ^>=0.6.3
     , generics-sop                   ^>=0.5.1.4
+    , HList                          ^>=0.5.3
     , int-cast                       ^>=0.2
     , io-classes                     ^>=1.5
     , lens                           ^>=5.3.2
@@ -115,12 +116,12 @@ library
     , ouroboros-network-api
     , ouroboros-network-framework
     , ouroboros-network-protocols
+    , path-io                        ^>=1.8.2
     , placeholders                   ^>=0.1
     , plutus-ledger-api
     , plutus-tx
     , plutus-tx-plugin
     , pretty-simple                  ^>=4.1.2
-    , row-types                      ^>=1.0.1.2
     , serialise                      ^>=0.2
     , servant                        ^>=0.20.1
     , servant-server                 ^>=0.20
@@ -140,8 +141,9 @@ library
   other-modules:
     Cardano.Api.Orphans
     Codec.Serialise.Class.Orphans
+    Control.Tracer.Extended
+    Data.Has
     Data.IORef.Strict
-    Data.Row.Records.Extended
     Fmt.Orphans
     NoThunks.Class.Extended
     NoThunks.Class.Orphans
@@ -162,18 +164,20 @@ library
     Yare.Chain.Sync
     Yare.Chain.Tx
     Yare.Chain.Types
-    Yare.Funds
+    Yare.Env
     Yare.Http.Address
     Yare.Http.Server
+    Yare.Http.Server.Start
     Yare.Http.Types
     Yare.Mnemonic
     Yare.Node.Protocols
     Yare.Node.Socket
+    Yare.Node.Subscription
     Yare.Prelude
     Yare.Query
     Yare.Storage
     Yare.Submitter
-    Yare.Tracer
+    Yare.Tracers
     Yare.Util.State
     Yare.Util.Tx.Construction
     Yare.Utxo

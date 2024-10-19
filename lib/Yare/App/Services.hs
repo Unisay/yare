@@ -10,19 +10,21 @@ import Yare.Prelude
 import Cardano.Api.Shelley
   ( InAnyShelleyBasedEra (..)
   , TxBodyErrorAutoBalance
+  , TxId
   , TxIn
   )
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Monad.Oops (Variant)
+import Data.Strict.List (List)
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
-import Yare.Address (AddressWithKey (..), externalAddresses)
+import Yare.Address (AddressWithKey (..), Addresses, externalAddresses)
 import Yare.Address qualified as Address
 import Yare.App.Services.DeployScript qualified as DeployScript
-import Yare.App.State qualified as Yare
 import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (ChainTip, LedgerAddress)
-import Yare.Storage (Storage (..), readStorageField)
+import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
+import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
 
 -- | Application services
@@ -48,28 +50,28 @@ data Services m = Services
   }
 
 mkServices
-  ∷ Storage IO Yare.State
-  → Submitter.Q
-  → NetworkInfo era
+  ∷ ∀ era state env
+   . ( [Submitter.Q, NetworkInfo era, Storage IO state, Addresses] ∈∈ env
+     , [Utxo, ChainTip, List TxId] ∈∈ state
+     )
+  ⇒ env
   → Services IO
-mkServices storage submitQ networkInfo =
+mkServices env =
   Services
-    { serveAddresses =
-        toList . fmap ledgerAddress . externalAddresses
-          <$> readStorageField storage #addresses
-    , serveChangeAddresses =
-        pure . ledgerAddress . snd . Address.useForChange
-          <$> readStorageField storage #addresses
-    , serveFeeAddresses =
-        pure . ledgerAddress . snd . Address.useForFees
-          <$> readStorageField storage #addresses
-    , serveCollateralAddresses =
-        pure . ledgerAddress . snd . Address.useForCollateral
-          <$> readStorageField storage #addresses
+    { serveAddresses = pure do
+        toList . fmap ledgerAddress . externalAddresses $ look @Addresses env
+    , serveChangeAddresses = pure do
+        pure . ledgerAddress . Address.useForChange $ look @Addresses env
+    , serveFeeAddresses = pure do
+        pure . ledgerAddress . Address.useForFees $ look @Addresses env
+    , serveCollateralAddresses = pure do
+        pure . ledgerAddress . Address.useForCollateral $ look @Addresses env
     , serveUtxo =
-        Utxo.spendableEntries . (.! #utxo) <$> readStorage storage
+        Utxo.spendableEntries . look @Utxo <$> readStorage storage
     , serveTip =
-        (.! #chainTip) <$> readStorage storage
+        look <$> readStorage storage
     , deployScript =
-        DeployScript.service storage submitQ networkInfo
+        DeployScript.service @era @state env
     }
+ where
+  storage ∷ Storage IO state = look env

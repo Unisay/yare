@@ -6,7 +6,6 @@ module Main (main) where
 
 import Yare.Prelude
 
-import Data.Tagged (Tagged (..))
 import Main.Utf8 (withUtf8)
 import Options.Applicative
   ( Parser
@@ -26,8 +25,8 @@ import Ouroboros.Network.Magic (NetworkMagic (NetworkMagic))
 import Path (File, SomeBase (..), parseSomeFile)
 import Path.IO qualified as Path
 import Yare.App qualified as Yare
-import Yare.App.Types qualified as Yare
 import Yare.Chain.Point (ChainPoint, parseChainPoint)
+import Yare.Chain.Types (SyncFrom)
 import Yare.Node.Socket (NodeSocket (..))
 
 main ∷ IO ()
@@ -43,24 +42,23 @@ main = withUtf8 do
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
   databaseFile ←
-    case databasePath of
+    Tagged @"database" <$> case databasePath of
       Path.Abs a → pure a
       Path.Rel r → Path.makeAbsolute r
-  Yare.start
-    Yare.Config
-      { apiHttpPort = 9999
-      , nodeSocket
-      , networkMagic
-      , mnemonicFile
-      , syncFrom
-      , databaseFile
-      }
+  Yare.start $
+    9999
+      `HCons` nodeSocket
+      `HCons` networkMagic
+      `HCons` syncFrom
+      `HCons` mnemonicFile
+      `HCons` databaseFile
+      `HCons` HNil
 
 data Args = Args
   { nodeSocketPath ∷ SomeBase File
   , networkMagic ∷ NetworkMagic
   , mnemonicPath ∷ SomeBase File
-  , syncFrom ∷ Maybe ChainPoint
+  , syncFrom ∷ SyncFrom
   , databasePath ∷ SomeBase File
   }
 
@@ -74,7 +72,7 @@ options =
     <$> nodeSocketPathOption
     <*> networkMagicOption
     <*> mnemonicFileOption
-    <*> optional syncFromChainPoint
+    <*> fmap Tagged (optional syncFromChainPoint)
     <*> databaseFileOption
  where
   nodeSocketPathOption ∷ Parser (SomeBase File) =
@@ -109,7 +107,6 @@ options =
                 \(space separated list of 24 BIP-39 dictionary words)."
           ]
       )
-
   databaseFileOption ∷ Parser (SomeBase File) =
     option
       (eitherReader (first displayException . parseSomeFile))
@@ -121,7 +118,6 @@ options =
                 "Path to a file where the application will store its state."
           ]
       )
-
   syncFromChainPoint ∷ Parser ChainPoint =
     option
       (eitherReader parseChainPoint)

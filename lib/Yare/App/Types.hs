@@ -1,5 +1,6 @@
 module Yare.App.Types
-  ( Config (..)
+  ( Config
+  , Configᵣ
   , NetworkInfo (..)
   ) where
 
@@ -12,22 +13,21 @@ import Cardano.Api.Shelley
   , LedgerProtocolParameters
   , SystemStart
   )
-import Data.Tagged (Tagged)
 import Network.Wai.Handler.Warp qualified as Warp
 import Ouroboros.Network.Magic (NetworkMagic)
-import Path (Abs, File, Path)
-import Yare.Chain.Point (ChainPoint)
+import Yare.Chain.Types (DatabasePath, MnemonicPath, SyncFrom)
 import Yare.Node.Socket (NodeSocket)
 
--- | An application configuration
-data Config = Config
-  { apiHttpPort ∷ Warp.Port
-  , nodeSocket ∷ NodeSocket
-  , networkMagic ∷ NetworkMagic
-  , mnemonicFile ∷ Tagged "mnemonic" (Path Abs File)
-  , syncFrom ∷ Maybe ChainPoint -- TODO: let app decide it based on the persistent state
-  , databaseFile ∷ Path Abs File
-  }
+type Configᵣ =
+  '[ Warp.Port
+   , NodeSocket
+   , NetworkMagic
+   , SyncFrom
+   , MnemonicPath
+   , DatabasePath
+   ]
+
+type Config = HList Configᵣ
 
 data NetworkInfo era = NetworkInfo
   { network ∷ Network

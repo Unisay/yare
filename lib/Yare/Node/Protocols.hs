@@ -6,6 +6,7 @@ import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.Client.Subscription (MuxMode (..))
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Tracer (nullTracer)
+import Control.Tracer.Extended (debugTracer, withFaint, withPrefix)
 import Ouroboros.Consensus.Block.Abstract (CodecConfig)
 import Ouroboros.Consensus.Cardano.Block (CardanoBlock)
 import Ouroboros.Consensus.Cardano.Node (protocolClientInfoCardano)
@@ -40,95 +41,88 @@ import Yare.Chain.Point (ChainPoint)
 import Yare.Chain.Sync qualified as ChainSync
 import Yare.Query qualified as Query
 import Yare.Submitter qualified as Submitter
-import Yare.Tracer (debugTracer, withPrefix, withFaint)
 
 makeNodeToClientProtocols
   ∷ ∀ ntcAddr
    . ChainFollower IO
-  → Maybe ChainPoint
   → Query.Q
   → Submitter.Q
+  → Tagged "syncFrom" (Maybe ChainPoint)
   → NodeToClientVersion
   → BlockNodeToClientVersion (CardanoBlock StandardCrypto)
   → NodeToClientProtocols InitiatorMode ntcAddr LByteString IO () Void
-makeNodeToClientProtocols
-  chainFollower
-  syncFrom
-  queryQ
-  submitQ
-  n2cVer
-  blockVer =
-    NodeToClientProtocols
-      { localChainSyncProtocol
-      , localTxSubmissionProtocol
-      , localStateQueryProtocol
-      , localTxMonitorProtocol
-      }
-   where
-    localChainSyncProtocol
-      ∷ RunMiniProtocol
-          InitiatorMode
-          (MinimalInitiatorContext ntcAddr)
-          (ResponderContext ntcAddr)
-          LByteString
-          IO
-          ()
-          Void
-    localChainSyncProtocol =
-      InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-        ( nullTracer
-        , cChainSyncCodec
-        , chainSyncClientPeer $
-            ChainSync.client chainFollower (maybeToList syncFrom)
-        )
+makeNodeToClientProtocols chainFollower qryQ submitQ syncFrom n2cVer blockVer =
+  NodeToClientProtocols
+    { localChainSyncProtocol
+    , localTxSubmissionProtocol
+    , localStateQueryProtocol
+    , localTxMonitorProtocol
+    }
+ where
+  localChainSyncProtocol
+    ∷ RunMiniProtocol
+        InitiatorMode
+        (MinimalInitiatorContext ntcAddr)
+        (ResponderContext ntcAddr)
+        LByteString
+        IO
+        ()
+        Void
+  localChainSyncProtocol =
+    InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+      ( nullTracer
+      , cChainSyncCodec
+      , chainSyncClientPeer $
+          ChainSync.client chainFollower (maybeToList (untag syncFrom))
+      )
 
-    localTxSubmissionProtocol
-      ∷ RunMiniProtocol
-          InitiatorMode
-          (MinimalInitiatorContext ntcAddr)
-          (ResponderContext ntcAddr)
-          LByteString
-          IO
-          ()
-          Void
-    localTxSubmissionProtocol =
-      InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-        ( nullTracer
-        , cTxSubmissionCodec
-        , localTxSubmissionClientPeer $ Submitter.client submitQ
-        )
-
-    localStateQueryProtocol
-      ∷ RunMiniProtocol
-          InitiatorMode
-          (MinimalInitiatorContext ntcAddr)
-          (ResponderContext ntcAddr)
-          LByteString
-          IO
-          ()
-          Void
-    localStateQueryProtocol =
-      InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-        ( show >$< withPrefix "Query" (withFaint debugTracer)
-        , cStateQueryCodec
-        , localStateQueryClientPeer $ Query.client queryQ
-        )
-
-    localTxMonitorProtocol =
-      InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
-        ( nullTracer
-        , cTxMonitorCodec
-        , localTxMonitorPeerNull
-        )
-
-    Codecs
-      { cChainSyncCodec
+  localTxSubmissionProtocol
+    ∷ RunMiniProtocol
+        InitiatorMode
+        (MinimalInitiatorContext ntcAddr)
+        (ResponderContext ntcAddr)
+        LByteString
+        IO
+        ()
+        Void
+  localTxSubmissionProtocol =
+    InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+      ( nullTracer
       , cTxSubmissionCodec
-      , cStateQueryCodec
-      , cTxMonitorCodec
-      }
-      ∷ ClientCodecs StdCardanoBlock IO = clientCodecs codecConfig blockVer n2cVer
+      , localTxSubmissionClientPeer (Submitter.client submitQ)
+      )
 
-    codecConfig ∷ CodecConfig StdCardanoBlock =
-      let byronEpochSlots = EpochSlots 21600
-       in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)
+  localStateQueryProtocol
+    ∷ RunMiniProtocol
+        InitiatorMode
+        (MinimalInitiatorContext ntcAddr)
+        (ResponderContext ntcAddr)
+        LByteString
+        IO
+        ()
+        Void
+  localStateQueryProtocol =
+    InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+      ( show >$< withPrefix "Query" (withFaint debugTracer)
+      , cStateQueryCodec
+      , localStateQueryClientPeer (Query.client qryQ)
+      )
+
+  localTxMonitorProtocol =
+    InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
+      ( nullTracer
+      , cTxMonitorCodec
+      , localTxMonitorPeerNull
+      )
+
+  Codecs
+    { cChainSyncCodec
+    , cTxSubmissionCodec
+    , cStateQueryCodec
+    , cTxMonitorCodec
+    }
+    ∷ ClientCodecs StdCardanoBlock IO = clientCodecs codecConfig blockVer n2cVer
+
+  codecConfig ∷ CodecConfig StdCardanoBlock =
+    let byronEpochSlots = EpochSlots 21600
+     in pClientInfoCodecConfig (protocolClientInfoCardano byronEpochSlots)

@@ -1,24 +1,13 @@
 module Yare.Prelude
   ( module Reexport
-  , Open
   , (<<&>>)
   ) where
 
-import Data.Row.Internal (LT ((:->)), Row (R), Unconstrained)
-import Data.Row.Records as Reexport hiding
-  ( Map
-  , empty
-  , map
-  , sequence
-  , traverse
-  , zip
-  )
+import Data.HList as Reexport (HList (HCons, HNil), (.*.))
+import Data.Has as Reexport
+import Data.Tagged as Reexport (Tagged (Tagged), untag)
 import Development.Placeholders as Reexport
 import Relude as Reexport hiding (get, state)
-
-type family Open (r ∷ Row Type) (rest ∷ Row Type) ∷ Constraint where
-  Open (R '[]) _ = Unconstrained
-  Open (R (l :-> a ': t)) rest = (HasType l a rest, Open (R t) rest)
 
 (<<&>>) ∷ (Functor f, Functor g) ⇒ f (g a) → (a → b) → f (g b)
 (<<&>>) = flip (<<$>>)
