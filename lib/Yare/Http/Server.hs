@@ -7,6 +7,7 @@ import Yare.Prelude
 
 import Cardano.Api (InAnyShelleyBasedEra (..), TxBodyErrorAutoBalance, TxIn)
 import Control.Tracer (natTracer)
+import Control.Tracer.Extended (Tracer, traceWith)
 import Data.Variant (case_)
 import Network.Wai qualified as Wai
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, EraMismatch (..), HardForkApplyTxErr (..), StandardCrypto)
@@ -17,7 +18,6 @@ import Yare.App.Services (Services (serveCollateralAddresses))
 import Yare.App.Services qualified as App
 import Yare.Http.Address qualified as Http.Address
 import Yare.Http.Types qualified as Http
-import Yare.Tracer (Tracer, traceWith)
 
 application ∷ Tracer IO Text → App.Services IO → Wai.Application
 application (natTracer liftIO → tracer) services =

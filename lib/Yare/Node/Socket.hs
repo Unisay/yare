@@ -3,11 +3,9 @@ module Yare.Node.Socket
   , nodeSocketLocalAddress
   ) where
 
-import Data.Kind (Type)
 import Ouroboros.Network.Snocket (LocalAddress, localAddressFromPath)
-import Path
+import Path (Abs, File, Path, toFilePath)
 
-type NodeSocket ∷ Type
 newtype NodeSocket = NodeSocket (Path Abs File)
 
 nodeSocketLocalAddress ∷ NodeSocket → LocalAddress

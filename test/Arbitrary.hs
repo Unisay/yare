@@ -4,7 +4,7 @@
 -- | QuickCheck generators for testing properties
 module Arbitrary where
 
-import Yare.Prelude
+import Yare.Prelude hiding (untag)
 
 import Cardano.Api.Ledger qualified as L
 import Cardano.Api.Shelley (ShelleyLedgerEra, SlotNo (..))
@@ -48,7 +48,7 @@ newtype NonEmptyUtxo = NonEmptyUtxo Utxo
 
 instance Arbitrary NonEmptyUtxo where
   arbitrary = do
-    n <- Gen.chooseInt (0, 3)
+    n ← Gen.chooseInt (0, 3)
     updates ←
       Gen.vectorOf n $
         Gen.frequency

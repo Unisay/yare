@@ -2,7 +2,9 @@
 .envrc-local
 .devenv
 cabal.project.local
+dist
 dist-newstyle
 result
 .vscode
 .direnv
+lmdb

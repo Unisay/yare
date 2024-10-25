@@ -1,6 +1,9 @@
 module Yare.Chain.Types
   ( ChainTip
   , ChainPoint
+  , SyncFrom
+  , MnemonicPath
+  , DatabasePath
   , parseChainPoint
   , LedgerAddress
   , ledgerAddressToText
@@ -15,12 +18,19 @@ import Cardano.Ledger.Crypto (StandardCrypto)
 import Data.ByteString.Base16 qualified as B16
 import Data.Text.Encoding qualified as Text
 import Ouroboros.Network.Block (Tip)
+import Path (Abs, File, Path)
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Point (ChainPoint, parseChainPoint)
 
 type ChainTip = Tip StdCardanoBlock
 
 type LedgerAddress = Addr StandardCrypto
+
+type SyncFrom = Tagged "syncFrom" (Maybe ChainPoint)
+
+type MnemonicPath = Tagged "mnemonic" (Path Abs File)
+
+type DatabasePath = Tagged "database" (Path Abs File)
 
 ledgerAddressToText ∷ LedgerAddress → Text
 ledgerAddressToText = \case

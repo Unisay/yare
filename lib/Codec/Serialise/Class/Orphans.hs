@@ -6,11 +6,8 @@ module Codec.Serialise.Class.Orphans () where
 import Yare.Prelude
 
 import Cardano.Address (Address)
-import Cardano.Address.Derivation (Depth (PaymentK), XPrv)
-import Cardano.Address.Style.Shelley qualified as CAddr
 import Cardano.Chain.Common qualified as Byron
 import Cardano.Crypto.Hashing (AbstractHash)
-import Cardano.Crypto.Wallet qualified as CC
 import Cardano.Ledger.Api (Addr, BootstrapAddress (..))
 import Cardano.Ledger.BaseTypes qualified as Ledger
 import Cardano.Ledger.Credential qualified as Ledger
@@ -19,10 +16,6 @@ import Cardano.Ledger.Keys qualified as Ledger
 import Codec.Serialise.Class (Serialise (..))
 import Data.Strict.List qualified as Strict
 import Yare.Chain.Types (ChainTip)
-
-instance Forall r Serialise ⇒ Serialise (Rec r) where
-  encode = $notImplemented
-  decode = $notImplemented
 
 instance Serialise a ⇒ Serialise (Strict.List a) where
   encode = encodeList . toList
@@ -48,8 +41,16 @@ deriving newtype instance Serialise Ledger.CertIx
 deriving anyclass instance Serialise (Ledger.Credential keyRole crypto)
 deriving anyclass instance Serialise (Ledger.KeyHash keyRole crypto)
 deriving anyclass instance Serialise (Ledger.ScriptHash crypto)
-deriving anyclass instance Serialise (CAddr.Shelley 'PaymentK XPrv)
 
-instance Serialise XPrv where
-  encode = encode . CC.unXPrv
-  decode = $notImplemented
+instance Serialise (HList '[]) where
+  encode _ = mempty
+  decode = pure HNil
+
+instance
+  (Serialise x, Serialise (HList xs))
+  ⇒ Serialise (HList (x ': xs))
+  where
+  encode (HCons x xs) = encode x <> encode xs
+  decode = HCons <$> decode <*> decode
+
+deriving newtype instance Serialise a ⇒ Serialise (Tagged tag a)

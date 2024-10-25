@@ -22,12 +22,10 @@ import Cardano.Ledger.Api (Addr (..), StandardCrypto)
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (MkMnemonicError)
-import Codec.Serialise (Serialise)
 import Codec.Serialise.Class.Orphans ()
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Trans.Except (except, withExceptT)
 import Data.List.NonEmpty qualified as NE
-import Data.Tagged (Tagged, untag)
 import Fmt (Buildable (build), blockListF, nameF)
 import NoThunks.Class.Extended (NoThunks)
 import Ouroboros.Network.Magic (NetworkMagic (..), unNetworkMagic)
@@ -49,7 +47,7 @@ data Addresses = Addresses
   -- ^ Payment credentials of the external addresses cached for faster lookups.
   }
   deriving stock (Generic)
-  deriving anyclass (NoThunks, Serialise)
+  deriving anyclass (NoThunks)
 
 instance Buildable Addresses where
   build Addresses {network, externalAddresses, internalAddresses} =
@@ -115,26 +113,14 @@ isOwnAddress Addresses {network, paymentCredentials} = \case
   Addr addrNnetwork paymentCred _stakeCred →
     network == addrNnetwork && paymentCred `elem` paymentCredentials
 
-useForChange ∷ Addresses → (Addresses, AddressWithKey)
-useForChange a@Addresses {externalAddresses} =
-  -- While the function type makes it possible to modify the addresses state,
-  -- we don't do it in the current implementation always using the same and the
-  -- only external address for change in order to KISS.
-  (a, NE.head externalAddresses)
+useForChange ∷ Addresses → AddressWithKey
+useForChange Addresses {externalAddresses} = NE.head externalAddresses
 
-useForFees ∷ Addresses → (Addresses, AddressWithKey)
-useForFees a@Addresses {externalAddresses} =
-  -- While the function type makes it possible to modify the addresses state,
-  -- we don't do it in the current implementation always using the same and the
-  -- only external address for fees in order to KISS.
-  (a, NE.head externalAddresses)
+useForFees ∷ Addresses → AddressWithKey
+useForFees Addresses {externalAddresses} = NE.head externalAddresses
 
-useForCollateral ∷ Addresses → (Addresses, AddressWithKey)
-useForCollateral a@Addresses {externalAddresses} =
-  -- While the function type makes it possible to modify the addresses state,
-  -- we don't do it in the current implementation always using the same and the
-  -- only external address for collateral in order to KISS.
-  (a, NE.last externalAddresses)
+useForCollateral ∷ Addresses → AddressWithKey
+useForCollateral Addresses {externalAddresses} = NE.last externalAddresses
 
 forScript
   ∷ Ledger.Network
@@ -168,4 +154,5 @@ data Error
   | MnemonicError (MkMnemonicError 8)
   | DerivationError Derivation.Error
   | NoAddressesDerived
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Exception)

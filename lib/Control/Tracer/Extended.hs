@@ -1,4 +1,4 @@
-module Yare.Tracer
+module Control.Tracer.Extended
   ( module Control.Tracer
   , prettyTracer
   , lineTracer

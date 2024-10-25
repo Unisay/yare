@@ -7,6 +7,8 @@ module Yare.Utxo
   , Utxo
 
     -- * Updates
+  , useFeeInputs
+  , useCollateralInputs
   , updateUtxo
   , rollback
   , finalise
