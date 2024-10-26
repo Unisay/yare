@@ -14,12 +14,7 @@ import Cardano.Ledger.Credential qualified as Ledger
 import Cardano.Ledger.Hashes qualified as Ledger
 import Cardano.Ledger.Keys qualified as Ledger
 import Codec.Serialise.Class (Serialise (..))
-import Data.Strict.List qualified as Strict
 import Yare.Chain.Types (ChainTip)
-
-instance Serialise a ⇒ Serialise (Strict.List a) where
-  encode = encodeList . toList
-  decode = fromList <$> decodeList
 
 deriving anyclass instance Serialise ChainTip
 deriving anyclass instance Serialise (Addr crypto)
@@ -54,3 +49,4 @@ instance
   decode = HCons <$> decode <*> decode
 
 deriving newtype instance Serialise a ⇒ Serialise (Tagged tag a)
+

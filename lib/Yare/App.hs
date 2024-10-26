@@ -25,5 +25,5 @@ start ∷ Yare.Config → IO ()
 start config = do
   env ∷ Env ← Yare.Env.initialize config
   concurrently_
-    (HttpServer.start @Yare.State env)
+    (HttpServer.start env)
     (NodeSubscription.start @Yare.State env)

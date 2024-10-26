@@ -14,7 +14,6 @@ import Cardano.Api.Shelley (TxId)
 import Cardano.Slotting.Slot (fromWithOrigin)
 import Control.Monad.Class.MonadThrow (throwIO)
 import Control.Tracer.Extended (Tracer, traceWith)
-import Data.Strict (List)
 import Ouroboros.Network.Block
   ( BlockNo (..)
   , Tip (..)
@@ -42,7 +41,13 @@ data ChainFollower (m ∷ Type → Type) = ChainFollower
 newChainFollower
   ∷ ∀ state env
    . ( (Storage IO state : Addresses : Tracersᵣ) ∈∈ env
-     , [Utxo, ChainTip, List TxId, SyncFrom] ∈∈ state
+     , [ Utxo
+       , ChainTip
+       , Tagged "submitted" [TxId]
+       , Tagged "in-ledger" [TxId]
+       , SyncFrom
+       ]
+        ∈∈ state
      )
   ⇒ env
   → ChainFollower IO
@@ -73,7 +78,13 @@ initialChainState = Utxo.initial .*. TipGenesis .*. HNil
 
 indexBlock
   ∷ ∀ state
-   . [Utxo, ChainTip, List TxId, SyncFrom] ∈∈ state
+   . [ Utxo
+     , ChainTip
+     , Tagged "submitted" [TxId]
+     , Tagged "in-ledger" [TxId]
+     , SyncFrom
+     ]
+    ∈∈ state
   ⇒ Addresses
   → StdCardanoBlock
   → ChainTip
@@ -84,13 +95,16 @@ indexBlock addresses block tip state = (state', utxoUpdate)
     case utxoUpdate of
       UtxoUpdateError {} → state
       UtxoNotUpdated → state
-      UtxoUpdated utxo' _txIds → setter utxo' state
-      & setter tip
-      & setter (Tagged @"syncFrom" (Just (blockPoint block)))
+      UtxoUpdated utxo' txIds →
+        state
+          & setter utxo'
+          & setter tip
+          & setter (Tagged @"syncFrom" (Just (blockPoint block)))
+          & update @(Tagged "in-ledger" [TxId]) ((fromList txIds <>) <$>)
 
   utxoUpdate ∷ UtxoUpdate =
     Utxo.indexBlock
-      (look @(List TxId) state)
+      (lookTagged @"submitted" @[TxId] state)
       addresses
       block
       finality

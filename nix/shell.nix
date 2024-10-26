@@ -37,16 +37,16 @@ cabalProject: {
       group = "development";
       exec = ''
         run & watchman-make -p '**/*.hs' '**/*.cabal' \
-          -r 'clear; killall -q -s HUP yare cabal; run &'
+          -r 'clear; killall -q -s HUP yare cabal; run-offchain &'
         wait
       '';
     };
 
-    run = {
-      description = "Run Yare";
+    run-offchain = {
+      description = "Run Yare backend (off-chain)";
       group = "development";
       exec = ''
-        cabal run yare -- \
+        cabal run yare-offchain -- \
           --node-socket $CARDANO_NODE_SOCKET_PATH \
           --network-magic $TESTNET_MAGIC \
           --mnemonic-file test/data/mnemonic24.txt \
@@ -55,6 +55,11 @@ cabalProject: {
       '';
     };
 
+    run-onchain = {
+      description = "Build on-chain code (Plutus)";
+      group = "development";
+      exec = ''cabal run yare-onchain'';
+    };
     hooks = {
       description = "Run all git hooks";
       group = "development";

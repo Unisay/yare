@@ -4,8 +4,10 @@ module Cardano.Api.Orphans () where
 
 import Yare.Prelude
 
+import Codec.Serialise.Class.Orphans ()
 import Cardano.Api.Shelley
   ( MaryEraOnwards (MaryEraOnwardsConway)
+  , ScriptHash
   , ShelleyBasedEra (ShelleyBasedEraConway)
   , TxId (..)
   , TxIn (..)
@@ -39,3 +41,5 @@ instance Serialise Value where
 
 instance NFData Value where
   rnf = rnf . toLedgerValue MaryEraOnwardsConway
+
+deriving newtype instance Serialise ScriptHash

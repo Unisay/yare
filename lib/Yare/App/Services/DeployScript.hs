@@ -1,10 +1,11 @@
 module Yare.App.Services.DeployScript
   ( service
-  , NoFeeInputs
-  , NoCollateralInputs
+  , status
+  , ScriptStatus (..)
+  , DeployScriptError (..)
   ) where
 
-import Yare.Prelude
+import Yare.Prelude hiding (show)
 
 import Cardano.Address.Style.Shelley qualified as CAddr
 import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
@@ -21,6 +22,7 @@ import Cardano.Api.Shelley
   , PoolId
   , ReferenceScript (..)
   , Script (..)
+  , ScriptHash
   , ShelleyWitnessSigningKey
   , StakeCredential
   , Tx (..)
@@ -42,7 +44,6 @@ import Cardano.Api.Shelley
   , fromShelleyAddrIsSbe
   , getTxBody
   , getTxId
-  , hashScript
   , inAnyShelleyBasedEra
   , runExcept
   , setTxIns
@@ -52,19 +53,17 @@ import Cardano.Api.Shelley
   )
 import Cardano.Api.Shelley qualified as CApi
 import Cardano.Ledger.Crypto (StandardCrypto)
-import Cardano.Ledger.Hashes qualified as Ledger
-import Control.Monad.Except (Except)
-import Control.Monad.Oops (CouldBe, Variant)
-import Control.Monad.Oops qualified as Oops
+import Codec.Serialise (Serialise)
+import Control.Exception (throwIO)
+import Control.Monad.Except (Except, throwError)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Data.Strict (List ((:!)))
-import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
+import NoThunks.Class.Extended (NoThunks)
 import Text.Pretty.Simple (pShow)
+import Text.Show (show)
 import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address.Derivation (AddressWithKey (..))
-import Yare.App.Scripts (script)
 import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (LedgerAddress)
 import Yare.Storage (Storage (..))
@@ -74,78 +73,94 @@ import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
 import Yare.Utxo (ScriptDeployment (Deployed), Utxo, setScriptDeployment)
 import Yare.Utxo qualified as Utxo
 
--- | Deploys a script on-chain by submitting a transaction.
-service
-  ∷ ∀ (era ∷ Type) state env e
-   . ( [Utxo, List TxId] ∈∈ state
-     , [Addresses, Submitter.Q, NetworkInfo era, Storage IO state] ∈∈ env
-     , e `CouldBe` CardanoApplyTxErr StandardCrypto
-     , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
-     , e `CouldBe` NoFeeInputs
-     , e `CouldBe` NoCollateralInputs
+data ScriptStatus
+  = ScriptStatusUnknown
+  | ScriptStatusDeployInitiated TxIn
+  | ScriptStatusDeployCompleted TxIn
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (NoThunks, NFData, Serialise)
+
+status
+  ∷ ∀ state env
+   . ( Storage IO state ∈ env
+     , Map ScriptHash ScriptStatus ∈ state
      )
   ⇒ env
-  → IO (Either (Variant e) TxIn)
-service env = do
+  → ScriptHash
+  → IO ScriptStatus
+status env scriptHash = do
+  overStorage (look @(Storage IO state) env) f pure
+ where
+  f ∷ state → (state, ScriptStatus)
+  f s = (s, Map.findWithDefault ScriptStatusUnknown scriptHash (look s))
+
+-- | Deploys a script on-chain by submitting a transaction.
+service
+  ∷ ∀ era state env
+   . ( [Utxo, Tagged "submitted" [TxId]] ∈∈ state
+     , [Addresses, Submitter.Q, NetworkInfo era, Storage IO state] ∈∈ env
+     )
+  ⇒ env
+  → ScriptHash
+  → Script PlutusScriptV3
+  → IO TxIn
+service env scriptHash script = do
   let NetworkInfo {currentEra} = look env
       shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
 
   overStorage (look @(Storage IO state) env) makeAndSubmitScriptTx \case
-    Left err → pure (Left err)
+    Left err → throwIO err
     Right (tx, txInput) → do
       putTextLn "Submitting the transaction:"
       putTextLn . toStrict $ pShow tx
-      maybeToLeft txInput
-        <$> Submitter.submit
-          (look @Submitter.Q env)
-          (TxInMode shelleyBasedEra tx)
+      let submiteQueue ∷ Submitter.Q = look env
+      txInput <$ Submitter.submit submiteQueue (TxInMode shelleyBasedEra tx)
  where
-  makeAndSubmitScriptTx ∷ state → (state, Either (Variant e) (Tx era, TxIn))
+  makeAndSubmitScriptTx
+    ∷ state → (state, Either DeployScriptError (Tx era, TxIn))
   makeAndSubmitScriptTx s =
-    case runExcept (runStateT (deployScript env script) s) of
-      Left e → (s, Left e)
-      Right (txAndScriptDeployment, s') → (s', Right txAndScriptDeployment)
+    deployScript env scriptHash script
+      & flip runStateT s
+      & runExcept
+      & \case
+        Left e → (s, Left e)
+        Right (txAndScriptDeployment, s') → (s', Right txAndScriptDeployment)
 
 deployScript
-  ∷ ∀ state env era e
-   . ( [List TxId, Utxo] ∈∈ state
+  ∷ ∀ state env era
+   . ( [Tagged "submitted" [TxId], Utxo] ∈∈ state
      , [Addresses, NetworkInfo era] ∈∈ env
-     , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
-     , e `CouldBe` NoFeeInputs
-     , e `CouldBe` NoCollateralInputs
      )
   ⇒ env
+  → ScriptHash
   → Script PlutusScriptV3
   → StateT
       state
-      (Except (Variant e))
+      (Except DeployScriptError)
       ( Tx era -- The transaction that deploys the script.
       , TxIn -- The input that references the script.
       )
-deployScript env plutusScript = do
+deployScript env scriptHash plutusScript = do
   res@(tx, txIn) ←
     constructTx
       (look @Addresses env)
       (look @(NetworkInfo era) env)
+      scriptHash
       plutusScript
-  modify' \s →
-    s
-      & setter (getTxId (getTxBody tx) :! look @(List TxId) s)
-      & setter (setScriptDeployment (Deployed txIn) (look @Utxo s))
+  modify' $
+    update @(Tagged "submitted" [TxId]) ((getTxId (getTxBody tx) :) <$>)
+      . update @Utxo (setScriptDeployment (Deployed txIn))
   pure res
 
 constructTx
-  ∷ ∀ state era e
-   . ( Utxo ∈ state
-     , e `CouldBe` InAnyShelleyBasedEra TxBodyErrorAutoBalance
-     , e `CouldBe` NoFeeInputs
-     , e `CouldBe` NoCollateralInputs
-     )
+  ∷ ∀ state era
+   . Utxo ∈ state
   ⇒ Addresses
   → NetworkInfo era
+  → ScriptHash
   → Script PlutusScriptV3
-  → StateT state (Except (Variant e)) (Tx era, TxIn)
-constructTx addresses networkInfo plutusScript = do
+  → StateT state (Except DeployScriptError) (Tx era, TxIn)
+constructTx addresses networkInfo scriptHash plutusScript = do
   let NetworkInfo
         { protocolParameters
         , epochInfo
@@ -158,21 +173,18 @@ constructTx addresses networkInfo plutusScript = do
 
   feeInputs ∷ NonEmpty (TxIn, (AddressWithKey, Value)) ←
     stateMay (Utxo.useFeeInputs addresses)
-      & Oops.onNothingThrow NoFeeInputs
+      >>= maybe (throwError NoFeeInputs) pure
 
   colInputs ∷ NonEmpty (TxIn, (AddressWithKey, Value)) ←
     stateMay (Utxo.useCollateralInputs addresses)
-      & Oops.onNothingThrow NoCollateralInputs
+      >>= maybe (throwError NoCollateralInputs) pure
 
   let AddressWithKey {ledgerAddress = changeAddr} =
         Address.useForChange addresses
 
   let
-    scriptHash ∷ Ledger.ScriptHash StandardCrypto
-    scriptHash = toShelleyScriptHash (hashScript plutusScript)
-
     scriptAddr ∷ LedgerAddress
-    scriptAddr = Address.forScript network scriptHash
+    scriptAddr = Address.forScript network (toShelleyScriptHash scriptHash)
 
     scriptOutput ∷ TxOut CtxTx era =
       mkScriptOutput
@@ -206,8 +218,10 @@ constructTx addresses networkInfo plutusScript = do
       | (_txIn, (addr, _value)) ← toList (feeInputs <> colInputs)
       ]
 
+  let wrapError = TxAutoBalanceError . inAnyShelleyBasedEra shelleyBasedEra
+
   -- Pure construction of the transaction:
-  Oops.hoistEither $ first (inAnyShelleyBasedEra shelleyBasedEra) do
+  either (throwError . wrapError) pure do
     let
       overrideKeyWitnesses ∷ Maybe Word = Nothing
       registeredPools ∷ Set PoolId = Set.empty
@@ -240,8 +254,18 @@ constructTx addresses networkInfo plutusScript = do
 --------------------------------------------------------------------------------
 -- Error types -----------------------------------------------------------------
 
-data NoFeeInputs = NoFeeInputs
-  deriving stock (Show)
+data DeployScriptError
+  = NoFeeInputs
+  | NoCollateralInputs
+  | TxAutoBalanceError (InAnyShelleyBasedEra TxBodyErrorAutoBalance)
 
-data NoCollateralInputs = NoCollateralInputs
-  deriving stock (Show)
+instance Show DeployScriptError where
+  show = \case
+    NoFeeInputs →
+      "No fee inputs available."
+    NoCollateralInputs →
+      "No collateral inputs available."
+    TxAutoBalanceError (InAnyShelleyBasedEra era e) →
+      "Tx balancing error in era " <> show era <> ": " <> show e
+
+deriving anyclass instance Exception DeployScriptError

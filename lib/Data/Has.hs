@@ -3,6 +3,7 @@ module Data.Has where
 import Relude
 
 import Data.HList.HList (HList (HCons), hHead)
+import Data.Tagged (Tagged, untag)
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import Relude.Extra.Lens (Lens')
 
@@ -20,6 +21,9 @@ class a ∈ t where
 {-# INLINE setter #-}
 setter ∷ ∀ a t. a ∈ t ⇒ a → t → t
 setter = update . const
+
+lookTagged ∷ ∀ l a t. Tagged l a ∈ t ⇒ t → a
+lookTagged = untag @l . look @(Tagged l a)
 
 instance a ∈ a where
   {-# INLINEABLE look #-}
@@ -64,4 +68,3 @@ instance {-# OVERLAPPABLE #-} b ∈ HList ts ⇒ b ∈ HList (a ': ts) where
 type family (∈∈) (ts ∷ [Type]) (r ∷ Type) ∷ Constraint where
   '[] ∈∈ _ = ()
   (t ': ts) ∈∈ r = (t ∈ r, ts ∈∈ r)
-

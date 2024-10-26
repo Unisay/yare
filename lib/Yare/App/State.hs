@@ -5,17 +5,29 @@ module Yare.App.State
 
 import Yare.Prelude hiding (State)
 
-import Cardano.Api.Shelley (TxId)
-import Data.Strict.List (List (Nil))
+import Cardano.Api.Shelley (ScriptHash, TxId)
+import Yare.App.Services.DeployScript (ScriptStatus)
 import Yare.Chain.Follower (ChainStateᵣ, initialChainState)
 import Yare.Chain.Types (SyncFrom)
 
-type Stateᵣ = List TxId : SyncFrom : ChainStateᵣ
+type Stateᵣ =
+  SyncFrom
+    : Tagged "in-ledger" [TxId]
+    : Tagged "submitted" [TxId]
+    : Map ScriptHash ScriptStatus
+    : ChainStateᵣ
+
 type State = HList Stateᵣ
 
 initialState ∷ SyncFrom ∈ config ⇒ config → State
 initialState config =
-  submitted .*. syncFrom .*. initialChainState
+  syncFrom
+    .*. inLedger
+    .*. submitted
+    .*. scriptStatuses
+    .*. initialChainState
  where
-  submitted ∷ List TxId = Nil
+  inLedger ∷ Tagged "in-ledger" [TxId] = Tagged []
+  submitted ∷ Tagged "submitted" [TxId] = Tagged []
   syncFrom ∷ SyncFrom = look config
+  scriptStatuses ∷ Map ScriptHash ScriptStatus = mempty

@@ -8,7 +8,6 @@ import Cardano.Api.Shelley
   , EraHistory (..)
   , NetworkMagic
   , ShelleyBasedEra (..)
-  , TxId
   , babbageEraOnwardsToShelleyBasedEra
   , toLedgerEpochInfo
   )
@@ -17,8 +16,6 @@ import Control.Exception (throwIO)
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
-import Control.Tracer.Extended (debugTracer, withPrefix)
-import Data.Strict.List (List)
 import Fmt.Orphans ()
 import GHC.IO.Exception (userError)
 import Network.Wai.Handler.Warp qualified as Warp
@@ -29,21 +26,19 @@ import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address qualified as Addresses
 import Yare.App.Services qualified as App
+import Yare.App.State qualified as Yare
 import Yare.App.Types (NetworkInfo (..))
 import Yare.App.Types qualified as Yare
-import Yare.Chain.Types (ChainTip)
 import Yare.Http.Server qualified as Http
 import Yare.Query qualified as Query
 import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
-import Yare.Utxo (Utxo)
 
 -- | Runs a web server serving web application via a RESTful API.
 start
-  ∷ ∀ state envᵣ
+  ∷ ∀ envᵣ
    . ( Yare.Configᵣ ∈∈ HList envᵣ
-     , [Query.Q, Submitter.Q, Addresses, Storage IO state] ∈∈ HList envᵣ
-     , [Utxo, ChainTip, List TxId] ∈∈ state
+     , [Query.Q, Submitter.Q, Addresses, Storage IO Yare.State] ∈∈ HList envᵣ
      )
   ⇒ HList envᵣ
   → IO ()
@@ -95,8 +90,8 @@ start env = withHandledErrors do
     liftIO
       . Warp.run (look @Warp.Port env)
       . simpleCors
-      . Http.application (toString >$< withPrefix "HTTP" debugTracer)
-      $ App.mkServices @era @state envWithNetworkInfo
+      . Http.application
+      $ App.mkServices @era @Yare.State envWithNetworkInfo
 
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------

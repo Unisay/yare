@@ -14,7 +14,6 @@ import Control.Tracer.Extended
   , withFaint
   , withPrefix
   )
-import Data.Strict.List (List)
 import Fmt.Orphans ()
 import Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy)
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
@@ -32,7 +31,7 @@ import Yare.App.Types qualified as Yare
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower (newChainFollower)
 import Yare.Chain.Types (ChainTip, SyncFrom)
-import Yare.Env (Tracersᵣ)
+import Yare.Tracers ( Tracersᵣ )
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
 import Yare.Query qualified as Query
@@ -47,7 +46,13 @@ start
      , Yare.Configᵣ ∈∈ env
      , Tracersᵣ ∈∈ env
      , [Query.Q, Submitter.Q, Addresses, Storage IO state] ∈∈ env
-     , [Utxo, ChainTip, List TxId, SyncFrom] ∈∈ state
+     , [ Utxo
+       , ChainTip
+       , Tagged "submitted" [TxId]
+       , Tagged "in-ledger" [TxId]
+       , SyncFrom
+       ]
+        ∈∈ state
      )
   ⇒ env
   → IO Void

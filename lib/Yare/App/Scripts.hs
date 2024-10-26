@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-full-laziness #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
@@ -10,6 +11,9 @@
 
 module Yare.App.Scripts
   ( script
+  , serialisedScript
+  , serialisedScriptHash
+  , blueprint
   ) where
 
 import Cardano.Api.Shelley
@@ -18,19 +22,72 @@ import Cardano.Api.Shelley
   , PlutusScriptVersion (PlutusScriptV3)
   , Script (PlutusScript)
   )
-import PlutusLedgerApi.Common (serialiseCompiledCode)
-import PlutusTx (BuiltinData, CompiledCode, compile)
-import PlutusTx.Prelude (Bool (True), BuiltinUnit, check)
+import Data.ByteString.Short qualified as BS
+import Data.Set qualified as Set
+import PlutusLedgerApi.Common (serialiseCompiledCode, unsafeFromBuiltinData)
+import PlutusLedgerApi.V3 (getRedeemer, scriptContextRedeemer)
+import PlutusLedgerApi.V3 qualified as V3
+import PlutusTx qualified as P
+import PlutusTx.Prelude qualified as P
+
+import PlutusTx.Blueprint
+import Yare.Prelude
+
+type Redeemer = Integer
 
 script ∷ Script PlutusScriptV3
-script =
-  PlutusScript
-    PlutusScriptV3
-    (PlutusScriptSerialised (serialiseCompiledCode compiledCode))
+script = PlutusScript PlutusScriptV3 (PlutusScriptSerialised serialisedScript)
 
-compiledCode ∷ CompiledCode (BuiltinData → BuiltinUnit)
-compiledCode = $$(compile [||validator||])
+blueprint ∷ ContractBlueprint
+blueprint =
+  MkContractBlueprint
+    { contractId = Just "Yare"
+    , contractPreamble =
+        MkPreamble
+          { preambleTitle = "Yare"
+          , preambleDescription = Nothing
+          , preambleVersion = "0.1.0"
+          , preamblePlutusVersion = PlutusV3
+          , preambleLicense = Nothing
+          }
+    , contractValidators =
+        Set.fromList
+          [ MkValidatorBlueprint
+              { validatorTitle = "Always succeeds"
+              , validatorDescription = Nothing
+              , validatorRedeemer =
+                  MkArgumentBlueprint
+                    { argumentTitle = Just "Redeemer"
+                    , argumentDescription = Nothing
+                    , argumentPurpose = Set.singleton Spend
+                    , argumentSchema = definitionRef @Redeemer
+                    }
+              , validatorDatum = Nothing
+              , validatorParameters = []
+              , validatorCompiled = Just validatorCompiled'
+              }
+          ]
+    , contractDefinitions = deriveDefinitions @'[Redeemer]
+    }
+
+serialisedScript ∷ V3.SerialisedScript
+serialisedScript = serialiseCompiledCode compiledCode
+
+serialisedScriptHash ∷ ByteString
+serialisedScriptHash = compiledValidatorHash validatorCompiled'
+
+validatorCompiled' ∷ CompiledValidator
+validatorCompiled' = compiledValidator PlutusV3 (BS.fromShort serialisedScript)
+
+compiledCode ∷ P.CompiledCode (P.BuiltinData → P.BuiltinUnit)
+compiledCode = $$(P.compile [||validator||])
 
 {-# INLINEABLE validator #-}
-validator ∷ BuiltinData → BuiltinUnit
-validator _scriptContext = check True
+validator ∷ P.BuiltinData → P.BuiltinUnit
+validator scriptContextData =
+  P.check (redeemer P.== 42)
+ where
+  redeemer ∷ Redeemer =
+    unsafeFromBuiltinData (getRedeemer (scriptContextRedeemer scriptContext))
+  scriptContext ∷ V3.ScriptContext =
+    unsafeFromBuiltinData scriptContextData

@@ -5,45 +5,65 @@ module Yare.Http.Server
 
 import Yare.Prelude
 
-import Cardano.Api (InAnyShelleyBasedEra (..), TxBodyErrorAutoBalance, TxIn)
-import Control.Tracer (natTracer)
-import Control.Tracer.Extended (Tracer, traceWith)
-import Data.Variant (case_)
+import Cardano.Api.Shelley
+  ( PlutusScript (..)
+  , PlutusScriptV3
+  , PlutusScriptVersion (PlutusScriptV3)
+  , Script (PlutusScript)
+  , ScriptHash (..)
+  , TxId
+  )
+import Cardano.Crypto.Hash (hashFromBytes)
+import Cardano.Ledger.Hashes qualified as Ledger
+import Control.Monad.Error.Class (MonadError (..))
+import Data.ByteString.Base16 qualified as Base16
 import Network.Wai qualified as Wai
-import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, EraMismatch (..), HardForkApplyTxErr (..), StandardCrypto)
 import Servant qualified
-import Servant.API (Get, JSON, Post, type (:<|>) (..), type (:>))
-import Text.Pretty.Simple (pShow)
+import Servant.API (Capture, Get, Post, ReqBody, type (:<|>) (..), type (:>))
+import Servant.API.ContentTypes (JSON, PlainText)
+import Servant.Server (err400)
 import Yare.App.Services (Services (serveCollateralAddresses))
 import Yare.App.Services qualified as App
+import Yare.App.Services.DeployScript qualified as DeployScript
 import Yare.Http.Address qualified as Http.Address
 import Yare.Http.Types qualified as Http
 
-application ∷ Tracer IO Text → App.Services IO → Wai.Application
-application (natTracer liftIO → tracer) services =
+application ∷ App.Services IO → Wai.Application
+application services =
   Servant.serve (Proxy @YareApi) do
-    ( endpointUtxo services
-        :<|> endpointChainTip services
-        :<|> endpointDeployScript tracer services
-      )
+    endpointUtxo services
+      :<|> endpointChainTip services
+      :<|> ( \hash →
+              endpointScriptStatus services hash
+                :<|> endpointDeployScript services hash
+           )
       :<|> ( endpointAddresses services
               :<|> endpointAddressesChange services
               :<|> endpointAddressesFees services
               :<|> endpointAddressesCollateral services
            )
+      :<|> endpointTransactionsInLedger services
+      :<|> endpointTransactionsSubmitted services
 
 type YareApi =
   "api"
-    :> ( ( "utxo" :> Get '[JSON] Http.Utxo
-            :<|> "tip" :> Get '[JSON] Http.ChainTip
-            :<|> "deploy" :> Post '[JSON] TxIn
-         )
-          :<|> ( "addresses"
-                  :> ( Get '[JSON] [Http.Address]
-                        :<|> "change" :> Get '[JSON] [Http.Address]
-                        :<|> "fees" :> Get '[JSON] [Http.Address]
-                        :<|> "collateral" :> Get '[JSON] [Http.Address]
-                     )
+    :> ( "utxo" :> Get '[JSON] Http.Utxo
+          :<|> "tip" :> Get '[JSON] Http.ChainTip
+          :<|> "script"
+            :> Capture "hash" Http.ScriptHash
+            :> ( Get '[JSON] Http.ScriptStatus
+                  :<|> ReqBody '[PlainText] Http.Script
+                    :> Post '[JSON] Http.ScriptStatus
+               )
+          :<|> "addresses"
+            :> ( Get '[JSON] [Http.Address]
+                  :<|> "change" :> Get '[JSON] [Http.Address]
+                  :<|> "fees" :> Get '[JSON] [Http.Address]
+                  :<|> "collateral" :> Get '[JSON] [Http.Address]
+               )
+          :<|> "transactions"
+            :> ( "in-ledger" :> Get '[JSON] [TxId]
+                  :<|> "submitted" :> Get '[JSON] [TxId]
                )
        )
 
@@ -54,80 +74,24 @@ endpointChainTip ∷ App.Services IO → Servant.Handler Http.ChainTip
 endpointChainTip services = liftIO $ Http.ChainTip <$> App.serveTip services
 
 endpointDeployScript
-  ∷ Tracer Servant.Handler Text
-  → App.Services IO
-  → Servant.Handler TxIn
-endpointDeployScript tracer App.Services {deployScript} =
-  liftIO deployScript >>= \case
-    Left errors →
-      case_
-        errors
-        ( \(cApplyTxErr ∷ CardanoApplyTxErr StandardCrypto) →
-            case cApplyTxErr of
-              ApplyTxErrByron e →
-                err500
-                  "Byron tx application error"
-                  ("Byron tx application error: " <> show e)
-              ApplyTxErrShelley e →
-                err500
-                  "Shelley tx application error"
-                  ("Shelley tx application error: " <> show e)
-              ApplyTxErrAllegra e →
-                err500
-                  "Allegra tx application error"
-                  ("Allegra tx application error: " <> show e)
-              ApplyTxErrMary e →
-                err500
-                  "Mary tx application error"
-                  ("Mary tx application error: " <> show e)
-              ApplyTxErrAlonzo e →
-                err500
-                  "Alonzo tx application error"
-                  ("Alonzo tx application error: " <> show e)
-              ApplyTxErrBabbage e →
-                err500
-                  "Babbage tx application error"
-                  ("Babbage tx application error: " <> show e)
-              ApplyTxErrConway e →
-                err500
-                  "Conway tx application error"
-                  ("Conway tx application error: " <> show e)
-              ApplyTxErrWrongEra eraMismatch →
-                err500
-                  "Tx application error"
-                  ( "Transaction from the "
-                      <> otherEraName eraMismatch
-                      <> " era applied to a ledger from the "
-                      <> ledgerEraName eraMismatch
-                      <> " era"
-                  )
-        )
-        ( \( InAnyShelleyBasedEra era e
-              ∷ InAnyShelleyBasedEra TxBodyErrorAutoBalance
-            ) →
-              err500
-                "Tx balancing error"
-                -- \^ public message
-                ( "Tx balancing error in era "
-                    <> show era
-                    <> ": "
-                    <> fromLazy (pShow e)
-                )
-                -- \^ private message
-        )
-        ( \(_err ∷ App.NoFeeInputs) →
-            err500 "No fee inputs" "No fee inputs"
-        )
-        ( \(_err ∷ App.NoCollateralInputs) →
-            err500 "No collateral inputs" "No collateral inputs"
-        )
-    Right txIn → pure txIn
- where
-  err500 ∷ Text → Text → Servant.Handler a
-  err500 publicMsg privateMsg = do
-    traceWith tracer privateMsg
-    Servant.throwError $
-      Servant.err500 {Servant.errBody = encodeUtf8 publicMsg}
+  ∷ App.Services IO
+  → Http.ScriptHash
+  → Http.Script
+  → Servant.Handler Http.ScriptStatus
+endpointDeployScript services httpScriptHash httpScript = do
+  let App.Services {deployScript} = services
+  script ← parseScript httpScript
+  scriptHash ← parseScriptHash httpScriptHash
+  Http.ScriptStatus . DeployScript.ScriptStatusDeployInitiated
+    <$> liftIO (deployScript scriptHash script)
+
+endpointScriptStatus
+  ∷ Services IO
+  → Http.ScriptHash
+  → Servant.Handler Http.ScriptStatus
+endpointScriptStatus App.Services {serveScriptStatus} httpScriptHash = do
+  scriptHash ← parseScriptHash httpScriptHash
+  Http.ScriptStatus <$> liftIO (serveScriptStatus scriptHash)
 
 endpointAddresses ∷ App.Services IO → Servant.Handler [Http.Address]
 endpointAddresses App.Services {serveAddresses} = liftIO do
@@ -144,3 +108,33 @@ endpointAddressesFees App.Services {serveFeeAddresses} = liftIO do
 endpointAddressesCollateral ∷ App.Services IO → Servant.Handler [Http.Address]
 endpointAddressesCollateral App.Services {serveCollateralAddresses} = liftIO do
   Http.Address.fromLedgerAddress <<$>> serveCollateralAddresses
+
+endpointTransactionsSubmitted ∷ Services IO → Servant.Handler [TxId]
+endpointTransactionsSubmitted App.Services {serveTransactionsSubmitted} =
+  liftIO serveTransactionsSubmitted
+
+endpointTransactionsInLedger ∷ Services IO → Servant.Handler [TxId]
+endpointTransactionsInLedger App.Services {serveTransactionsInLedger} =
+  liftIO serveTransactionsInLedger
+
+--------------------------------------------------------------------------------
+-- Helpers ---------------------------------------------------------------------
+
+parseScriptHash
+  ∷ ∀ m. MonadError Servant.ServerError m ⇒ Http.ScriptHash → m ScriptHash
+parseScriptHash =
+  Http.scriptHash >>> hashFromBytes >>> \case
+    Just h → pure (ScriptHash (Ledger.ScriptHash h))
+    Nothing → throwError err400 {Servant.errBody = "Invalid script hash"}
+
+parseScript
+  ∷ ∀ m
+   . MonadError Servant.ServerError m
+  ⇒ Http.Script
+  → m (Script PlutusScriptV3)
+parseScript =
+  Http.script >>> Base16.decode >>> \case
+    Left err →
+      throwError err400 {Servant.errBody = "Invalid script: " <> encodeUtf8 err}
+    Right bs →
+      pure $ PlutusScript PlutusScriptV3 (PlutusScriptSerialised (toShort bs))

@@ -11,8 +11,8 @@ import Yare.Prelude hiding (atomically)
 import Cardano.Api.Shelley (TxInMode)
 import Cardano.Api.Shelley qualified as Api
 import Control.Concurrent.Class.MonadSTM (TQueue, readTQueue, writeTQueue)
+import Control.Exception (throwIO)
 import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
-import Data.Variant (CouldBe (throw), Variant)
 import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr, StandardCrypto)
 import Ouroboros.Consensus.Ledger.SupportsMempool (GenTx)
 import Ouroboros.Network.Protocol.LocalTxSubmission.Client
@@ -55,15 +55,18 @@ waitForTxToSubmit txQ = do
     onResult txResult
     waitForTxToSubmit txQ
 
-submit
-  ∷ ∀ errors
-   . errors `CouldBe` CardanoApplyTxErr StandardCrypto
-  ⇒ Q
-  → TxInMode
-  → IO (Maybe (Variant errors))
+{- | Submit a transaction to the network.
+Throws 'TxSubmissionException' if the transaction submission fails.
+-}
+submit ∷ Q → TxInMode → IO ()
 submit submitQ txInMode = do
   res ← newEmptyMVar
   atomically . writeTQueue submitQ $ TxSubmitCont txInMode \case
     SubmitSuccess → putMVar res Nothing
-    SubmitFail err → putMVar res . Just $ throw err
-  takeMVar res
+    SubmitFail err → putMVar res (Just err)
+  takeMVar res >>= maybe pass (throwIO . TxSubmissionException)
+
+newtype TxSubmissionException
+  = TxSubmissionException (CardanoApplyTxErr StandardCrypto)
+  deriving stock (Show)
+  deriving anyclass (Exception)

@@ -1,22 +1,17 @@
 module Yare.App.Services
   ( Services (..)
   , mkServices
-  , DeployScript.NoFeeInputs
-  , DeployScript.NoCollateralInputs
   ) where
 
 import Yare.Prelude
 
 import Cardano.Api.Shelley
-  ( InAnyShelleyBasedEra (..)
-  , TxBodyErrorAutoBalance
+  ( PlutusScriptV3
+  , Script
+  , ScriptHash
   , TxId
   , TxIn
   )
-import Cardano.Ledger.Crypto (StandardCrypto)
-import Control.Monad.Oops (Variant)
-import Data.Strict.List (List)
-import Ouroboros.Consensus.Cardano.Block (CardanoApplyTxErr)
 import Yare.Address (AddressWithKey (..), Addresses, externalAddresses)
 import Yare.Address qualified as Address
 import Yare.App.Services.DeployScript qualified as DeployScript
@@ -35,24 +30,22 @@ data Services m = Services
   , serveCollateralAddresses ∷ m [LedgerAddress]
   , serveUtxo ∷ m Utxo.Entries
   , serveTip ∷ m ChainTip
-  , deployScript
-      ∷ IO
-          ( Either
-              ( Variant
-                  [ CardanoApplyTxErr StandardCrypto
-                  , InAnyShelleyBasedEra TxBodyErrorAutoBalance
-                  , DeployScript.NoFeeInputs
-                  , DeployScript.NoCollateralInputs
-                  ]
-              )
-              TxIn
-          )
+  , serveScriptStatus ∷ ScriptHash → m DeployScript.ScriptStatus
+  , deployScript ∷ ScriptHash → Script PlutusScriptV3 → IO TxIn
+  , serveTransactionsInLedger ∷ m [TxId]
+  , serveTransactionsSubmitted ∷ m [TxId]
   }
 
 mkServices
   ∷ ∀ era state env
    . ( [Submitter.Q, NetworkInfo era, Storage IO state, Addresses] ∈∈ env
-     , [Utxo, ChainTip, List TxId] ∈∈ state
+     , [ Utxo
+       , ChainTip
+       , Tagged "submitted" [TxId]
+       , Tagged "in-ledger" [TxId]
+       , Map ScriptHash DeployScript.ScriptStatus
+       ]
+        ∈∈ state
      )
   ⇒ env
   → Services IO
@@ -70,8 +63,14 @@ mkServices env =
         Utxo.spendableEntries . look @Utxo <$> readStorage storage
     , serveTip =
         look <$> readStorage storage
+    , serveScriptStatus =
+        DeployScript.status @state env
     , deployScript =
         DeployScript.service @era @state env
+    , serveTransactionsInLedger =
+        lookTagged @"in-ledger" @[TxId] <$> readStorage storage
+    , serveTransactionsSubmitted =
+        lookTagged @"submitted" @[TxId] <$> readStorage storage
     }
  where
   storage ∷ Storage IO state = look env

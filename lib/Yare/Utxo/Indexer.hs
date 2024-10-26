@@ -10,7 +10,6 @@ import Cardano.Api (TxIn (..))
 import Cardano.Slotting.Slot (SlotNo (..), fromWithOrigin)
 import Data.List.NonEmpty qualified as NE
 import Data.Set (member)
-import Data.Strict (List)
 import Fmt.Orphans ()
 import NoThunks.Class.Extended (foldlNoThunks)
 import Ouroboros.Consensus.Block (blockSlot, pointSlot)
@@ -49,7 +48,7 @@ data UtxoUpdate
 | Returns the updated UTxO set or 'Nothing' if the block is irrelevant.
 -}
 indexBlock
-  ∷ List TxId
+  ∷ [TxId]
   -- ^ Submitted transactions
   → Addresses
   -- ^ Addresses of the wallet
@@ -108,7 +107,7 @@ indexBlock submittedTxs addresses block finality prevUtxo =
 | Returns the updated UTxO set or 'Nothing' if the transaction is irrelevant.
 -}
 indexTx
-  ∷ List TxId
+  ∷ [TxId]
   → Addresses
   → AnyEra Tx
   → Utxo

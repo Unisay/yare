@@ -184,9 +184,10 @@ library
     Yare.Utxo.Indexer
     Yare.Utxo.Internal
 
-executable yare
+executable yare-offchain
   import:         opts
-  hs-source-dirs: exe
+  hs-source-dirs: exe/offchain
+  ghc-options:    -threaded
   main-is:        Main.hs
   build-depends:
     , cardano-addresses      ^>=3.12
@@ -196,7 +197,23 @@ executable yare
     , with-utf8              ^>=1.1
     , yare
 
-  ghc-options:    -threaded -rtsopts -Wall
+executable yare-onchain
+  import:         opts
+  hs-source-dirs: exe/onchain
+  ghc-options:    -threaded
+  main-is:        Main.hs
+  build-depends:
+    , base16-bytestring
+    , bytestring
+    , cardano-addresses           ^>=3.12
+    , optparse-applicative        ^>=0.18.1
+    , path-io                     ^>=1.8.2
+    , plutus-ledger-api
+    , plutus-tx
+    , prettyprinter-configurable
+    , text
+    , with-utf8                   ^>=1.1
+    , yare
 
 test-suite yare-test
   import:             opts
