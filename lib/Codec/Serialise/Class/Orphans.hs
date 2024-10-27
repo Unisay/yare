@@ -6,14 +6,21 @@ module Codec.Serialise.Class.Orphans () where
 import Yare.Prelude
 
 import Cardano.Address (Address)
+import Cardano.Api.Shelley qualified as CApi
 import Cardano.Chain.Common qualified as Byron
 import Cardano.Crypto.Hashing (AbstractHash)
 import Cardano.Ledger.Api (Addr, BootstrapAddress (..))
 import Cardano.Ledger.BaseTypes qualified as Ledger
+import Cardano.Ledger.Binary qualified as LB
 import Cardano.Ledger.Credential qualified as Ledger
+import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Ledger.Hashes qualified as Ledger
 import Cardano.Ledger.Keys qualified as Ledger
+import Cardano.Ledger.Mary.Value qualified as Ledger
+import Codec.CBOR.Decoding qualified as CBOR
 import Codec.Serialise.Class (Serialise (..))
+import Data.Maybe.Strict (StrictMaybe (..))
+import GHC.Generics.Orphans ()
 import Yare.Chain.Types (ChainTip)
 
 deriving anyclass instance Serialise ChainTip
@@ -50,3 +57,22 @@ instance
 
 deriving newtype instance Serialise a ⇒ Serialise (Tagged tag a)
 
+instance Serialise a ⇒ Serialise (StrictMaybe a)
+
+--------------------------------------------------------------------------------
+-- Cardano.Api -----------------------------------------------------------------
+
+deriving anyclass instance Serialise CApi.TxIn
+
+deriving newtype instance Serialise CApi.TxId
+
+deriving newtype instance Serialise CApi.TxIx
+
+instance Serialise CApi.Value where
+  encode v = LB.toPlainEncoding maxBound (LB.encCBOR (CApi.toMaryValue v))
+  decode = CApi.fromLedgerValue CApi.ShelleyBasedEraConway <$> decodeMaryValue
+   where
+    decodeMaryValue ∷ CBOR.Decoder s (Ledger.MaryValue StandardCrypto)
+    decodeMaryValue = LB.toPlainDecoder maxBound LB.decCBOR
+
+deriving newtype instance Serialise CApi.ScriptHash

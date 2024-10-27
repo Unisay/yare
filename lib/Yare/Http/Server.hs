@@ -6,7 +6,8 @@ module Yare.Http.Server
 import Yare.Prelude
 
 import Cardano.Api.Shelley
-  ( PlutusScript (..)
+  ( Lovelace
+  , PlutusScript (..)
   , PlutusScriptV3
   , PlutusScriptVersion (PlutusScriptV3)
   , Script (PlutusScript)
@@ -28,26 +29,12 @@ import Yare.App.Services.DeployScript qualified as DeployScript
 import Yare.Http.Address qualified as Http.Address
 import Yare.Http.Types qualified as Http
 
-application ∷ App.Services IO → Wai.Application
-application services =
-  Servant.serve (Proxy @YareApi) do
-    endpointUtxo services
-      :<|> endpointChainTip services
-      :<|> ( \hash →
-              endpointScriptStatus services hash
-                :<|> endpointDeployScript services hash
-           )
-      :<|> ( endpointAddresses services
-              :<|> endpointAddressesChange services
-              :<|> endpointAddressesFees services
-              :<|> endpointAddressesCollateral services
-           )
-      :<|> endpointTransactionsInLedger services
-      :<|> endpointTransactionsSubmitted services
-
 type YareApi =
   "api"
-    :> ( "utxo" :> Get '[JSON] Http.Utxo
+    :> ( "utxo"
+          :> ( Get '[JSON] Http.Utxo
+                :<|> "balance" :> Get '[JSON] Lovelace
+             )
           :<|> "tip" :> Get '[JSON] Http.ChainTip
           :<|> "script"
             :> Capture "hash" Http.ScriptHash
@@ -66,6 +53,27 @@ type YareApi =
                   :<|> "submitted" :> Get '[JSON] [TxId]
                )
        )
+
+application ∷ App.Services IO → Wai.Application
+application services =
+  Servant.serve (Proxy @YareApi) do
+    (endpointUtxo services :<|> endpointBalance services)
+      :<|> endpointChainTip services
+      :<|> ( \hash →
+              endpointScriptStatus services hash
+                :<|> endpointDeployScript services hash
+           )
+      :<|> ( endpointAddresses services
+              :<|> endpointAddressesChange services
+              :<|> endpointAddressesFees services
+              :<|> endpointAddressesCollateral services
+           )
+      :<|> endpointTransactionsInLedger services
+      :<|> endpointTransactionsSubmitted services
+
+endpointBalance ∷ Services IO → Servant.Handler Lovelace
+endpointBalance App.Services {serveUtxoAdaBalance} =
+  liftIO serveUtxoAdaBalance
 
 endpointUtxo ∷ App.Services IO → Servant.Handler Http.Utxo
 endpointUtxo services = liftIO $ Http.Utxo <$> App.serveUtxo services

@@ -34,8 +34,8 @@ readOverStorage ∷ (∀ a. (s → (s, a)) → m a) → m s
 readOverStorage overStorage = overStorage \s → (s, s)
 
 -- | A simple in-memory storage.
-inMemory ∷ NoThunks s ⇒ s → IO (Storage IO s)
-inMemory s0 = do
+inMemory ∷ (HasCallStack, NoThunks s) ⇒ s → IO (Storage IO s)
+inMemory !s0 = do
   ref ← Strict.newIORef s0
   pure
     Storage
@@ -47,7 +47,7 @@ inMemory s0 = do
       }
 
 onDisk ∷ ∀ s. Serialise s ⇒ Path Abs File → s → IO (Storage IO s)
-onDisk (toFilePath → fp) s0 = do
+onDisk (toFilePath → fp) !s0 = do
   lmdb ← LMDB.openReadWriteEnvironment fp LMDB.defaultLimits
   pure
     Storage

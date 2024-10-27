@@ -1,6 +1,7 @@
 module Yare.Prelude
   ( module Reexport
   , (<<&>>)
+  , strictHCons
   ) where
 
 import Data.HList as Reexport (HList (HCons, HNil), (.*.))
@@ -13,3 +14,9 @@ import Relude as Reexport hiding (get, state)
 (<<&>>) = flip (<<$>>)
 
 infixl 1 <<&>>
+
+-- | Strict version of 'Data.HList.HCons'.
+strictHCons ∷ a → HList as → HList (a ': as)
+strictHCons !x !xs = HCons x xs
+
+infixr 2 `strictHCons`

@@ -14,6 +14,7 @@ import Cardano.Api.Shelley (TxId)
 import Cardano.Slotting.Slot (fromWithOrigin)
 import Control.Monad.Class.MonadThrow (throwIO)
 import Control.Tracer.Extended (Tracer, traceWith)
+import Data.Maybe.Strict (StrictMaybe (SJust))
 import Ouroboros.Network.Block
   ( BlockNo (..)
   , Tip (..)
@@ -25,6 +26,7 @@ import Ouroboros.Network.Block
 import Relude.Extra (dup)
 import Yare.Address (Addresses)
 import Yare.Chain.Block (StdCardanoBlock)
+import Yare.Chain.Tx (transactionViewUtxo, txViewId)
 import Yare.Chain.Types (ChainPoint, ChainTip, SyncFrom)
 import Yare.Storage (Storage (overStorage))
 import Yare.Tracers (Tracersᵣ)
@@ -57,8 +59,8 @@ newChainFollower env =
         overStorage storage (indexBlock (look @Addresses env) block tip) \case
           UtxoNotUpdated →
             traceWith (look env) (blockSlot block)
-          UtxoUpdated updatedUtxo txIds → do
-            for_ txIds $ traceWith (look env)
+          UtxoUpdated updatedUtxo txs → do
+            for_ txs $ traceWith (look env)
             traceWith (look env) updatedUtxo
           UtxoUpdateError err →
             throwIO err
@@ -74,7 +76,7 @@ type ChainState = HList ChainStateᵣ
 type ChainStateᵣ = [Utxo, ChainTip]
 
 initialChainState ∷ ChainState
-initialChainState = Utxo.initial .*. TipGenesis .*. HNil
+initialChainState = Utxo.initial `strictHCons` TipGenesis `strictHCons` HNil
 
 indexBlock
   ∷ ∀ state
@@ -89,18 +91,19 @@ indexBlock
   → StdCardanoBlock
   → ChainTip
   → (state → (state, UtxoUpdate))
-indexBlock addresses block tip state = (state', utxoUpdate)
+indexBlock addresses block !tip !state = (state', utxoUpdate)
  where
   state' ∷ state =
     case utxoUpdate of
       UtxoUpdateError {} → state
       UtxoNotUpdated → state
-      UtxoUpdated utxo' txIds →
-        state
-          & setter utxo'
-          & setter tip
-          & setter (Tagged @"syncFrom" (Just (blockPoint block)))
-          & update @(Tagged "in-ledger" [TxId]) ((fromList txIds <>) <$>)
+      UtxoUpdated utxo' txs →
+        let txIds = force $ txViewId . transactionViewUtxo <$> txs
+         in setter utxo'
+              . setter tip
+              . setter (Tagged @"syncFrom" (SJust (blockPoint block)))
+              -- . update @(Tagged "in-ledger" [TxId]) ((txIds <>) <$>)
+              $ state
 
   utxoUpdate ∷ UtxoUpdate =
     Utxo.indexBlock
@@ -127,7 +130,7 @@ rollbackTo
 rollbackTo point tip chainState =
   chainState
     & setter tip
-    & setter (Tagged @"syncFrom" (Just point))
+    & setter (Tagged @"syncFrom" (SJust point))
     & maybe id setter (Utxo.rollbackTo point (look @Utxo chainState))
 
 {- | The security parameter is a non-updatable one:

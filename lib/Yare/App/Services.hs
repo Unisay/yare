@@ -6,11 +6,13 @@ module Yare.App.Services
 import Yare.Prelude
 
 import Cardano.Api.Shelley
-  ( PlutusScriptV3
+  ( Lovelace
+  , PlutusScriptV3
   , Script
   , ScriptHash
   , TxId
   , TxIn
+  , selectLovelace
   )
 import Yare.Address (AddressWithKey (..), Addresses, externalAddresses)
 import Yare.Address qualified as Address
@@ -29,6 +31,7 @@ data Services m = Services
   , serveFeeAddresses ∷ m [LedgerAddress]
   , serveCollateralAddresses ∷ m [LedgerAddress]
   , serveUtxo ∷ m Utxo.Entries
+  , serveUtxoAdaBalance ∷ m Lovelace
   , serveTip ∷ m ChainTip
   , serveScriptStatus ∷ ScriptHash → m DeployScript.ScriptStatus
   , deployScript ∷ ScriptHash → Script PlutusScriptV3 → IO TxIn
@@ -61,6 +64,8 @@ mkServices env =
         pure . ledgerAddress . Address.useForCollateral $ look @Addresses env
     , serveUtxo =
         Utxo.spendableEntries . look @Utxo <$> readStorage storage
+    , serveUtxoAdaBalance =
+        selectLovelace . Utxo.totalValue . look @Utxo <$> readStorage storage
     , serveTip =
         look <$> readStorage storage
     , serveScriptStatus =

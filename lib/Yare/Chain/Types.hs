@@ -16,6 +16,7 @@ import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Address qualified as Ledger
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Data.ByteString.Base16 qualified as B16
+import Data.Maybe.Strict (StrictMaybe)
 import Data.Text.Encoding qualified as Text
 import Ouroboros.Network.Block (Tip)
 import Path (Abs, File, Path)
@@ -26,7 +27,7 @@ type ChainTip = Tip StdCardanoBlock
 
 type LedgerAddress = Addr StandardCrypto
 
-type SyncFrom = Tagged "syncFrom" (Maybe ChainPoint)
+type SyncFrom = Tagged "syncFrom" (StrictMaybe ChainPoint)
 
 type MnemonicPath = Tagged "mnemonic" (Path Abs File)
 

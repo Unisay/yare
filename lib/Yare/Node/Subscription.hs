@@ -2,10 +2,7 @@ module Yare.Node.Subscription (start) where
 
 import Yare.Prelude hiding (atomically)
 
-import Cardano.Api.Shelley
-  ( NetworkMagic
-  , TxId
-  )
+import Cardano.Api.Shelley (NetworkMagic, TxId)
 import Cardano.Client.Subscription (subscribe)
 import Codec.Serialise.Class.Orphans ()
 import Control.Tracer.Extended
@@ -31,12 +28,12 @@ import Yare.App.Types qualified as Yare
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower (newChainFollower)
 import Yare.Chain.Types (ChainTip, SyncFrom)
-import Yare.Tracers ( Tracersᵣ )
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
 import Yare.Query qualified as Query
 import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
+import Yare.Tracers (Tracersᵣ)
 import Yare.Utxo (Utxo)
 
 -- | Connects to a Cardano Node socket and runs Node-to-Client mini-protocols.

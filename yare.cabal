@@ -97,6 +97,7 @@ library
     , cardano-strict-containers
     , cborg                          ^>=0.2.10
     , contra-tracer                  ^>=0.1.0.2
+    , deepseq
     , dlist                          ^>=1.0
     , fmt                            ^>=0.6.3
     , generics-sop                   ^>=0.5.1.4
@@ -139,16 +140,18 @@ library
     , Win32-network                  ^>=0.2
 
   other-modules:
-    Cardano.Api.Orphans
     Codec.Serialise.Class.Orphans
-    Control.Tracer.Extended
-    Data.Has
-    Data.IORef.Strict
+    Control.DeepSeq.Orphans
     Fmt.Orphans
-    NoThunks.Class.Extended
+    GHC.Generics.Orphans
     NoThunks.Class.Orphans
 
   exposed-modules:
+    Control.Tracer.Extended
+    Data.Has
+    Data.HList.Extended
+    Data.IORef.Strict
+    NoThunks.Class.Extended
     Yare.Address
     Yare.Address.Derivation
     Yare.App
@@ -190,11 +193,12 @@ executable yare-offchain
   ghc-options:    -threaded
   main-is:        Main.hs
   build-depends:
-    , cardano-addresses      ^>=3.12
-    , optparse-applicative   ^>=0.18.1
+    , cardano-addresses          ^>=3.12
+    , cardano-strict-containers
+    , optparse-applicative       ^>=0.18.1
     , ouroboros-network-api
-    , path-io                ^>=1.8.2
-    , with-utf8              ^>=1.1
+    , path-io                    ^>=1.8.2
+    , with-utf8                  ^>=1.1
     , yare
 
 executable yare-onchain

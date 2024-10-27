@@ -20,6 +20,7 @@ import Path.IO (doesFileExist)
 import Yare.Address (Addresses)
 import Yare.Address qualified as Addresses
 import Yare.App.State qualified as Yare
+import Yare.App.Types (StorageMode (..))
 import Yare.App.Types qualified as Yare
 import Yare.Chain.Types (DatabasePath, MnemonicPath)
 import Yare.Query qualified as Query
@@ -46,13 +47,16 @@ initialize config = do
   addresses ←
     Addresses.deriveFromMnemonic netMagic mnemonicFile
       >>= either throwIO pure
-  let dbFile = untag $ look @DatabasePath config
-  unlessM (doesFileExist dbFile) do
-    writeFile (toFilePath dbFile) "" -- create an empty db file
-  storage ← Storage.onDisk dbFile (Yare.initialState config)
+  storage ←
+    case look @(StorageMode DatabasePath) config of
+      InMemory → Storage.inMemory (Yare.initialState config)
+      OnDisk (untag → dbFile) → do
+        unlessM (doesFileExist dbFile) do
+          writeFile (toFilePath dbFile) "" -- create an empty db file
+        Storage.onDisk dbFile (Yare.initialState config)
   pure $
     queryQueue
-      .*. submitQueue
-      .*. storage
-      .*. addresses
-      .*. hAppendList config tracers
+      `strictHCons` submitQueue
+      `strictHCons` storage
+      `strictHCons` addresses
+      `strictHCons` hAppendList config tracers

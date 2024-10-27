@@ -3,10 +3,10 @@ module Yare.Utxo.Internal where
 import Yare.Prelude
 
 import Cardano.Api (TxIn (..), Value, renderTxIn)
-import Cardano.Api.Orphans ()
 import Cardano.Slotting.Slot (SlotNo (..))
 import Codec.Serialise (Serialise)
 import Codec.Serialise.Class.Orphans ()
+import Control.DeepSeq.Orphans ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set (member, notMember)

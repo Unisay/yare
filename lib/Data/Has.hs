@@ -2,7 +2,7 @@ module Data.Has where
 
 import Relude
 
-import Data.HList.HList (HList (HCons), hHead)
+import Data.HList.Extended (HList (..), hHead, strictHCons)
 import Data.Tagged (Tagged, untag)
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import Relude.Extra.Lens (Lens')
@@ -54,16 +54,16 @@ instance
   look = error "unreachable"
   update = error "unreachable"
 
-instance {-# OVERLAPPING #-} a ∈ HList (a ': ts) where
+instance {-# OVERLAPPING #-} a ∈ HList (a : ts) where
   {-# INLINEABLE look #-}
   look = hHead
-  update f (HCons a ts) = HCons (f a) ts
+  update f (HCons a ts) = strictHCons (f a) ts
 
-instance {-# OVERLAPPABLE #-} b ∈ HList ts ⇒ b ∈ HList (a ': ts) where
+instance {-# OVERLAPPABLE #-} b ∈ HList ts ⇒ b ∈ HList (a : ts) where
   {-# INLINEABLE look #-}
   look (HCons _ ts) = look ts
   {-# INLINEABLE update #-}
-  update f (HCons a ts) = HCons a (update f ts)
+  update f (HCons a ts) = strictHCons a (update f ts)
 
 type family (∈∈) (ts ∷ [Type]) (r ∷ Type) ∷ Constraint where
   '[] ∈∈ _ = ()

@@ -82,17 +82,13 @@ data ScriptStatus
 
 status
   ∷ ∀ state env
-   . ( Storage IO state ∈ env
-     , Map ScriptHash ScriptStatus ∈ state
-     )
+   . (Storage IO state ∈ env, Map ScriptHash ScriptStatus ∈ state)
   ⇒ env
   → ScriptHash
   → IO ScriptStatus
-status env scriptHash = do
-  overStorage (look @(Storage IO state) env) f pure
- where
-  f ∷ state → (state, ScriptStatus)
-  f s = (s, Map.findWithDefault ScriptStatusUnknown scriptHash (look s))
+status env scriptHash =
+  Map.findWithDefault ScriptStatusUnknown scriptHash . look
+    <$> readStorage (look @(Storage IO state) env)
 
 -- | Deploys a script on-chain by submitting a transaction.
 service

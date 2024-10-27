@@ -40,7 +40,7 @@ import Yare.Utxo qualified as Utxo
 
 data UtxoUpdate
   = -- | The UTxO set which was updated by these transaction IDs
-    UtxoUpdated Utxo [TxId]
+    UtxoUpdated Utxo [AnyEra Tx]
   | UtxoNotUpdated
   | UtxoUpdateError Utxo.UpdateError
 
@@ -88,17 +88,17 @@ indexBlock submittedTxs addresses block finality prevUtxo =
       UtxoNotUpdated →
         case indexTx submittedTxs addresses tx utxo of
           Nothing → UtxoNotUpdated
-          Just (txId, updates) → do
+          Just updates → do
             case updateUtxo slot updates utxo of
               Left updateErr → UtxoUpdateError updateErr
-              Right utxo' → UtxoUpdated utxo' (pure txId)
-      previous@(UtxoUpdated utxo' txIds) →
+              Right utxo' → UtxoUpdated utxo' (pure tx)
+      previous@(UtxoUpdated utxo' txs) →
         case indexTx submittedTxs addresses tx utxo' of
           Nothing → previous
-          Just (txId, updates) →
+          Just updates →
             case updateUtxo slot updates utxo' of
               Left updateErr → UtxoUpdateError updateErr
-              Right utxo'' → UtxoUpdated utxo'' (txId : txIds)
+              Right utxo'' → UtxoUpdated utxo'' (tx : txs)
 
   slot ∷ SlotNo
   slot = blockSlot block
@@ -111,10 +111,10 @@ indexTx
   → Addresses
   → AnyEra Tx
   → Utxo
-  → Maybe (TxId, NonEmpty Update)
+  → Maybe (NonEmpty Update)
 indexTx submittedTxs addresses tx utxo = do
   case NE.nonEmpty (indexInsAndOuts (spendableTxInputs utxo) txView) of
-    Just updates → Just (txId, updates)
+    Just updates → Just updates
     Nothing →
       if txId `elem` submittedTxs
         then error $ "Submitted transaction is not indexed: " <> show txView

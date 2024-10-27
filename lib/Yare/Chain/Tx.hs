@@ -56,6 +56,8 @@ import Cardano.Ledger.Shelley.Core (txIdTxBody)
 import Cardano.Ledger.Shelley.TxOut (addrEitherShelleyTxOutL)
 import Control.Lens (folded, to, (^.), (^..))
 import Data.SOP.Strict (NS (S, Z))
+import Fmt (Buildable, blockListF, build, nameF)
+import Fmt.Orphans ()
 import Ouroboros.Consensus.Byron.Ledger (ByronBlock, byronBlockRaw)
 import Ouroboros.Consensus.Byron.Ledger qualified as Consensus
 import Ouroboros.Consensus.Cardano.Block
@@ -107,8 +109,7 @@ type family TxInEra era ∷ Type where
 
 -- Newtype wrapper around the TxInEra type family to allow partial application,
 -- as type families cannot be partially applied.
-type Tx ∷ Era → Type
-newtype Tx era = Tx {unwrapTx ∷ TxInEra era}
+newtype Tx (era ∷ Era) = Tx {unwrapTx ∷ TxInEra era}
 
 byEraByron ∷ TxInEra Byron → AnyEra Tx
 byEraByron = InEraByron . Tx
@@ -134,8 +135,7 @@ byEraConway = InEraConway . Tx
 --------------------------------------------------------------------------------
 -- Tx body ---------------------------------------------------------------------
 
-type TxBodyForEra ∷ Era → Type
-type family TxBodyForEra era ∷ Type where
+type family TxBodyForEra (era ∷ Era) ∷ Type where
   TxBodyForEra Byron = Byron.TxAux
   TxBodyForEra Shelley = ShelleyTxBody (ShelleyEra StandardCrypto)
   TxBodyForEra Allegra = AllegraTxBody (AllegraEra StandardCrypto)
@@ -144,14 +144,12 @@ type family TxBodyForEra era ∷ Type where
   TxBodyForEra Babbage = BabbageTxBody (BabbageEra StandardCrypto)
   TxBodyForEra Conway = ConwayTxBody (ConwayEra StandardCrypto)
 
-type TxBody ∷ Era → Type
-newtype TxBody era = TxBody (TxBodyForEra era)
+newtype TxBody (era ∷ Era) = TxBody (TxBodyForEra era)
 
 --------------------------------------------------------------------------------
 -- Tx outputs ------------------------------------------------------------------
 
-type TxOutForEra ∷ Era → Type
-type family TxOutForEra era ∷ Type where
+type family TxOutForEra (era ∷ Era) ∷ Type where
   TxOutForEra Byron = Byron.TxOut
   TxOutForEra Shelley = ShelleyTxOut (ShelleyEra StandardCrypto)
   TxOutForEra Allegra = ShelleyTxOut (AllegraEra StandardCrypto)
@@ -160,8 +158,7 @@ type family TxOutForEra era ∷ Type where
   TxOutForEra Babbage = BabbageTxOut (BabbageEra StandardCrypto)
   TxOutForEra Conway = BabbageTxOut (ConwayEra StandardCrypto)
 
-type TxOut ∷ Era → Type
-data TxOut era = TxOut
+data TxOut (era ∷ Era) = TxOut
   { txOutIndex ∷ CA.TxIx
   , unwrapTxOut ∷ TxOutForEra era
   }
@@ -170,7 +167,6 @@ data TxOut era = TxOut
 -- Tx views  -------------------------------------------------------------------
 
 -- | Tx view for the purpose of tracking unspent tx outputs (UTxO)
-type TxViewUtxo ∷ Type
 data TxViewUtxo = TxViewUtxo
   { txViewId ∷ TxId
   , txViewInputs ∷ [TxIn]
@@ -178,14 +174,25 @@ data TxViewUtxo = TxViewUtxo
   }
   deriving stock (Eq, Show)
 
+instance Buildable TxViewUtxo where
+  build TxViewUtxo {..} =
+    nameF "TxId" (build txViewId)
+      <> nameF "Inputs" (blockListF (map build txViewInputs))
+      <> nameF "Outputs" (blockListF (map build txViewOutputs))
+
 -- | Tx output view for the purpose of tracking unspent tx outputs (UTxO)
-type TxOutViewUtxo ∷ Type
 data TxOutViewUtxo = TxOutViewUtxo
   { txOutViewUtxoIndex ∷ CA.TxIx
   , txOutViewUtxoAddress ∷ LedgerAddress
   , txOutViewUtxoValue ∷ CA.Value
   }
   deriving stock (Eq, Show)
+
+instance Buildable TxOutViewUtxo where
+  build TxOutViewUtxo {..} =
+    nameF "Index" (build txOutViewUtxoIndex)
+      <> nameF "Address" (build txOutViewUtxoAddress)
+      <> nameF "Value" (build txOutViewUtxoValue)
 
 transactionViewUtxo ∷ AnyEra Tx → TxViewUtxo
 transactionViewUtxo =

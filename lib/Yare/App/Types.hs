@@ -2,6 +2,7 @@ module Yare.App.Types
   ( Config
   , Configᵣ
   , NetworkInfo (..)
+  , StorageMode (..)
   ) where
 
 import Yare.Prelude
@@ -24,7 +25,7 @@ type Configᵣ =
    , NetworkMagic
    , SyncFrom
    , MnemonicPath
-   , DatabasePath
+   , StorageMode DatabasePath
    ]
 
 type Config = HList Configᵣ
@@ -36,3 +37,5 @@ data NetworkInfo era = NetworkInfo
   , currentEra ∷ BabbageEraOnwards era
   , protocolParameters ∷ LedgerProtocolParameters era
   }
+
+data StorageMode diskData = InMemory | OnDisk diskData

@@ -13,6 +13,7 @@ import Cardano.Api.Shelley
   , ScriptHash
   , TxId
   , TxIn
+  , TxIx (..)
   , Value
   , renderTxIn
   , selectLovelace
@@ -38,6 +39,8 @@ instance Buildable TxIn where
 
 instance Buildable TxId where
   build = build . serialiseToRawBytesHexText
+
+deriving newtype instance Buildable TxIx
 
 instance Buildable Coin where
   build = build . unCoin
