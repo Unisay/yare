@@ -60,6 +60,13 @@ cabalProject: {
       group = "development";
       exec = ''cabal run yare-onchain'';
     };
+
+    drop-state = {
+      description = "Drop the state of the off-chain backend";
+      group = "development";
+      exec = ''rm -f lmdb/testnet.*'';
+    };
+
     hooks = {
       description = "Run all git hooks";
       group = "development";
