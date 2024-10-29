@@ -10,13 +10,14 @@ import Yare.Prelude hiding (State)
 import Cardano.Api.Shelley (ScriptHash, TxId)
 import Control.DeepSeq.Orphans ()
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Yare.App.Services.DeployScript (ScriptStatus)
 import Yare.Chain.Follower (ChainStateᵣ, initialChainState)
 import Yare.Chain.Types (SyncFrom)
 
 type Stateᵣ =
-  Tagged "submitted" [TxId]
-    : Tagged "in-ledger" [TxId]
+  Tagged "submitted" (Set TxId)
+    : Tagged "in-ledger" (Set TxId)
     : Map ScriptHash ScriptStatus
     : SyncFrom
     : ChainStateᵣ
@@ -31,7 +32,7 @@ initialState config =
     `strictHCons` syncFrom
     `strictHCons` initialChainState
  where
-  inLedger ∷ Tagged "in-ledger" [TxId] = Tagged []
-  submitted ∷ Tagged "submitted" [TxId] = Tagged []
+  inLedger ∷ Tagged "in-ledger" (Set TxId) = Tagged Set.empty
+  submitted ∷ Tagged "submitted" (Set TxId) = Tagged Set.empty
   syncFrom ∷ SyncFrom = look config
   scriptStatuses ∷ Map ScriptHash ScriptStatus = Map.empty

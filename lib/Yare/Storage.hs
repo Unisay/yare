@@ -51,12 +51,13 @@ onDisk (toFilePath → fp) !s0 = do
   lmdb ← LMDB.openReadWriteEnvironment fp LMDB.defaultLimits
   pure
     Storage
-      { overStorage = \f after → LMDB.readWriteTransaction lmdb do
-          s ∷ s ← readStoredData
-          let (s', a) = f s
-          b ← liftIO (after a)
-          writeStoredData s'
-          pure b
+      { overStorage = \pureStateTransition after →
+          LMDB.readWriteTransaction lmdb do
+            s ∷ s ← readStoredData
+            let (s', a) = pureStateTransition s
+            b ← liftIO (after a)
+            writeStoredData s'
+            pure b
       , readStorage = LMDB.readOnlyTransaction lmdb readStoredData
       }
  where

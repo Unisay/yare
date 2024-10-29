@@ -15,6 +15,7 @@ import Cardano.Slotting.Slot (fromWithOrigin)
 import Control.Monad.Class.MonadThrow (throwIO)
 import Control.Tracer.Extended (Tracer, traceWith)
 import Data.Maybe.Strict (StrictMaybe (SJust))
+import Data.Set qualified as Set
 import Ouroboros.Network.Block
   ( BlockNo (..)
   , Tip (..)
@@ -45,8 +46,8 @@ newChainFollower
    . ( (Storage IO state : Addresses : Tracersᵣ) ∈∈ env
      , [ Utxo
        , ChainTip
-       , Tagged "submitted" [TxId]
-       , Tagged "in-ledger" [TxId]
+       , Tagged "submitted" (Set TxId)
+       , Tagged "in-ledger" (Set TxId)
        , SyncFrom
        ]
         ∈∈ state
@@ -82,8 +83,8 @@ indexBlock
   ∷ ∀ state
    . [ Utxo
      , ChainTip
-     , Tagged "submitted" [TxId]
-     , Tagged "in-ledger" [TxId]
+     , Tagged "submitted" (Set TxId)
+     , Tagged "in-ledger" (Set TxId)
      , SyncFrom
      ]
     ∈∈ state
@@ -98,16 +99,16 @@ indexBlock addresses block !tip !state = (state', utxoUpdate)
       UtxoUpdateError {} → state
       UtxoNotUpdated → state
       UtxoUpdated utxo' txs →
-        let txIds = force $ txViewId . transactionViewUtxo <$> txs
+        let txIds = Set.fromList (txViewId . transactionViewUtxo <$> txs)
          in setter utxo'
               . setter tip
               . setter (Tagged @"syncFrom" (SJust (blockPoint block)))
-              -- . update @(Tagged "in-ledger" [TxId]) ((txIds <>) <$>)
+              . update @(Tagged "in-ledger" (Set TxId)) (Set.union txIds <$>)
               $ state
 
   utxoUpdate ∷ UtxoUpdate =
     Utxo.indexBlock
-      (lookTagged @"submitted" @[TxId] state)
+      (lookTagged @"submitted" @(Set TxId) state)
       addresses
       block
       finality

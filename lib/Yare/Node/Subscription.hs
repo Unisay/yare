@@ -45,8 +45,8 @@ start
      , [Query.Q, Submitter.Q, Addresses, Storage IO state] ∈∈ env
      , [ Utxo
        , ChainTip
-       , Tagged "submitted" [TxId]
-       , Tagged "in-ledger" [TxId]
+       , Tagged "submitted" (Set TxId)
+       , Tagged "in-ledger" (Set TxId)
        , SyncFrom
        ]
         ∈∈ state

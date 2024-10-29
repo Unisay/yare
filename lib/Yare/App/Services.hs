@@ -35,8 +35,8 @@ data Services m = Services
   , serveTip ∷ m ChainTip
   , serveScriptStatus ∷ ScriptHash → m DeployScript.ScriptStatus
   , deployScript ∷ ScriptHash → Script PlutusScriptV3 → IO TxIn
-  , serveTransactionsInLedger ∷ m [TxId]
-  , serveTransactionsSubmitted ∷ m [TxId]
+  , serveTransactionsInLedger ∷ m (Set TxId)
+  , serveTransactionsSubmitted ∷ m (Set TxId)
   }
 
 mkServices
@@ -44,8 +44,8 @@ mkServices
    . ( [Submitter.Q, NetworkInfo era, Storage IO state, Addresses] ∈∈ env
      , [ Utxo
        , ChainTip
-       , Tagged "submitted" [TxId]
-       , Tagged "in-ledger" [TxId]
+       , Tagged "submitted" (Set TxId)
+       , Tagged "in-ledger" (Set TxId)
        , Map ScriptHash DeployScript.ScriptStatus
        ]
         ∈∈ state
@@ -73,9 +73,9 @@ mkServices env =
     , deployScript =
         DeployScript.service @era @state env
     , serveTransactionsInLedger =
-        lookTagged @"in-ledger" @[TxId] <$> readStorage storage
+        lookTagged @"in-ledger" @(Set TxId) <$> readStorage storage
     , serveTransactionsSubmitted =
-        lookTagged @"submitted" @[TxId] <$> readStorage storage
+        lookTagged @"submitted" @(Set TxId) <$> readStorage storage
     }
  where
   storage ∷ Storage IO state = look env

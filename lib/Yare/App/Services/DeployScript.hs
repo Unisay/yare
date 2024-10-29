@@ -93,7 +93,7 @@ status env scriptHash =
 -- | Deploys a script on-chain by submitting a transaction.
 service
   ∷ ∀ era state env
-   . ( [Utxo, Tagged "submitted" [TxId]] ∈∈ state
+   . ( [Utxo, Tagged "submitted" (Set TxId)] ∈∈ state
      , [Addresses, Submitter.Q, NetworkInfo era, Storage IO state] ∈∈ env
      )
   ⇒ env
@@ -124,7 +124,7 @@ service env scriptHash script = do
 
 deployScript
   ∷ ∀ state env era
-   . ( [Tagged "submitted" [TxId], Utxo] ∈∈ state
+   . ( [Tagged "submitted" (Set TxId), Utxo] ∈∈ state
      , [Addresses, NetworkInfo era] ∈∈ env
      )
   ⇒ env
@@ -144,7 +144,8 @@ deployScript env scriptHash plutusScript = do
       scriptHash
       plutusScript
   modify' $
-    update @(Tagged "submitted" [TxId]) ((getTxId (getTxBody tx) :) <$>)
+    update @(Tagged "submitted" (Set TxId))
+      (Set.insert (getTxId (getTxBody tx)) <$>)
       . update @Utxo (setScriptDeployment (Deployed txIn))
   pure res
 

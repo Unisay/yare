@@ -72,8 +72,8 @@ instance Buildable Utxo where
   build utxo@Utxo {..} =
     nameF "Reversible UTxO updates" do
       blockListF
-        [ nameF "BlockNo" (build block) <> blockListF updates
-        | (block, updates) ← reversibleUpdates
+        [ nameF "SlotNo" (build slotNo) <> blockListF updates
+        | (slotNo, updates) ← reversibleUpdates
         ]
       <> nameF "Final UTxO entries" do
         blockListF
@@ -186,7 +186,7 @@ useByAddress utxo addr = (utxo', entries)
     guard $ addr == outputAddr
     pure entry
 
--- | Finalize the UTxO set up to the given slot.
+-- | Finalize the UTxO set up to the given slot (inclusive).
 finalise ∷ SlotNo → Utxo → Utxo
 finalise
   immutableSlot
@@ -197,7 +197,7 @@ finalise
     } =
     utxo
       { reversibleUpdates = reversibleUpdates'
-      , finalEntries = updatesToEntries irreversibleUpdates <> finalEntries
+      , finalEntries = updatesToEntries irreversibleUpdates finalEntries
       , scriptDeployment =
           case scriptDeployment of
             NotInitiated → NotInitiated
@@ -224,7 +224,7 @@ setScriptDeployment scriptDeployment utxo = utxo {scriptDeployment}
 -- | All entries in the UTxO set: both reversible and final inputs.
 allEntries ∷ Utxo → Entries
 allEntries Utxo {reversibleUpdates, finalEntries} =
-  updatesToEntries reversibleUpdates <> finalEntries
+  updatesToEntries reversibleUpdates finalEntries
 
 {- | Spendable entries in the UTxO set:
 Everything that could be spent (i.e. not already used),
@@ -244,8 +244,8 @@ totalValue =
   Map.foldr' (\(_addr, value) acc → value <> acc) mempty . spendableEntries
 
 -- | Converts a list of UTxO updates to a map of UTxO entries.
-updatesToEntries ∷ [(SlotNo, NonEmpty Update)] → Entries
-updatesToEntries = foldr overUpdates mempty
+updatesToEntries ∷ [(SlotNo, NonEmpty Update)] → Entries → Entries
+updatesToEntries updates entries = foldr overUpdates entries updates
  where
   overUpdates ∷ (SlotNo, NonEmpty Update) → Entries → Entries
   overUpdates (_slot, !updates) = foldlNoThunks overUpdate id (toList updates)

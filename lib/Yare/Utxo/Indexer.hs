@@ -10,6 +10,7 @@ import Cardano.Api (TxIn (..))
 import Cardano.Slotting.Slot (SlotNo (..), fromWithOrigin)
 import Data.List.NonEmpty qualified as NE
 import Data.Set (member)
+import Fmt (pretty)
 import Fmt.Orphans ()
 import NoThunks.Class.Extended (foldlNoThunks)
 import Ouroboros.Consensus.Block (blockSlot, pointSlot)
@@ -48,7 +49,7 @@ data UtxoUpdate
 | Returns the updated UTxO set or 'Nothing' if the block is irrelevant.
 -}
 indexBlock
-  ∷ [TxId]
+  ∷ Set TxId
   -- ^ Submitted transactions
   → Addresses
   -- ^ Addresses of the wallet
@@ -66,7 +67,9 @@ indexBlock submittedTxs addresses block finality prevUtxo =
     UtxoUpdateError err → UtxoUpdateError err
     UtxoUpdated utxo txIds →
       case finality of
-        Final → UtxoUpdated (finalise slot utxo) txIds
+        Final →
+          trace (pretty utxo) $
+            UtxoUpdated (finalise slot utxo) txIds
         NotFinal → utxoUpdate
  where
   utxoUpdate ∷ UtxoUpdate
@@ -107,7 +110,7 @@ indexBlock submittedTxs addresses block finality prevUtxo =
 | Returns the updated UTxO set or 'Nothing' if the transaction is irrelevant.
 -}
 indexTx
-  ∷ [TxId]
+  ∷ Set TxId
   → Addresses
   → AnyEra Tx
   → Utxo
@@ -116,7 +119,7 @@ indexTx submittedTxs addresses tx utxo = do
   case NE.nonEmpty (indexInsAndOuts (spendableTxInputs utxo) txView) of
     Just updates → Just updates
     Nothing →
-      if txId `elem` submittedTxs
+      if txId `member` submittedTxs
         then error $ "Submitted transaction is not indexed: " <> show txView
         else Nothing
  where

@@ -49,8 +49,8 @@ type YareApi =
                   :<|> "collateral" :> Get '[JSON] [Http.Address]
                )
           :<|> "transactions"
-            :> ( "in-ledger" :> Get '[JSON] [TxId]
-                  :<|> "submitted" :> Get '[JSON] [TxId]
+            :> ( "in-ledger" :> Get '[JSON] (Set TxId)
+                  :<|> "submitted" :> Get '[JSON] (Set TxId)
                )
        )
 
@@ -117,11 +117,11 @@ endpointAddressesCollateral ∷ App.Services IO → Servant.Handler [Http.Addres
 endpointAddressesCollateral App.Services {serveCollateralAddresses} = liftIO do
   Http.Address.fromLedgerAddress <<$>> serveCollateralAddresses
 
-endpointTransactionsSubmitted ∷ Services IO → Servant.Handler [TxId]
+endpointTransactionsSubmitted ∷ Services IO → Servant.Handler (Set TxId)
 endpointTransactionsSubmitted App.Services {serveTransactionsSubmitted} =
   liftIO serveTransactionsSubmitted
 
-endpointTransactionsInLedger ∷ Services IO → Servant.Handler [TxId]
+endpointTransactionsInLedger ∷ Services IO → Servant.Handler (Set TxId)
 endpointTransactionsInLedger App.Services {serveTransactionsInLedger} =
   liftIO serveTransactionsInLedger
 
