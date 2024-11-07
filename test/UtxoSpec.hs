@@ -4,6 +4,7 @@ import Yare.Prelude hiding (untag)
 
 import Arbitrary (NonEmptyUtxo (..), TwoSlots (..), untag)
 import Data.List.NonEmpty qualified as NE
+import Data.Map qualified as Map
 import Data.Set (member, notMember)
 import Data.Set qualified as Set
 import Test.Cardano.Ledger.Core.Arbitrary ()
@@ -55,6 +56,31 @@ spec = describe "UTxO" do
 
   describe "Updating" do
     --
+    it "Adding an output actually adds it" do
+      property \utxo0 slot txIn addr value → do
+        let updates = pure (AddSpendableTxInput txIn addr value)
+        utxo1 ← expectRight "updateUtxo" $ Utxo.updateUtxo slot updates utxo0
+        let entries = Utxo.spendableEntries utxo1
+        Map.lookup txIn entries `shouldBe` Just (addr, value)
+
+    it "Spending an output actually removes it" do
+      property \utxo0 (TwoSlots slotEarlier slotLater) txIn addr value → do
+        -- Add the output
+        utxo1 ←
+          expectRight "updateUtxo" $
+            Utxo.updateUtxo
+              slotEarlier
+              (NE.singleton (AddSpendableTxInput txIn addr value))
+              utxo0
+        -- Spend the output
+        utxo2 ←
+          expectRight "updateUtxo" $
+            Utxo.updateUtxo
+              slotLater
+              (NE.singleton (SpendTxInput txIn))
+              utxo1
+        Map.lookup txIn (Utxo.spendableEntries utxo2) `shouldBe` Nothing
+
     it "Adding and then spending an output cancels out" do
       property \slot utxo (untag @"AddSpendInputPair" → (u1, u2)) → do
         utxo' ←
