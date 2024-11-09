@@ -29,13 +29,11 @@ import Options.Applicative
   , option
   , progDesc
   )
-import Options.Applicative.Builder (value)
 import Options.Applicative.Help.Pretty (vsep)
 import Ouroboros.Network.Magic (NetworkMagic (NetworkMagic))
 import Path (File, SomeBase (..), parseSomeFile)
 import Path.IO qualified as Path
 import Yare.App qualified as Yare
-import Yare.App.Types (StorageMode (..))
 import Yare.Chain.Point (parseChainPoint)
 import Yare.Chain.Types (ChainPoint)
 import Yare.Node.Socket (NodeSocket (..))
@@ -54,13 +52,9 @@ main = withUtf8 do
         Path.Abs a → pure a
         Path.Rel r → Path.makeAbsolute r
   storageMode ←
-    case argStorageMode args of
-      InMemory → pure InMemory
-      OnDisk databasePath →
-        OnDisk
-          <$> case databasePath of
-            Path.Abs a → pure (Tagged a)
-            Path.Rel r → Tagged <$> Path.makeAbsolute r
+    case argDbFile args of
+      Path.Abs a → pure (Tagged a)
+      Path.Rel r → Tagged <$> Path.makeAbsolute r
   Yare.start
     ( 9999
         `strictHCons` nodeSocket
@@ -84,7 +78,7 @@ data Args = Args
   , argNetworkMagic ∷ NetworkMagic
   , argMnemonicPath ∷ SomeBase File
   , argSyncFrom ∷ Tagged "syncFrom" (StrictMaybe ChainPoint)
-  , argStorageMode ∷ StorageMode (SomeBase File)
+  , argDbFile ∷ SomeBase File
   }
 
 parseArguments ∷ IO Args
@@ -98,7 +92,7 @@ options =
     <*> networkMagicOption
     <*> mnemonicFileOption
     <*> (fmap maybeToStrictMaybe . Tagged <$> optional syncFromChainPoint)
-    <*> storageModeOption
+    <*> dbFileOption
  where
   nodeSocketPathOption ∷ Parser (SomeBase File) =
     option
@@ -149,13 +143,12 @@ options =
           ]
       )
 
-  storageModeOption ∷ Parser (StorageMode (SomeBase File)) =
+  dbFileOption ∷ Parser (SomeBase File) =
     option
-      (eitherReader (fmap OnDisk . first displayException . parseSomeFile))
+      (eitherReader (first displayException . parseSomeFile))
       ( fold
           [ metavar "DATABASE_FILE"
           , long "database-file"
-          , value InMemory
           , helpDoc . Just $
               "Path to a file where the application will store its state.\
               \If omitted, the application will use in-memory storage."

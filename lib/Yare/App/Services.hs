@@ -20,7 +20,7 @@ import Yare.Address qualified as Address
 import Yare.App.Services.DeployScript qualified as DeployScript
 import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (BlockRef, ChainTip, LastIndexedBlock, LedgerAddress)
-import Yare.Storage (Storage (..))
+import Yare.Storage (StorageMgr, readDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Utxo (ScriptDeployment, Utxo)
 import Yare.Utxo qualified as Utxo
@@ -43,7 +43,7 @@ data Services m = Services
 
 mkServices
   ∷ ∀ era state env
-   . ( [Submitter.Q, NetworkInfo era, Storage IO state, Addresses] ∈∈ env
+   . ( [Submitter.Q, NetworkInfo era, StorageMgr IO state, Addresses] ∈∈ env
      , [ Utxo
        , ChainTip
        , LastIndexedBlock
@@ -65,21 +65,21 @@ mkServices env =
     , serveCollateralAddresses = pure do
         pure . ledgerAddress . Address.useForCollateral $ look @Addresses env
     , serveUtxo =
-        Utxo.spendableEntries . look @Utxo <$> readStorage storage
+        Utxo.spendableEntries . look @Utxo <$> readDefaultStorage @state env
     , serveUtxoAdaBalance =
-        selectLovelace . Utxo.totalValue . look @Utxo <$> readStorage storage
+        selectLovelace . Utxo.totalValue . look @Utxo
+          <$> readDefaultStorage @state env
     , serveTip =
-        look <$> readStorage storage
+        look <$> readDefaultStorage @state env
     , serveLastIndexed =
-        strictMaybeToMaybe . lookTagged @"last-indexed" <$> readStorage storage
+        strictMaybeToMaybe . lookTagged @"last-indexed"
+          <$> readDefaultStorage @state env
     , serveScriptDeployments =
         DeployScript.scriptDeployments @state env
     , deployScript =
         DeployScript.service @era @state env
     , serveTransactionsInLedger =
-        lookTagged @"in-ledger" @(Set TxId) <$> readStorage storage
+        lookTagged @"in-ledger" @(Set TxId) <$> readDefaultStorage @state env
     , serveTransactionsSubmitted =
-        lookTagged @"submitted" @(Set TxId) <$> readStorage storage
+        lookTagged @"submitted" @(Set TxId) <$> readDefaultStorage @state env
     }
- where
-  storage ∷ Storage IO state = look env

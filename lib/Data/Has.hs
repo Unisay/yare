@@ -3,7 +3,7 @@ module Data.Has where
 import Relude
 
 import Data.HList.Extended (HList (..), hHead, strictHCons)
-import Data.Tagged (Tagged, untag)
+import Data.Tagged (Tagged (..), untag)
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import Relude.Extra.Lens (Lens')
 
@@ -24,6 +24,9 @@ setter = update . const
 
 lookTagged ∷ ∀ l a t. Tagged l a ∈ t ⇒ t → a
 lookTagged = untag @l . look @(Tagged l a)
+
+updateTagged ∷ ∀ l a t. Tagged l a ∈ t ⇒ (a → a) → t → t
+updateTagged f = update @(Tagged l a) (f <$>)
 
 instance a ∈ a where
   {-# INLINEABLE look #-}

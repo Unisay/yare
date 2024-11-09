@@ -28,7 +28,7 @@ instance (NoThunks a, NoThunks b) ⇒ NoThunks (Pair a b) where
 -- Tagged ----------------------------------------------------------------------
 
 instance (Typeable s, NoThunks a) ⇒ NoThunks (Tagged s a) where
-  wNoThunks ctx (Tagged a) = noThunks ("Tagged" : ctx) a
+  wNoThunks ctx (Tagged a) = noThunks ctx a
   showTypeOf _proxy =
     "Tagged " <> show (typeRep (Proxy @s)) <> " " <> showTypeOf (Proxy @a)
 

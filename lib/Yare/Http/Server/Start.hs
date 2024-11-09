@@ -31,14 +31,14 @@ import Yare.App.Types (NetworkInfo (..))
 import Yare.App.Types qualified as Yare
 import Yare.Http.Server qualified as Http
 import Yare.Query qualified as Query
-import Yare.Storage (Storage (..))
+import Yare.Storage (StorageMgr (..))
 import Yare.Submitter qualified as Submitter
 
 -- | Runs a web server serving web application via a RESTful API.
 start
   ∷ ∀ envᵣ
    . ( Yare.Configᵣ ∈∈ HList envᵣ
-     , [Query.Q, Submitter.Q, Addresses, Storage IO Yare.State] ∈∈ HList envᵣ
+     , [Query.Q, Submitter.Q, Addresses, StorageMgr IO Yare.State] ∈∈ HList envᵣ
      )
   ⇒ HList envᵣ
   → IO ()

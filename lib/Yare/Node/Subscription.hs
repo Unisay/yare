@@ -32,7 +32,7 @@ import Yare.Chain.Types (ChainTip, LastIndexedBlock)
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
 import Yare.Query qualified as Query
-import Yare.Storage (Storage (..))
+import Yare.Storage (StorageMgr, readDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Tracers (Tracersᵣ)
 import Yare.Utxo (Utxo)
@@ -43,7 +43,7 @@ start
    . ( env ~ HList envᵣ
      , Yare.Configᵣ ∈∈ env
      , Tracersᵣ ∈∈ env
-     , [Query.Q, Submitter.Q, Addresses, Storage IO state] ∈∈ env
+     , [Query.Q, Submitter.Q, Addresses, StorageMgr IO state] ∈∈ env
      , [ Utxo
        , ChainTip
        , LastIndexedBlock
@@ -55,7 +55,7 @@ start
   ⇒ env
   → IO Void
 start env = withIOManager \ioManager → do
-  yareState ← readStorage (look @(Storage IO state) env)
+  yareState ← readDefaultStorage @state env
   subscribe
     (localSnocket ioManager)
     (look @NetworkMagic env)

@@ -1,6 +1,5 @@
 module Yare.Utxo
   ( Entries
-  , Finality (..)
   , ScriptStatus (..)
   , ScriptDeployment (..)
   , Update (..)
