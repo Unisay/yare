@@ -1,6 +1,7 @@
 module Yare.Utxo
   ( Entries
   , Finality (..)
+  , ScriptStatus (..)
   , ScriptDeployment (..)
   , Update (..)
   , UpdateError (..)
@@ -12,7 +13,7 @@ module Yare.Utxo
   , updateUtxo
   , rollback
   , finalise
-  , setScriptDeployment
+  , initiateScriptDeployment
 
     -- * Queries
   , initial

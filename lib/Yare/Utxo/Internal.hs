@@ -2,7 +2,7 @@ module Yare.Utxo.Internal where
 
 import Yare.Prelude
 
-import Cardano.Api (TxIn (..), Value, renderTxIn)
+import Cardano.Api (ScriptHash, TxIn (..), Value, renderTxIn)
 import Cardano.Slotting.Slot (SlotNo (..))
 import Codec.Serialise (Serialise)
 import Codec.Serialise.Class.Orphans ()
@@ -32,7 +32,7 @@ data Update
     SpendTxInput !TxIn
   | -- | Confirm that previously submitted script deployment tx
     --  is in the blockchain.
-    ConfirmScriptDeployment !TxIn
+    ConfirmScriptDeployment !ScriptHash !TxIn
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NFData, NoThunks, Serialise)
 
@@ -45,25 +45,34 @@ instance Buildable Update where
           <> nameF "Value" (build val)
     SpendTxInput input →
       "SpendTxInput " +| renderTxIn input |+ ""
-    ConfirmScriptDeployment input →
-      "ConfirmScriptDeployment " +| renderTxIn input |+ ""
+    ConfirmScriptDeployment scriptHash input →
+      "ConfirmScriptDeployment " +| scriptHash |+ " " +| renderTxIn input |+ ""
 
 data UpdateError
   = NoTxInputToSpend TxIn
-  | InvalidScriptDeploymentConfirmation ScriptDeployment TxIn
+  | InvalidScriptDeploymentConfirmation (Maybe ScriptStatus) TxIn
   | InputAlreadyExists TxIn
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NoThunks, Exception)
 
-data ScriptDeployment = NotInitiated | Submitted !TxIn | Deployed !TxIn
+data ScriptStatus
+  = ScriptStatusDeployInitiated
+  | ScriptStatusDeployCompleted
+  deriving stock (Eq, Ord, Enum, Bounded, Show, Generic)
+  deriving anyclass (NoThunks, NFData, Serialise)
+
+data ScriptDeployment = ScriptDeployment
+  { scriptTxIn ∷ !TxIn
+  , scriptStatus ∷ !ScriptStatus
+  }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (NFData, NoThunks, Serialise)
+  deriving anyclass (NoThunks, NFData, Serialise)
 
 data Utxo = Utxo
   { reversibleUpdates ∷ ![(SlotNo, NonEmpty Update)]
   , finalEntries ∷ !Entries
   , usedInputs ∷ !(Set TxIn)
-  , scriptDeployment ∷ !ScriptDeployment
+  , scriptDeployments ∷ !(Map ScriptHash ScriptDeployment)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NFData, NoThunks, Serialise)
@@ -103,7 +112,7 @@ initial =
     { reversibleUpdates = mempty
     , finalEntries = mempty
     , usedInputs = mempty
-    , scriptDeployment = NotInitiated
+    , scriptDeployments = mempty
     }
 
 data Finality = Final | NotFinal
@@ -157,16 +166,22 @@ validateUpdates utxo =
     SpendTxInput txIn →
       guard (txIn `notMember` Map.keysSet (allEntries utxo))
         $> NoTxInputToSpend txIn
-    ConfirmScriptDeployment txIn →
-      let prev = scriptDeployment utxo
-       in case prev of
-            NotInitiated →
-              pure $ InvalidScriptDeploymentConfirmation prev txIn
-            Deployed _txIn →
-              pure $ InvalidScriptDeploymentConfirmation prev txIn
-            Submitted submittedTxIn →
-              guard (txIn /= submittedTxIn)
-                $> InvalidScriptDeploymentConfirmation prev txIn
+    ConfirmScriptDeployment scriptHash confirmedTxIn →
+      case Map.lookup scriptHash (scriptDeployments utxo) of
+        Nothing →
+          pure $ InvalidScriptDeploymentConfirmation Nothing confirmedTxIn
+        Just (ScriptDeployment initiatedTxIn scriptStatus) →
+          case scriptStatus of
+            ScriptStatusDeployCompleted →
+              pure $
+                InvalidScriptDeploymentConfirmation
+                  (Just scriptStatus)
+                  confirmedTxIn
+            ScriptStatusDeployInitiated →
+              guard (confirmedTxIn /= initiatedTxIn)
+                $> InvalidScriptDeploymentConfirmation
+                  (Just scriptStatus)
+                  confirmedTxIn
 
 rollback ∷ SlotNo → Utxo → Maybe Utxo
 rollback rollbackSlot utxo =
@@ -191,32 +206,54 @@ finalise ∷ SlotNo → Utxo → Utxo
 finalise
   immutableSlot
   utxo@Utxo
-    { scriptDeployment
+    { scriptDeployments
     , reversibleUpdates
     , finalEntries
     } =
     utxo
       { reversibleUpdates = reversibleUpdates'
       , finalEntries = updatesToEntries irreversibleUpdates finalEntries
-      , scriptDeployment =
-          case scriptDeployment of
-            NotInitiated → NotInitiated
-            Deployed txIn → Deployed txIn
-            Submitted expectedInput →
-              fromMaybe scriptDeployment $
-                listToMaybe
-                  [ Deployed input
-                  | (_slot, slotUpdates) ← irreversibleUpdates
-                  , ConfirmScriptDeployment input ← toList slotUpdates
-                  , input == expectedInput
-                  ]
+      , scriptDeployments =
+          let
+            scriptsAwaitingConfirmation ∷ Set (ScriptHash, TxIn) =
+              scriptDeployments
+                & Map.foldMapWithKey \hash (ScriptDeployment txIn status) →
+                  case status of
+                    ScriptStatusDeployInitiated → [(hash, txIn)]
+                    _ → []
+                    & Set.fromList
+
+            isAwaitingConfirmation ∷ ScriptHash → TxIn → Bool = \hash txIn →
+              Set.member (hash, txIn) scriptsAwaitingConfirmation
+
+            confirmedScriptDeployments ∷ [(ScriptHash, TxIn)] = do
+              (_slot, slotUpdates) ← irreversibleUpdates
+              ConfirmScriptDeployment hash input ← toList slotUpdates
+              guard $ isAwaitingConfirmation hash input
+              pure (hash, input)
+
+            applyConfirmation
+              ∷ Map ScriptHash ScriptDeployment
+              → (ScriptHash, TxIn)
+              → Map ScriptHash ScriptDeployment
+            applyConfirmation statuses (hash, txIn) =
+              let deployment = ScriptDeployment txIn ScriptStatusDeployCompleted
+               in Map.insert hash deployment statuses
+           in
+            foldl'
+              applyConfirmation
+              scriptDeployments
+              confirmedScriptDeployments
       }
    where
     (reversibleUpdates', irreversibleUpdates) =
       span (fst >>> (> immutableSlot)) reversibleUpdates
 
-setScriptDeployment ∷ ScriptDeployment → Utxo → Utxo
-setScriptDeployment scriptDeployment utxo = utxo {scriptDeployment}
+initiateScriptDeployment ∷ ScriptHash → TxIn → Utxo → Utxo
+initiateScriptDeployment hash input utxo =
+  utxo {scriptDeployments = Map.insert hash deployment (scriptDeployments utxo)}
+ where
+  deployment = ScriptDeployment input ScriptStatusDeployInitiated
 
 --------------------------------------------------------------------------------
 -- UTxO queries ----------------------------------------------------------------
@@ -245,14 +282,14 @@ totalValue =
 
 -- | Converts a list of UTxO updates to a map of UTxO entries.
 updatesToEntries ∷ [(SlotNo, NonEmpty Update)] → Entries → Entries
-updatesToEntries updates entries = foldr overUpdates entries updates
+updatesToEntries allUpdates entries = foldr overUpdates entries allUpdates
  where
   overUpdates ∷ (SlotNo, NonEmpty Update) → Entries → Entries
   overUpdates (_slot, !updates) = foldlNoThunks overUpdate id (toList updates)
    where
     overUpdate ∷ (Entries → Entries) → Update → (Entries → Entries)
     overUpdate !prevUpdate = \case
-      ConfirmScriptDeployment _input → prevUpdate
+      ConfirmScriptDeployment _hash _input → prevUpdate
       SpendTxInput input → Map.delete input . prevUpdate
       AddSpendableTxInput input addr val →
         Map.insert input (addr, val) . prevUpdate

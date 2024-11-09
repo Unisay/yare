@@ -7,7 +7,7 @@ module Arbitrary where
 import Yare.Prelude hiding (untag)
 
 import Cardano.Api.Ledger qualified as L
-import Cardano.Api.Shelley (ShelleyLedgerEra, SlotNo (..))
+import Cardano.Api.Shelley (ScriptHash, ShelleyLedgerEra, SlotNo (..))
 import Cardano.Api.Shelley qualified as A
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -35,12 +35,21 @@ untag (Tag a) = a
 --------------------------------------------------------------------------------
 -- Yare ------------------------------------------------------------------------
 
+deriving newtype instance Arbitrary ScriptHash
+
 instance Arbitrary ScriptDeployment where
   arbitrary =
     Gen.frequency
-      [ (3, pure Utxo.NotInitiated)
-      , (1, Utxo.Submitted <$> arbitrary)
-      , (1, Utxo.Deployed <$> arbitrary)
+      [
+        ( 2
+        , flip Utxo.ScriptDeployment Utxo.ScriptStatusDeployInitiated
+            <$> arbitrary
+        )
+      ,
+        ( 1
+        , flip Utxo.ScriptDeployment Utxo.ScriptStatusDeployCompleted
+            <$> arbitrary
+        )
       ]
 
 newtype NonEmptyUtxo = NonEmptyUtxo Utxo
@@ -56,7 +65,7 @@ instance Arbitrary NonEmptyUtxo where
           , (1, untag <$> arbitrary @(Tag "SpendTxInput" Utxo.Update))
           ]
 
-    scriptDeployment ← arbitrary
+    scriptDeployments ← arbitrary
     finalEntries ← arbitrary
 
     NonEmptyUtxo
@@ -69,7 +78,7 @@ instance Arbitrary NonEmptyUtxo where
               { reversibleUpdates = []
               , finalEntries = Map.insert txIn value finalEntries
               , usedInputs = mempty
-              , scriptDeployment
+              , scriptDeployments
               }
         else do
           slot ← arbitrary
@@ -78,7 +87,7 @@ instance Arbitrary NonEmptyUtxo where
               { reversibleUpdates = [(slot, NE.fromList updates)]
               , finalEntries
               , usedInputs = mempty
-              , scriptDeployment
+              , scriptDeployments
               }
 
 instance Arbitrary Utxo where
@@ -90,7 +99,7 @@ instance Arbitrary Utxo where
           [ (6, genUpdateUtxo)
           , (3, genRollback)
           , (3, Utxo.finalise <$> arbitrary)
-          , (1, Utxo.setScriptDeployment <$> arbitrary)
+          , (1, Utxo.initiateScriptDeployment <$> arbitrary <*> arbitrary)
           ]
     pure $ foldr ($) Utxo.initial mods
    where
@@ -144,7 +153,8 @@ instance Arbitrary (Tag "AddSpendInputPair" (Utxo.Update, Utxo.Update)) where
     pure $ Tag (Utxo.AddSpendableTxInput i a v, Utxo.SpendTxInput i)
 
 instance Arbitrary (Tag "ConfirmScriptDeployment" Utxo.Update) where
-  arbitrary = Tag . Utxo.ConfirmScriptDeployment <$> arbitrary
+  arbitrary = fmap Tag do
+    Utxo.ConfirmScriptDeployment <$> arbitrary <*> arbitrary
 
 --------------------------------------------------------------------------------
 -- Cardano API -----------------------------------------------------------------

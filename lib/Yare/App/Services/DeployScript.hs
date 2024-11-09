@@ -1,6 +1,6 @@
 module Yare.App.Services.DeployScript
   ( service
-  , status
+  , scriptDeployments
   , ScriptStatus (..)
   , DeployScriptError (..)
   ) where
@@ -53,12 +53,10 @@ import Cardano.Api.Shelley
   )
 import Cardano.Api.Shelley qualified as CApi
 import Cardano.Ledger.Crypto (StandardCrypto)
-import Codec.Serialise (Serialise)
 import Control.Exception (throwIO)
 import Control.Monad.Except (Except, throwError)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import NoThunks.Class.Extended (NoThunks)
 import Text.Pretty.Simple (pShow)
 import Text.Show (show)
 import Yare.Address (Addresses)
@@ -70,30 +68,24 @@ import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (stateMay)
 import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
-import Yare.Utxo (ScriptDeployment (Deployed), Utxo, setScriptDeployment)
+import Yare.Utxo (ScriptDeployment, ScriptStatus, Utxo, initiateScriptDeployment)
 import Yare.Utxo qualified as Utxo
 
-data ScriptStatus
-  = ScriptStatusUnknown
-  | ScriptStatusDeployInitiated TxIn
-  | ScriptStatusDeployCompleted TxIn
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (NoThunks, NFData, Serialise)
-
-status
+scriptDeployments
   ∷ ∀ state env
-   . (Storage IO state ∈ env, Map ScriptHash ScriptStatus ∈ state)
+   . (Storage IO state ∈ env, Map ScriptHash ScriptDeployment ∈ state)
   ⇒ env
-  → ScriptHash
-  → IO ScriptStatus
-status env scriptHash =
-  Map.findWithDefault ScriptStatusUnknown scriptHash . look
-    <$> readStorage (look @(Storage IO state) env)
+  → IO (Map ScriptHash ScriptDeployment)
+scriptDeployments env = look <$> readStorage (look @(Storage IO state) env)
 
 -- | Deploys a script on-chain by submitting a transaction.
 service
   ∷ ∀ era state env
-   . ( [Utxo, Tagged "submitted" (Set TxId)] ∈∈ state
+   . ( [ Utxo
+       , Tagged "submitted" (Set TxId)
+       , Map ScriptHash ScriptDeployment
+       ]
+        ∈∈ state
      , [Addresses, Submitter.Q, NetworkInfo era, Storage IO state] ∈∈ env
      )
   ⇒ env
@@ -146,7 +138,7 @@ deployScript env scriptHash plutusScript = do
   modify' $
     update @(Tagged "submitted" (Set TxId))
       (Set.insert (getTxId (getTxBody tx)) <$>)
-      . update @Utxo (setScriptDeployment (Deployed txIn))
+      . update @Utxo (initiateScriptDeployment scriptHash txIn)
   pure res
 
 constructTx

@@ -21,7 +21,7 @@ import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (ChainTip, LedgerAddress)
 import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
-import Yare.Utxo (Utxo)
+import Yare.Utxo (ScriptDeployment, Utxo)
 import Yare.Utxo qualified as Utxo
 
 -- | Application services
@@ -33,7 +33,7 @@ data Services m = Services
   , serveUtxo ∷ m Utxo.Entries
   , serveUtxoAdaBalance ∷ m Lovelace
   , serveTip ∷ m ChainTip
-  , serveScriptStatus ∷ ScriptHash → m DeployScript.ScriptStatus
+  , serveScriptDeployments ∷ m (Map ScriptHash ScriptDeployment)
   , deployScript ∷ ScriptHash → Script PlutusScriptV3 → IO TxIn
   , serveTransactionsInLedger ∷ m (Set TxId)
   , serveTransactionsSubmitted ∷ m (Set TxId)
@@ -46,7 +46,7 @@ mkServices
        , ChainTip
        , Tagged "submitted" (Set TxId)
        , Tagged "in-ledger" (Set TxId)
-       , Map ScriptHash DeployScript.ScriptStatus
+       , Map ScriptHash ScriptDeployment
        ]
         ∈∈ state
      )
@@ -68,8 +68,8 @@ mkServices env =
         selectLovelace . Utxo.totalValue . look @Utxo <$> readStorage storage
     , serveTip =
         look <$> readStorage storage
-    , serveScriptStatus =
-        DeployScript.status @state env
+    , serveScriptDeployments =
+        DeployScript.scriptDeployments @state env
     , deployScript =
         DeployScript.service @era @state env
     , serveTransactionsInLedger =
