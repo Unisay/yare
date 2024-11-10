@@ -6,6 +6,23 @@ module Yare.Http.Server
   ) where
 
 import Yare.Prelude
+  ( Applicative (pure)
+  , ConvertUtf8 (encodeUtf8)
+  , Either (Left, Right)
+  , IO
+  , Maybe (Just, Nothing)
+  , MonadFail (fail)
+  , MonadIO (liftIO)
+  , Proxy (Proxy)
+  , Semigroup ((<>))
+  , Set
+  , toShort
+  , ($)
+  , (.)
+  , (<$>)
+  , (<<$>>)
+  , (>>>)
+  )
 
 import Cardano.Api.Shelley
   ( Lovelace
@@ -15,10 +32,8 @@ import Cardano.Api.Shelley
   , Script (PlutusScript)
   , ScriptHash (..)
   , TxId
-
-  , serialiseToRawBytes
   )
-import Cardano.Crypto.Hash (hashFromBytes)
+import Cardano.Crypto.Hash.Class (hashFromTextAsHex, hashToTextAsHex)
 import Cardano.Ledger.Hashes qualified as Ledger
 import Control.Monad.Error.Class (MonadError (..))
 import Data.ByteString.Base16 qualified as Base16
@@ -157,11 +172,11 @@ endpointTransactionsInLedger App.Services {serveTransactionsInLedger} =
 -- Helpers ---------------------------------------------------------------------
 
 instance ToHttpApiData ScriptHash where
-  toUrlPiece = toUrlPiece @Text . decodeUtf8 . serialiseToRawBytes
+  toUrlPiece (ScriptHash (Ledger.ScriptHash h)) = toUrlPiece (hashToTextAsHex h)
 
 instance FromHttpApiData ScriptHash where
   parseUrlPiece =
-    encodeUtf8 >>> hashFromBytes >>> \case
+    hashFromTextAsHex >>> \case
       Just h → pure (ScriptHash (Ledger.ScriptHash h))
       Nothing → fail "Invalid script hash"
 
