@@ -20,15 +20,15 @@ import Ouroboros.Network.Block
   ( BlockNo (..)
   , Tip (..)
   , blockNo
-  , blockPoint
   , blockSlot
   , getTipBlockNo
   )
 import Relude.Extra (dup)
 import Yare.Address (Addresses)
 import Yare.Chain.Block (StdCardanoBlock)
+import Yare.Chain.Block.Reference (blockRef)
 import Yare.Chain.Tx (transactionViewUtxo, txViewId)
-import Yare.Chain.Types (ChainPoint, ChainTip, SyncFrom)
+import Yare.Chain.Types (ChainPoint, ChainTip, LastIndexedBlock)
 import Yare.Storage (Storage (overStorage))
 import Yare.Tracers (Tracersᵣ)
 import Yare.Utxo (Utxo)
@@ -46,9 +46,9 @@ newChainFollower
    . ( (Storage IO state : Addresses : Tracersᵣ) ∈∈ env
      , [ Utxo
        , ChainTip
+       , LastIndexedBlock
        , Tagged "submitted" (Set TxId)
        , Tagged "in-ledger" (Set TxId)
-       , SyncFrom
        ]
         ∈∈ state
      )
@@ -83,9 +83,9 @@ indexBlock
   ∷ ∀ state
    . [ Utxo
      , ChainTip
+     , LastIndexedBlock
      , Tagged "submitted" (Set TxId)
      , Tagged "in-ledger" (Set TxId)
-     , SyncFrom
      ]
     ∈∈ state
   ⇒ Addresses
@@ -95,16 +95,16 @@ indexBlock
 indexBlock addresses block !tip !state = (state', utxoUpdate)
  where
   state' ∷ state =
-    case utxoUpdate of
-      UtxoUpdateError {} → state
-      UtxoNotUpdated → state
-      UtxoUpdated utxo' txs →
-        let txIds = Set.fromList (txViewId . transactionViewUtxo <$> txs)
-         in setter utxo'
-              . setter tip
-              . setter (Tagged @"syncFrom" (SJust (blockPoint block)))
-              . update @(Tagged "in-ledger" (Set TxId)) (Set.union txIds <$>)
-              $ state
+    setter (Tagged @"last-indexed" (SJust (blockRef block))) $
+      case utxoUpdate of
+        UtxoUpdateError {} → state
+        UtxoNotUpdated → state
+        UtxoUpdated utxo' txs →
+          let txIds = Set.fromList (txViewId . transactionViewUtxo <$> txs)
+           in setter utxo'
+                . setter tip
+                . update @(Tagged "in-ledger" (Set TxId)) (Set.union txIds <$>)
+                $ state
 
   utxoUpdate ∷ UtxoUpdate =
     Utxo.indexBlock
@@ -123,7 +123,7 @@ indexBlock addresses block !tip !state = (state', utxoUpdate)
     BlockNo thisBlockNo = blockNo block
 
 rollbackTo
-  ∷ [Utxo, ChainTip, SyncFrom] ∈∈ state
+  ∷ [Utxo, ChainTip, LastIndexedBlock] ∈∈ state
   ⇒ ChainPoint
   → ChainTip
   → state
@@ -131,7 +131,6 @@ rollbackTo
 rollbackTo point tip chainState =
   chainState
     & setter tip
-    & setter (Tagged @"syncFrom" (SJust point))
     & maybe id setter (Utxo.rollbackTo point (look @Utxo chainState))
 
 {- | The security parameter is a non-updatable one:

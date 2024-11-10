@@ -7,7 +7,7 @@ import Cardano.Client.Subscription (MuxMode (..))
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Tracer (nullTracer)
 import Control.Tracer.Extended (debugTracer, withFaint, withPrefix)
-import Data.Maybe.Strict (strictMaybeToMaybe)
+import Data.Maybe.Strict (StrictMaybe, strictMaybeToMaybe)
 import Ouroboros.Consensus.Block.Abstract (CodecConfig)
 import Ouroboros.Consensus.Cardano.Block (CardanoBlock)
 import Ouroboros.Consensus.Cardano.Node (protocolClientInfoCardano)
@@ -38,8 +38,8 @@ import Ouroboros.Network.Protocol.LocalTxSubmission.Client
   )
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower (ChainFollower (..))
+import Yare.Chain.Point (ChainPoint)
 import Yare.Chain.Sync qualified as ChainSync
-import Yare.Chain.Types (SyncFrom)
 import Yare.Query qualified as Query
 import Yare.Submitter qualified as Submitter
 
@@ -48,7 +48,7 @@ makeNodeToClientProtocols
    . ChainFollower IO
   → Query.Q
   → Submitter.Q
-  → SyncFrom
+  → Tagged "syncFrom" (StrictMaybe ChainPoint)
   → NodeToClientVersion
   → BlockNodeToClientVersion (CardanoBlock StandardCrypto)
   → NodeToClientProtocols InitiatorMode ntcAddr LByteString IO () Void

@@ -1,7 +1,8 @@
 module Yare.Chain.Types
   ( ChainTip
+  , BlockRef (..)
   , ChainPoint
-  , SyncFrom
+  , LastIndexedBlock
   , MnemonicPath
   , DatabasePath
   , parseChainPoint
@@ -21,13 +22,14 @@ import Data.Text.Encoding qualified as Text
 import Ouroboros.Network.Block (Tip)
 import Path (Abs, File, Path)
 import Yare.Chain.Block (StdCardanoBlock)
+import Yare.Chain.Block.Reference (BlockRef(..))
 import Yare.Chain.Point (ChainPoint, parseChainPoint)
 
 type ChainTip = Tip StdCardanoBlock
 
 type LedgerAddress = Addr StandardCrypto
 
-type SyncFrom = Tagged "syncFrom" (StrictMaybe ChainPoint)
+type LastIndexedBlock = Tagged "last-indexed" (StrictMaybe BlockRef)
 
 type MnemonicPath = Tagged "mnemonic" (Path Abs File)
 

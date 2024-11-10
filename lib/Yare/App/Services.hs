@@ -14,11 +14,12 @@ import Cardano.Api.Shelley
   , TxIn
   , selectLovelace
   )
+import Data.Maybe.Strict (strictMaybeToMaybe)
 import Yare.Address (AddressWithKey (..), Addresses, externalAddresses)
 import Yare.Address qualified as Address
 import Yare.App.Services.DeployScript qualified as DeployScript
 import Yare.App.Types (NetworkInfo (..))
-import Yare.Chain.Types (ChainTip, LedgerAddress)
+import Yare.Chain.Types (BlockRef, ChainTip, LastIndexedBlock, LedgerAddress)
 import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
 import Yare.Utxo (ScriptDeployment, Utxo)
@@ -33,6 +34,7 @@ data Services m = Services
   , serveUtxo ∷ m Utxo.Entries
   , serveUtxoAdaBalance ∷ m Lovelace
   , serveTip ∷ m ChainTip
+  , serveLastIndexed ∷ m (Maybe BlockRef)
   , serveScriptDeployments ∷ m (Map ScriptHash ScriptDeployment)
   , deployScript ∷ ScriptHash → Script PlutusScriptV3 → IO TxIn
   , serveTransactionsInLedger ∷ m (Set TxId)
@@ -44,6 +46,7 @@ mkServices
    . ( [Submitter.Q, NetworkInfo era, Storage IO state, Addresses] ∈∈ env
      , [ Utxo
        , ChainTip
+       , LastIndexedBlock
        , Tagged "submitted" (Set TxId)
        , Tagged "in-ledger" (Set TxId)
        ]
@@ -67,6 +70,8 @@ mkServices env =
         selectLovelace . Utxo.totalValue . look @Utxo <$> readStorage storage
     , serveTip =
         look <$> readStorage storage
+    , serveLastIndexed =
+        strictMaybeToMaybe . lookTagged @"last-indexed" <$> readStorage storage
     , serveScriptDeployments =
         DeployScript.scriptDeployments @state env
     , deployScript =

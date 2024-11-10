@@ -7,7 +7,7 @@ module Main (main) where
 import Yare.Prelude
 
 import Control.Exception (catch)
-import Data.Maybe.Strict (maybeToStrictMaybe)
+import Data.Maybe.Strict (StrictMaybe, maybeToStrictMaybe)
 import Data.String qualified as String
 import GHC.Exception (prettyCallStackLines)
 import Main.Utf8 (withUtf8)
@@ -37,7 +37,7 @@ import Path.IO qualified as Path
 import Yare.App qualified as Yare
 import Yare.App.Types (StorageMode (..))
 import Yare.Chain.Point (parseChainPoint)
-import Yare.Chain.Types (ChainPoint, SyncFrom)
+import Yare.Chain.Types (ChainPoint)
 import Yare.Node.Socket (NodeSocket (..))
 
 main ∷ IO ()
@@ -65,9 +65,9 @@ main = withUtf8 do
     ( 9999
         `strictHCons` nodeSocket
         `strictHCons` argNetworkMagic args
-        `strictHCons` argSyncFrom args
         `strictHCons` mnemonicFile
         `strictHCons` storageMode
+        `strictHCons` argSyncFrom args
         `strictHCons` HNil
     )
     `catch` \(te ∷ ThunkException) → do
@@ -83,7 +83,7 @@ data Args = Args
   { argNodeSocketPath ∷ SomeBase File
   , argNetworkMagic ∷ NetworkMagic
   , argMnemonicPath ∷ SomeBase File
-  , argSyncFrom ∷ SyncFrom
+  , argSyncFrom ∷ Tagged "syncFrom" (StrictMaybe ChainPoint)
   , argStorageMode ∷ StorageMode (SomeBase File)
   }
 

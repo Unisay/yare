@@ -7,7 +7,7 @@ module Yare.App.Types
 
 import Yare.Prelude
 
-import Cardano.Api.Ledger (Network)
+import Cardano.Api.Ledger (Network, StrictMaybe)
 import Cardano.Api.Shelley
   ( BabbageEraOnwards
   , LedgerEpochInfo
@@ -16,16 +16,16 @@ import Cardano.Api.Shelley
   )
 import Network.Wai.Handler.Warp qualified as Warp
 import Ouroboros.Network.Magic (NetworkMagic)
-import Yare.Chain.Types (DatabasePath, MnemonicPath, SyncFrom)
+import Yare.Chain.Types (ChainPoint, DatabasePath, MnemonicPath)
 import Yare.Node.Socket (NodeSocket)
 
 type Configᵣ =
   '[ Warp.Port
    , NodeSocket
    , NetworkMagic
-   , SyncFrom
    , MnemonicPath
    , StorageMode DatabasePath
+   , Tagged "syncFrom" (StrictMaybe ChainPoint)
    ]
 
 type Config = HList Configᵣ

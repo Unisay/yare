@@ -26,8 +26,9 @@ import Ouroboros.Network.NodeToClient
 import Yare.Address (Addresses)
 import Yare.App.Types qualified as Yare
 import Yare.Chain.Block (StdCardanoBlock)
+import Yare.Chain.Block.Reference (blockRefPoint)
 import Yare.Chain.Follower (newChainFollower)
-import Yare.Chain.Types (ChainTip, SyncFrom)
+import Yare.Chain.Types (ChainTip, LastIndexedBlock)
 import Yare.Node.Protocols (makeNodeToClientProtocols)
 import Yare.Node.Socket (NodeSocket, nodeSocketLocalAddress)
 import Yare.Query qualified as Query
@@ -45,9 +46,9 @@ start
      , [Query.Q, Submitter.Q, Addresses, Storage IO state] ∈∈ env
      , [ Utxo
        , ChainTip
+       , LastIndexedBlock
        , Tagged "submitted" (Set TxId)
        , Tagged "in-ledger" (Set TxId)
-       , SyncFrom
        ]
         ∈∈ state
      )
@@ -80,5 +81,8 @@ start env = withIOManager \ioManager → do
         (newChainFollower @state env)
         (look @Query.Q env)
         (look @Submitter.Q env)
-        ((<|>) <$> look @SyncFrom yareState <*> look @SyncFrom env)
+        ( let lastIndexed = lookTagged @"last-indexed" yareState
+              syncFrom = lookTagged @"syncFrom" env
+           in Tagged (fmap blockRefPoint lastIndexed <|> syncFrom)
+        )
     )

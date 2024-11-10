@@ -30,7 +30,6 @@ import Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
 import Yare.Chain.Era (Era (..))
 import Ouroboros.Consensus.Cardano (CardanoBlock)
 
-type Blocks ∷ [Type]
 type Blocks =
   [ BlockInEra Byron
   , BlockInEra Shelley
@@ -44,7 +43,6 @@ type Blocks =
 type StdShelleyBlocks ∷ [Type]
 type StdShelleyBlocks = CardanoShelleyEras StandardCrypto
 
-type StdCardanoBlock ∷ Type
 type StdCardanoBlock = CardanoBlock StandardCrypto
 
 -- | Type family that maps an era to the corresponding Block type.

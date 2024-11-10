@@ -49,11 +49,11 @@ initialize config = do
       >>= either throwIO pure
   storage ←
     case look @(StorageMode DatabasePath) config of
-      InMemory → Storage.inMemory (Yare.initialState config)
+      InMemory → Storage.inMemory Yare.initialState
       OnDisk (untag → dbFile) → do
         unlessM (doesFileExist dbFile) do
           writeFile (toFilePath dbFile) "" -- create an empty db file
-        Storage.onDisk dbFile (Yare.initialState config)
+        Storage.onDisk dbFile Yare.initialState
   pure $
     queryQueue
       `strictHCons` submitQueue

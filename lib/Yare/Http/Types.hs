@@ -1,7 +1,9 @@
 module Yare.Http.Types
   ( module Address
   , Utxo (..)
+  , NetworkInfo (..)
   , ChainTip (..)
+  , BlockRef (..)
   , Script (..)
   , ScriptDeployment (..)
   , Transactions (..)
@@ -10,7 +12,7 @@ module Yare.Http.Types
 import Yare.Prelude
 
 import Cardano.Api qualified as CA
-import Cardano.Api.Shelley (TxId)
+import Cardano.Api.Shelley (ScriptHash, TxId, TxIn (..))
 import Data.Aeson (ToJSON (..), object, pairs, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Encoding (pairStr)
@@ -47,6 +49,17 @@ instance ToJSON Utxo where
       CA.AssetId policyId assetName → toJSON (policyId, assetName)
 
 --------------------------------------------------------------------------------
+-- Network Info ----------------------------------------------------------------
+
+data NetworkInfo = NetworkInfo
+  { networkTip ∷ ChainTip
+  , lastIndexed ∷ Maybe BlockRef
+  }
+
+deriving stock instance Generic NetworkInfo
+deriving anyclass instance ToJSON NetworkInfo
+
+--------------------------------------------------------------------------------
 -- Chain Tip -------------------------------------------------------------------
 
 newtype ChainTip = ChainTip Y.ChainTip
@@ -72,6 +85,25 @@ instance ToJSON ChainTip where
             <> pairStr "blockNo" (toEncoding blockNo)
 
 --------------------------------------------------------------------------------
+-- Block Reference -------------------------------------------------------------
+
+newtype BlockRef = BlockRef Y.BlockRef
+  deriving stock (Eq, Show)
+
+instance ToJSON BlockRef where
+  toJSON (BlockRef (Y.BlockRef {..})) = toJSON do
+    object
+      [ "slotNo" .= blockRefSlot
+      , "blockNo" .= blockRefBlock
+      , "headerHash" .= show @String blockRefHash
+      ]
+  toEncoding (BlockRef (Y.BlockRef {..})) =
+    pairs $
+      pairStr "slotNo" (toEncoding blockRefSlot)
+        <> pairStr "blockNo" (toEncoding blockRefBlock)
+        <> pairStr "headerHash" (Json.text (show blockRefHash))
+
+--------------------------------------------------------------------------------
 -- Script ----------------------------------------------------------------------
 
 newtype Script = Script {script ∷ ByteString}
@@ -83,15 +115,20 @@ instance MimeUnrender PlainText Script where
 --------------------------------------------------------------------------------
 -- Script Status ---------------------------------------------------------------
 
-newtype ScriptDeployment = ScriptDeployment DeployScript.ScriptDeployment
+data ScriptDeployment
+  = ScriptDeployment ScriptHash DeployScript.ScriptDeployment
   deriving stock (Eq, Show, Generic)
 
 instance ToJSON ScriptDeployment where
-  toJSON (ScriptDeployment DeployScript.ScriptDeployment {..}) =
+  toJSON (ScriptDeployment scriptHash DeployScript.ScriptDeployment {..}) =
     object
-      [ "txInput" .= scriptTxIn
-      , "status" .= renderScriptStatus scriptStatus
+      [ "scriptHash" .= scriptHash
+      , "scriptStatus" .= renderScriptStatus scriptStatus
+      , "scriptTxId" .= txId
+      , "scriptTxOut" .= txIx
       ]
+   where
+    TxIn txId txIx = scriptTxIn
 
 renderScriptStatus ∷ DeployScript.ScriptStatus → Text
 renderScriptStatus = \case

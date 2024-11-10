@@ -162,6 +162,7 @@ library
     Yare.App.State
     Yare.App.Types
     Yare.Chain.Block
+    Yare.Chain.Block.Reference
     Yare.Chain.Era
     Yare.Chain.Follower
     Yare.Chain.Point
