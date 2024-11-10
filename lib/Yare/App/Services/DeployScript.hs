@@ -68,24 +68,22 @@ import Yare.Storage (Storage (..))
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (stateMay)
 import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
-import Yare.Utxo (ScriptDeployment, ScriptStatus, Utxo, initiateScriptDeployment)
+import Yare.Utxo (ScriptDeployment, ScriptStatus, Utxo)
 import Yare.Utxo qualified as Utxo
 
 scriptDeployments
   ∷ ∀ state env
-   . (Storage IO state ∈ env, Map ScriptHash ScriptDeployment ∈ state)
+   . (Storage IO state ∈ env, Utxo ∈ state)
   ⇒ env
   → IO (Map ScriptHash ScriptDeployment)
-scriptDeployments env = look <$> readStorage (look @(Storage IO state) env)
+scriptDeployments env =
+  Utxo.scriptDeployments . look @Utxo
+    <$> readStorage (look @(Storage IO state) env)
 
 -- | Deploys a script on-chain by submitting a transaction.
 service
   ∷ ∀ era state env
-   . ( [ Utxo
-       , Tagged "submitted" (Set TxId)
-       , Map ScriptHash ScriptDeployment
-       ]
-        ∈∈ state
+   . ( [Utxo, Tagged "submitted" (Set TxId)] ∈∈ state
      , [Addresses, Submitter.Q, NetworkInfo era, Storage IO state] ∈∈ env
      )
   ⇒ env
@@ -138,7 +136,7 @@ deployScript env scriptHash plutusScript = do
   modify' $
     update @(Tagged "submitted" (Set TxId))
       (Set.insert (getTxId (getTxBody tx)) <$>)
-      . update @Utxo (initiateScriptDeployment scriptHash txIn)
+      . update @Utxo (Utxo.initiateScriptDeployment scriptHash txIn)
   pure res
 
 constructTx

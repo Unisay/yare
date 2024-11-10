@@ -17,6 +17,7 @@ module Yare.Utxo
 
     -- * Queries
   , initial
+  , scriptDeployments
   , allEntries
   , spendableEntries
   , spendableTxInputs

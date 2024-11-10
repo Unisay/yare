@@ -46,7 +46,6 @@ mkServices
        , ChainTip
        , Tagged "submitted" (Set TxId)
        , Tagged "in-ledger" (Set TxId)
-       , Map ScriptHash ScriptDeployment
        ]
         ∈∈ state
      )
