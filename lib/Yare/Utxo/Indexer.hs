@@ -17,6 +17,7 @@ import Ouroboros.Consensus.Block (blockSlot, pointSlot)
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Yare.Address (Addresses, isOwnAddress)
+import Yare.App.Types (Finality (..))
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Era (AnyEra (..))
 import Yare.Chain.Point (ChainPoint)
@@ -29,8 +30,7 @@ import Yare.Chain.Tx
   , transactionViewUtxo
   )
 import Yare.Utxo
-  ( Finality (Final, NotFinal)
-  , Update (AddSpendableTxInput, SpendTxInput)
+  ( Update (AddSpendableTxInput, SpendTxInput)
   , Utxo
   , finalise
   , rollback

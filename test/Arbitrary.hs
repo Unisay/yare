@@ -23,6 +23,7 @@ import Test.QuickCheck
   , vectorOf
   )
 import Test.QuickCheck.Gen qualified as Gen
+import Yare.App.Types (Finality)
 import Yare.Utxo.Internal (ScriptDeployment, Utxo (..))
 import Yare.Utxo.Internal qualified as Utxo
 
@@ -141,7 +142,7 @@ instance Arbitrary (Tag "AddSpendableTxInput" Utxo.Update) where
 instance Arbitrary (Tag "SpendTxInput" Utxo.Update) where
   arbitrary = Tag . Utxo.SpendTxInput <$> arbitrary
 
-instance Arbitrary Utxo.Finality where
+instance Arbitrary Finality where
   arbitrary = arbitraryBoundedEnum
   shrink = shrinkBoundedEnum
 

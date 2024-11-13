@@ -62,9 +62,9 @@ import Text.Show (show)
 import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address.Derivation (AddressWithKey (..))
-import Yare.App.Types (NetworkInfo (..))
+import Yare.App.Types (NetworkInfo (..), StorageMode (..))
 import Yare.Chain.Types (LedgerAddress)
-import Yare.Storage (Storage (..))
+import Yare.Storage (Storage (..), StorageMgr (..), readDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (stateMay)
 import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
@@ -73,18 +73,17 @@ import Yare.Utxo qualified as Utxo
 
 scriptDeployments
   ∷ ∀ state env
-   . (Storage IO state ∈ env, Utxo ∈ state)
+   . (StorageMgr IO state ∈ env, Utxo ∈ state)
   ⇒ env
   → IO (Map ScriptHash ScriptDeployment)
 scriptDeployments env =
-  Utxo.scriptDeployments . look @Utxo
-    <$> readStorage (look @(Storage IO state) env)
+  Utxo.scriptDeployments . look @Utxo <$> readDefaultStorage @state env
 
 -- | Deploys a script on-chain by submitting a transaction.
 service
   ∷ ∀ era state env
    . ( [Utxo, Tagged "submitted" (Set TxId)] ∈∈ state
-     , [Addresses, Submitter.Q, NetworkInfo era, Storage IO state] ∈∈ env
+     , [Addresses, Submitter.Q, NetworkInfo era, StorageMgr IO state] ∈∈ env
      )
   ⇒ env
   → ScriptHash
@@ -93,8 +92,10 @@ service
 service env scriptHash script = do
   let NetworkInfo {currentEra} = look env
       shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
-
-  overStorage (look @(Storage IO state) env) makeAndSubmitScriptTx \case
+  let storageManager ∷ StorageMgr IO state = look env
+  setStorageMode storageManager Durable
+  storage ← defaultStorage storageManager
+  overStorage storage makeAndSubmitScriptTx \case
     Left err → throwIO err
     Right (tx, txInput) → do
       putTextLn "Submitting the transaction:"
@@ -134,8 +135,7 @@ deployScript env scriptHash plutusScript = do
       scriptHash
       plutusScript
   modify' $
-    update @(Tagged "submitted" (Set TxId))
-      (Set.insert (getTxId (getTxBody tx)) <$>)
+    updateTagged @"submitted" (Set.insert (getTxId (getTxBody tx)))
       . update @Utxo (Utxo.initiateScriptDeployment scriptHash txIn)
   pure res
 

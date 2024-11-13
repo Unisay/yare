@@ -115,9 +115,6 @@ initial =
     , scriptDeployments = mempty
     }
 
-data Finality = Final | NotFinal
-  deriving stock (Eq, Show, Generic, Enum, Bounded)
-
 --------------------------------------------------------------------------------
 -- UTxO updates ----------------------------------------------------------------
 
@@ -236,7 +233,7 @@ finalise
               ∷ Map ScriptHash ScriptDeployment
               → (ScriptHash, TxIn)
               → Map ScriptHash ScriptDeployment
-            applyConfirmation statuses (hash, txIn) =
+            applyConfirmation !statuses (!hash, !txIn) =
               let deployment = ScriptDeployment txIn ScriptStatusDeployCompleted
                in Map.insert hash deployment statuses
            in

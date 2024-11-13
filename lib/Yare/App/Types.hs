@@ -3,6 +3,7 @@ module Yare.App.Types
   , Configᵣ
   , NetworkInfo (..)
   , StorageMode (..)
+  , Finality (..)
   ) where
 
 import Yare.Prelude
@@ -15,6 +16,7 @@ import Cardano.Api.Shelley
   , SystemStart
   )
 import Network.Wai.Handler.Warp qualified as Warp
+import NoThunks.Class.Extended (NoThunks)
 import Ouroboros.Network.Magic (NetworkMagic)
 import Yare.Chain.Types (ChainPoint, DatabasePath, MnemonicPath)
 import Yare.Node.Socket (NodeSocket)
@@ -24,7 +26,7 @@ type Configᵣ =
    , NodeSocket
    , NetworkMagic
    , MnemonicPath
-   , StorageMode DatabasePath
+   , DatabasePath
    , Tagged "syncFrom" (StrictMaybe ChainPoint)
    ]
 
@@ -38,4 +40,10 @@ data NetworkInfo era = NetworkInfo
   , protocolParameters ∷ LedgerProtocolParameters era
   }
 
-data StorageMode diskData = InMemory | OnDisk diskData
+data StorageMode = Volatile | Durable
+  deriving stock (Eq, Show, Enum, Bounded, Generic)
+  deriving anyclass (NoThunks, NFData)
+
+data Finality = Final | NotFinal
+  deriving stock (Eq, Show, Generic, Enum, Bounded)
+  deriving anyclass (NoThunks, NFData)

@@ -25,11 +25,12 @@ import Ouroboros.Network.Block
   )
 import Relude.Extra (dup)
 import Yare.Address (Addresses)
+import Yare.App.Types (Finality (..), StorageMode (..))
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Block.Reference (blockRef)
 import Yare.Chain.Tx (transactionViewUtxo, txViewId)
 import Yare.Chain.Types (ChainPoint, ChainTip, LastIndexedBlock)
-import Yare.Storage (Storage (overStorage))
+import Yare.Storage (StorageMgr (..), overDefaultStorage)
 import Yare.Tracers (Tracersᵣ)
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
@@ -43,7 +44,7 @@ data ChainFollower (m ∷ Type → Type) = ChainFollower
 
 newChainFollower
   ∷ ∀ state env
-   . ( (Storage IO state : Addresses : Tracersᵣ) ∈∈ env
+   . ( (StorageMgr IO state : Addresses : Tracersᵣ) ∈∈ env
      , [ Utxo
        , ChainTip
        , LastIndexedBlock
@@ -56,22 +57,41 @@ newChainFollower
   → ChainFollower IO
 newChainFollower env =
   ChainFollower
-    { onNewBlock = \(block ∷ StdCardanoBlock) (tip ∷ ChainTip) →
-        overStorage storage (indexBlock (look @Addresses env) block tip) \case
-          UtxoNotUpdated →
-            traceWith (look env) (blockSlot block)
-          UtxoUpdated updatedUtxo txs → do
-            for_ txs $ traceWith (look env)
-            traceWith (look env) updatedUtxo
-          UtxoUpdateError err →
-            throwIO err
+    { onNewBlock = \(block ∷ StdCardanoBlock) (tip ∷ ChainTip) → do
+        let addresses = look @Addresses env
+            BlockNo tipBlockNo = fromWithOrigin 0 (getTipBlockNo tip)
+            BlockNo thisBlockNo = blockNo block
+            finality =
+              if thisBlockNo < tipBlockNo - securityParam
+                then Final
+                else NotFinal
+        setStorageMode storageManager case finality of
+          -- Once we've reached the volatile (non-final) block,
+          -- we switch to the durable storage mode.
+          NotFinal → Durable
+          -- Otherwise, we stay in the volatile storage mode for
+          -- faster indexing.
+          Final → Volatile
+        overDefaultStorage @state
+          storageManager
+          (indexBlock addresses block finality tip)
+          \case
+            UtxoNotUpdated →
+              traceWith (look env) (blockSlot block)
+            UtxoUpdated updatedUtxo txs → do
+              for_ txs $ traceWith (look env)
+              traceWith (look env) updatedUtxo
+            UtxoUpdateError err →
+              throwIO err
     , onRollback = \(point ∷ ChainPoint) (tip ∷ ChainTip) → do
         traceWith (look @(Tracer IO ChainPoint) env) point
-        overStorage storage (dup . rollbackTo point tip) do
-          traceWith (look @(Tracer IO Utxo) env) . look @Utxo
+        overDefaultStorage @state
+          storageManager
+          (dup . rollbackTo point tip)
+          (traceWith (look @(Tracer IO Utxo) env) . look @Utxo)
     }
  where
-  storage ∷ Storage IO state = look env
+  storageManager = look @(StorageMgr IO state) env
 
 type ChainState = HList ChainStateᵣ
 type ChainStateᵣ = [Utxo, ChainTip]
@@ -90,9 +110,10 @@ indexBlock
     ∈∈ state
   ⇒ Addresses
   → StdCardanoBlock
+  → Finality
   → ChainTip
   → (state → (state, UtxoUpdate))
-indexBlock addresses block !tip !state = (state', utxoUpdate)
+indexBlock addresses block finality !tip !state = (state', utxoUpdate)
  where
   state' ∷ state =
     setter (Tagged @"last-indexed" (SJust (blockRef block))) $
@@ -113,14 +134,6 @@ indexBlock addresses block !tip !state = (state', utxoUpdate)
       block
       finality
       (look @Utxo state)
-
-  finality ∷ Utxo.Finality =
-    if thisBlockNo < tipBlockNo - securityParam
-      then Utxo.Final
-      else Utxo.NotFinal
-   where
-    BlockNo tipBlockNo = fromWithOrigin 0 (getTipBlockNo tip)
-    BlockNo thisBlockNo = blockNo block
 
 rollbackTo
   ∷ [Utxo, ChainTip, LastIndexedBlock] ∈∈ state

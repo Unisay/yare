@@ -5,6 +5,7 @@ import Yare.Prelude
 import Cardano.Slotting.Block (BlockNo)
 import Cardano.Slotting.Slot (SlotNo)
 import Codec.Serialise.Class (Serialise)
+import Control.DeepSeq.Orphans ()
 import NoThunks.Class (NoThunks)
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Network.Block
@@ -23,7 +24,7 @@ data BlockRef = BlockRef
   , blockRefHash ∷ !(HeaderHash StdCardanoBlock)
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (NoThunks, Serialise)
+  deriving anyclass (NoThunks, NFData, Serialise)
 
 blockRef ∷ StdCardanoBlock → BlockRef
 blockRef block =

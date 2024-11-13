@@ -20,6 +20,7 @@ import Control.Tracer.Extended
   )
 import Fmt (pretty)
 import Fmt.Orphans ()
+import Yare.App.Types (StorageMode (..))
 import Yare.Chain.Era (AnyEra)
 import Yare.Chain.Point (ChainPoint)
 import Yare.Chain.Tx (Tx, transactionViewUtxo)
@@ -30,13 +31,19 @@ type Tracersᵣ =
   , Tracer IO Utxo
   , Tracer IO SlotNo
   , Tracer IO ChainPoint
+  , Tracer IO StorageMode
   ]
 
 type Tracers = HList Tracersᵣ
 
 tracers ∷ Tracers
 tracers =
-  tracerTx .*. tracerUtxo .*. tracerSync .*. tracerRollback .*. HNil
+  tracerTx
+    `strictHCons` tracerUtxo
+    `strictHCons` tracerSync
+    `strictHCons` tracerRollback
+    `strictHCons` tracerStorageMode
+    `strictHCons` HNil
 
 tracerTx ∷ Tracer IO (AnyEra Tx)
 tracerTx =
@@ -54,3 +61,11 @@ tracerSync =
 tracerRollback ∷ Tracer IO ChainPoint
 tracerRollback =
   pretty >$< withPrefix "Rollback" debugTracer
+
+tracerStorageMode ∷ Tracer IO StorageMode
+tracerStorageMode = printMode >$< debugTracer
+ where
+  printMode ∷ StorageMode → String
+  printMode = \case
+    Volatile → "Switched to volatile storage"
+    Durable → "Switched to durable storage\n"
