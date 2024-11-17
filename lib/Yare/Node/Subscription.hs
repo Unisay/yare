@@ -6,7 +6,8 @@ import Cardano.Api.Shelley (NetworkMagic, TxId)
 import Cardano.Client.Subscription (subscribe)
 import Codec.Serialise.Class.Orphans ()
 import Control.Tracer.Extended
-  ( debugTracer
+  ( Tracer
+  , debugTracer
   , nullTracer
   , withFaint
   , withPrefix
@@ -16,6 +17,7 @@ import Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy)
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
   ( supportedNodeToClientVersions
   )
+import Ouroboros.Network.ErrorPolicy (ErrorPolicies (..), ErrorPolicy (ErrorPolicy), SuspendDecision (Throw))
 import Ouroboros.Network.NodeToClient
   ( ClientSubscriptionParams (..)
   , NetworkSubscriptionTracers (..)
@@ -76,8 +78,10 @@ start env = withIOManager \ioManager → do
       , cspErrorPolicies =
           networkErrorPolicies
             <> consensusErrorPolicy (Proxy @StdCardanoBlock)
+            <> yareErrorPolicies
       }
     ( makeNodeToClientProtocols
+        (look @(Tracer IO SomeException) env)
         (newChainFollower @state env)
         (look @Query.Q env)
         (look @Submitter.Q env)
@@ -86,3 +90,10 @@ start env = withIOManager \ioManager → do
            in Tagged (fmap blockRefPoint lastIndexed <|> syncFrom)
         )
     )
+
+yareErrorPolicies ∷ ErrorPolicies
+yareErrorPolicies =
+  ErrorPolicies
+    { epAppErrorPolicies = [ErrorPolicy \(_ ∷ SomeException) → Just Throw]
+    , epConErrorPolicies = []
+    }

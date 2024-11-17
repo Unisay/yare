@@ -4,6 +4,7 @@ module Control.Tracer.Extended
   , lineTracer
   , withPrefix
   , withFaint
+  , showTracer
   ) where
 
 import Yare.Prelude
@@ -32,3 +33,6 @@ lineTracer = Tracer \s → do
   hFlush stdout -- flushes the buffer
   putStr "\ESC[A" -- move cursor one line up
   putStr "\r\ESC[K" -- clears line
+
+showTracer :: Show showable => Tracer IO showable
+showTracer = show >$< debugTracer

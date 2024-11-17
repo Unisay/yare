@@ -1,22 +1,22 @@
 module Yare.Utxo.Indexer
   ( indexBlock
   , rollbackTo
-  , UtxoUpdate (..)
+  , IndexingResult (..)
   ) where
 
-import Yare.Prelude
+import Yare.Prelude hiding (show)
 
 import Cardano.Api (TxIn (..))
 import Cardano.Slotting.Slot (SlotNo (..), fromWithOrigin)
 import Data.List.NonEmpty qualified as NE
 import Data.Set (member)
-import Fmt (pretty)
 import Fmt.Orphans ()
-import NoThunks.Class.Extended (foldlNoThunks)
 import Ouroboros.Consensus.Block (blockSlot, pointSlot)
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
+import Text.Show (show)
 import Yare.Address (Addresses, isOwnAddress)
+import Yare.App.Scripts qualified as Scripts
 import Yare.App.Types (Finality (..))
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Era (AnyEra (..))
@@ -30,7 +30,7 @@ import Yare.Chain.Tx
   , transactionViewUtxo
   )
 import Yare.Utxo
-  ( Update (AddSpendableTxInput, SpendTxInput)
+  ( Update (..)
   , Utxo
   , finalise
   , rollback
@@ -39,11 +39,11 @@ import Yare.Utxo
   )
 import Yare.Utxo qualified as Utxo
 
-data UtxoUpdate
+data IndexingResult
   = -- | The UTxO set which was updated by these transaction IDs
-    UtxoUpdated Utxo [AnyEra Tx]
+    UtxoUpdated !Utxo ![AnyEra Tx]
   | UtxoNotUpdated
-  | UtxoUpdateError Utxo.UpdateError
+  | UtxoUpdateError !Utxo.UpdateError
 
 {- | Enrich the UTxO set with the transactions from a block.
 | Returns the updated UTxO set or 'Nothing' if the block is irrelevant.
@@ -59,49 +59,42 @@ indexBlock
   -- ^ Whether the block is final.
   → Utxo
   -- ^ The previous UTxO set.
-  → UtxoUpdate
-  -- ^ The updated UTxO set or 'Nothing' if the block is irrelevant.
+  → IndexingResult
+  -- ^ The result of indexing the block.
 indexBlock submittedTxs addresses block finality prevUtxo =
-  case utxoUpdate of
+  case blokIndexingResult of
     UtxoNotUpdated → UtxoNotUpdated
     UtxoUpdateError err → UtxoUpdateError err
     UtxoUpdated utxo txIds →
       case finality of
-        Final →
-          trace (pretty utxo) $
-            UtxoUpdated (finalise slot utxo) txIds
-        NotFinal → utxoUpdate
+        Final → UtxoUpdated (finalise slot utxo) txIds
+        NotFinal → blokIndexingResult
  where
-  utxoUpdate ∷ UtxoUpdate
-  utxoUpdate =
+  blokIndexingResult ∷ IndexingResult
+  blokIndexingResult =
     -- Transaction indexing is implemented as a fold (and not as map/traverse)
     -- such that indexing of a next transaction takes
     -- into account the updates to UTxO made by the previous ones.
-    foldlNoThunks
-      forEachTx
-      (\_utxo → UtxoNotUpdated)
-      (blockTransactions block)
-      prevUtxo
+    foldl' forEachTx UtxoNotUpdated (blockTransactions block)
 
-  forEachTx ∷ (Utxo → UtxoUpdate) → AnyEra Tx → Utxo → UtxoUpdate
-  forEachTx prevUpdate !tx utxo =
-    case prevUpdate utxo of
-      UtxoUpdateError err →
-        UtxoUpdateError err
+  forEachTx ∷ IndexingResult → AnyEra Tx → IndexingResult
+  forEachTx !previousResult !tx =
+    case previousResult of
+      UtxoUpdateError {} → previousResult
       UtxoNotUpdated →
-        case indexTx submittedTxs addresses tx utxo of
+        case indexTx submittedTxs addresses tx prevUtxo of
           Nothing → UtxoNotUpdated
           Just updates → do
-            case updateUtxo slot updates utxo of
+            case updateUtxo slot updates prevUtxo of
               Left updateErr → UtxoUpdateError updateErr
-              Right utxo' → UtxoUpdated utxo' (pure tx)
-      previous@(UtxoUpdated utxo' txs) →
-        case indexTx submittedTxs addresses tx utxo' of
+              Right utxo → UtxoUpdated utxo (pure tx)
+      previous@(UtxoUpdated utxo txs) →
+        case indexTx submittedTxs addresses tx utxo of
           Nothing → previous
           Just updates →
-            case updateUtxo slot updates utxo' of
+            case updateUtxo slot updates utxo of
               Left updateErr → UtxoUpdateError updateErr
-              Right utxo'' → UtxoUpdated utxo'' (tx : txs)
+              Right utxo' → UtxoUpdated utxo' (tx : txs)
 
   slot ∷ SlotNo
   slot = blockSlot block
@@ -120,7 +113,9 @@ indexTx submittedTxs addresses tx utxo = do
     Just updates → Just updates
     Nothing →
       if txId `member` submittedTxs
-        then error $ "Submitted transaction is not indexed: " <> show txView
+        then
+          error . fromString $
+            "Submitted transaction wasn't indexed: " <> show txView
         else Nothing
  where
   txId = txViewId txView
@@ -129,20 +124,32 @@ indexTx submittedTxs addresses tx utxo = do
   indexInsAndOuts ∷ Set TxIn → TxViewUtxo → [Update]
   indexInsAndOuts spendableInputs TxViewUtxo {..} =
     mapMaybe (indexTxIn spendableInputs) txViewInputs
-      <> mapMaybe indexTxOut txViewOutputs
+      <> (indexTxOut =<< txViewOutputs)
 
   indexTxIn ∷ Set TxIn → TxIn → Maybe Update
   indexTxIn spendableInputs input =
     guard (input `member` spendableInputs)
       $> SpendTxInput input
 
-  indexTxOut ∷ TxOutViewUtxo → Maybe Update
-  indexTxOut TxOutViewUtxo {..} =
-    guard (isOwnAddress addresses txOutViewUtxoAddress)
-      $> AddSpendableTxInput
+  indexTxOut ∷ TxOutViewUtxo → [Update]
+  indexTxOut txOut =
+    maybeToList (checkTxOutAddress txOut)
+      ++ maybeToList (checkTxOutScript txOut)
+
+  checkTxOutAddress ∷ TxOutViewUtxo → Maybe Update
+  checkTxOutAddress TxOutViewUtxo {..} = do
+    guard $ isOwnAddress addresses txOutViewUtxoAddress
+    pure $
+      AddSpendableTxInput
         (TxIn txId txOutViewUtxoIndex)
         (force txOutViewUtxoAddress)
         txOutViewUtxoValue
+
+  checkTxOutScript ∷ TxOutViewUtxo → Maybe Update
+  checkTxOutScript out = do
+    scriptHash ← Scripts.isOwnScriptAddress (txOutViewUtxoAddress out)
+    let txIn = TxIn txId (txOutViewUtxoIndex out)
+    pure $ ConfirmScriptDeployment scriptHash txIn
 
 rollbackTo ∷ ChainPoint → Utxo → Maybe Utxo
 rollbackTo point = rollback (fromWithOrigin (SlotNo 0) (pointSlot point))

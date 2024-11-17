@@ -64,7 +64,7 @@ instance Buildable PolicyId where
   build (PolicyId policyId) = nameF "PolicyId" (build policyId)
 
 instance Buildable ScriptHash where
-  build scriptHash = nameF "Script Hash" (build scriptHash)
+  build = nameF "Script Hash" . build . serialiseToRawBytesHexText
 
 instance Buildable AssetName where
   build assetName = nameF "Asset Name" (build assetName)

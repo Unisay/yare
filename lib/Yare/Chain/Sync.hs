@@ -3,10 +3,11 @@ module Yare.Chain.Sync (client) where
 import Yare.Prelude
 
 import Control.Concurrent (threadDelay)
+import Control.Tracer.Extended (Tracer, traceWith)
 import Ouroboros.Consensus.Block (Point (GenesisPoint))
 import Ouroboros.Network.Protocol.ChainSync.Client
   ( ChainSyncClient (ChainSyncClient)
-  , ClientStIdle (SendMsgFindIntersect, SendMsgRequestNext)
+  , ClientStIdle (SendMsgDone, SendMsgFindIntersect, SendMsgRequestNext)
   , ClientStIntersect
     ( ClientStIntersect
     , recvMsgIntersectFound
@@ -19,25 +20,29 @@ import Ouroboros.Network.Protocol.ChainSync.Client
     )
   )
 import Text.Pretty.Simple (pPrint)
+import UnliftIO (catch)
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Follower (ChainFollower (..))
 import Yare.Chain.Types (ChainPoint, ChainTip)
 
 client
-  ∷ ∀ m
-   . MonadIO m
-  ⇒ ChainFollower m
+  ∷ Tracer IO SomeException
+  -- ^ Tracer for exceptions
+  → ChainFollower IO
+  -- ^ Handles new blocks and rollbacks
   → [ChainPoint]
   -- ^ known chain points
-  → ChainSyncClient StdCardanoBlock ChainPoint ChainTip m ()
-client chainFollower knownChainPoints = ChainSyncClient do
+  → ChainSyncClient StdCardanoBlock ChainPoint ChainTip IO ()
+client tr chainFollower knownChainPoints = ChainSyncClient do
   pure $
     findIntersect
       if null knownChainPoints
         then [GenesisPoint]
         else knownChainPoints
  where
-  findIntersect ∷ [ChainPoint] → ClientStIdle StdCardanoBlock ChainPoint ChainTip m ()
+  findIntersect
+    ∷ [ChainPoint]
+    → ClientStIdle StdCardanoBlock ChainPoint ChainTip IO ()
   findIntersect knownPoints =
     SendMsgFindIntersect
       knownPoints
@@ -52,7 +57,7 @@ client chainFollower knownChainPoints = ChainSyncClient do
             pure requestNext
         }
 
-  requestNext ∷ ClientStIdle StdCardanoBlock ChainPoint ChainTip m a
+  requestNext ∷ ClientStIdle StdCardanoBlock ChainPoint ChainTip IO ()
   requestNext =
     SendMsgRequestNext
       pass

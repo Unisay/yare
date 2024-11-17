@@ -11,7 +11,7 @@ module Yare.Chain.Follower
 import Yare.Prelude
 
 import Cardano.Api.Shelley (TxId)
-import Cardano.Slotting.Slot (fromWithOrigin)
+import Cardano.Slotting.Slot (SlotNo, fromWithOrigin)
 import Control.Monad.Class.MonadThrow (throwIO)
 import Control.Tracer.Extended (Tracer, traceWith)
 import Data.Maybe.Strict (StrictMaybe (SJust))
@@ -28,13 +28,13 @@ import Yare.Address (Addresses)
 import Yare.App.Types (Finality (..), StorageMode (..))
 import Yare.Chain.Block (StdCardanoBlock)
 import Yare.Chain.Block.Reference (blockRef)
-import Yare.Chain.Tx (transactionViewUtxo, txViewId)
+import Yare.Chain.Era (AnyEra)
+import Yare.Chain.Tx (Tx, transactionViewUtxo, txViewId)
 import Yare.Chain.Types (ChainPoint, ChainTip, LastIndexedBlock)
-import Yare.Storage (StorageMgr (..), overDefaultStorage)
+import Yare.Storage (StorageMgr (..), overDefaultStorage, persistVolatileStorage)
 import Yare.Tracers (Tracersᵣ)
 import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
-import Yare.Utxo.Indexer (UtxoUpdate (..))
 import Yare.Utxo.Indexer qualified as Utxo
 
 data ChainFollower (m ∷ Type → Type) = ChainFollower
@@ -44,14 +44,14 @@ data ChainFollower (m ∷ Type → Type) = ChainFollower
 
 newChainFollower
   ∷ ∀ state env
-   . ( (StorageMgr IO state : Addresses : Tracersᵣ) ∈∈ env
-     , [ Utxo
-       , ChainTip
-       , LastIndexedBlock
-       , Tagged "submitted" (Set TxId)
-       , Tagged "in-ledger" (Set TxId)
-       ]
-        ∈∈ state
+   . ( Addresses ∈ env
+     , StorageMgr IO state ∈ env
+     , Tracersᵣ ∈∈ env
+     , Utxo ∈ state
+     , ChainTip ∈ state
+     , LastIndexedBlock ∈ state
+     , Tagged "submitted" (Set TxId) ∈ state
+     , Tagged "in-ledger" (Set TxId) ∈ state
      )
   ⇒ env
   → ChainFollower IO
@@ -65,6 +65,11 @@ newChainFollower env =
               if thisBlockNo < tipBlockNo - securityParam
                 then Final
                 else NotFinal
+
+        -- Make a snapshot of the volatile storage every 10_000 blocks
+        when (thisBlockNo `rem` 10_000 == 0) do
+          persistVolatileStorage @state env
+
         setStorageMode storageManager case finality of
           -- Once we've reached the volatile (non-final) block,
           -- we switch to the durable storage mode.
@@ -72,16 +77,17 @@ newChainFollower env =
           -- Otherwise, we stay in the volatile storage mode for
           -- faster indexing.
           Final → Volatile
-        overDefaultStorage @state
-          storageManager
-          (indexBlock addresses block finality tip)
-          \case
-            UtxoNotUpdated →
-              traceWith (look env) (blockSlot block)
-            UtxoUpdated updatedUtxo txs → do
-              for_ txs $ traceWith (look env)
-              traceWith (look env) updatedUtxo
-            UtxoUpdateError err →
+
+        let pureStateChange = indexBlock addresses block finality tip
+
+        overDefaultStorage @state storageManager pureStateChange \result → do
+          case result of
+            Utxo.UtxoNotUpdated →
+              traceWith (look @(Tracer IO SlotNo) env) (blockSlot block)
+            Utxo.UtxoUpdated updatedUtxo txs → do
+              for_ txs $ traceWith (look @(Tracer IO (AnyEra Tx)) env)
+              traceWith (look @(Tracer IO Utxo) env) updatedUtxo
+            Utxo.UtxoUpdateError err →
               throwIO err
     , onRollback = \(point ∷ ChainPoint) (tip ∷ ChainTip) → do
         traceWith (look @(Tracer IO ChainPoint) env) point
@@ -112,22 +118,22 @@ indexBlock
   → StdCardanoBlock
   → Finality
   → ChainTip
-  → (state → (state, UtxoUpdate))
-indexBlock addresses block finality !tip !state = (state', utxoUpdate)
+  → (state → (state, Utxo.IndexingResult))
+indexBlock addresses block finality !tip !state = (state', utxoIndexingResult)
  where
   state' ∷ state =
     setter (Tagged @"last-indexed" (SJust (blockRef block))) $
-      case utxoUpdate of
-        UtxoUpdateError {} → state
-        UtxoNotUpdated → state
-        UtxoUpdated utxo' txs →
+      case utxoIndexingResult of
+        Utxo.UtxoUpdateError {} → state
+        Utxo.UtxoNotUpdated → state
+        Utxo.UtxoUpdated utxo' txs →
           let txIds = Set.fromList (txViewId . transactionViewUtxo <$> txs)
            in setter utxo'
                 . setter tip
                 . update @(Tagged "in-ledger" (Set TxId)) (Set.union txIds <$>)
                 $ state
 
-  utxoUpdate ∷ UtxoUpdate =
+  utxoIndexingResult ∷ Utxo.IndexingResult =
     Utxo.indexBlock
       (lookTagged @"submitted" @(Set TxId) state)
       addresses

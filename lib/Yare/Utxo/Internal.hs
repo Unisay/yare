@@ -61,12 +61,23 @@ data ScriptStatus
   deriving stock (Eq, Ord, Enum, Bounded, Show, Generic)
   deriving anyclass (NoThunks, NFData, Serialise)
 
+instance Buildable ScriptStatus where
+  build =
+    nameF "Status" . \case
+      ScriptStatusDeployInitiated → "Initiated"
+      ScriptStatusDeployCompleted → "Completed"
+
 data ScriptDeployment = ScriptDeployment
   { scriptTxIn ∷ !TxIn
   , scriptStatus ∷ !ScriptStatus
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NoThunks, NFData, Serialise)
+
+instance Buildable ScriptDeployment where
+  build ScriptDeployment {scriptTxIn, scriptStatus} =
+    nameF "Script Deployment" $
+      nameF "TxIn" (build (renderTxIn scriptTxIn)) <> build scriptStatus
 
 data Utxo = Utxo
   { reversibleUpdates ∷ ![(SlotNo, NonEmpty Update)]
@@ -90,6 +101,13 @@ instance Buildable Utxo where
           | (txIn, (addr, value)) ← Map.toList finalEntries
           ]
       <> nameF "Inputs used by submitted transactions" (blockListF usedInputs)
+      <> nameF
+        "Script deployments"
+        ( blockListF
+            [ build scriptHash <> build scriptDeployment
+            | (scriptHash, scriptDeployment) ← Map.toList scriptDeployments
+            ]
+        )
       <> if null reversibleUpdates
         then "\n"
         else nameF "Applied UTxO updates" do
@@ -156,7 +174,7 @@ updateUtxo slot updates utxo =
 
 validateUpdates ∷ Utxo → NonEmpty Update → Maybe UpdateError
 validateUpdates utxo =
-  fmap head . traverse \case
+  asum . fmap \case
     AddSpendableTxInput txIn _addr _value →
       guard (txIn `member` Map.keysSet (allEntries utxo))
         $> InputAlreadyExists txIn
@@ -166,11 +184,11 @@ validateUpdates utxo =
     ConfirmScriptDeployment scriptHash confirmedTxIn →
       case Map.lookup scriptHash (scriptDeployments utxo) of
         Nothing →
-          pure $ InvalidScriptDeploymentConfirmation Nothing confirmedTxIn
+          Just $ InvalidScriptDeploymentConfirmation Nothing confirmedTxIn
         Just (ScriptDeployment initiatedTxIn scriptStatus) →
           case scriptStatus of
             ScriptStatusDeployCompleted →
-              pure $
+              Just $
                 InvalidScriptDeploymentConfirmation
                   (Just scriptStatus)
                   confirmedTxIn
@@ -212,21 +230,9 @@ finalise
       , finalEntries = updatesToEntries irreversibleUpdates finalEntries
       , scriptDeployments =
           let
-            scriptsAwaitingConfirmation ∷ Set (ScriptHash, TxIn) =
-              scriptDeployments
-                & Map.foldMapWithKey \hash (ScriptDeployment txIn status) →
-                  case status of
-                    ScriptStatusDeployInitiated → [(hash, txIn)]
-                    _ → []
-                    & Set.fromList
-
-            isAwaitingConfirmation ∷ ScriptHash → TxIn → Bool = \hash txIn →
-              Set.member (hash, txIn) scriptsAwaitingConfirmation
-
             confirmedScriptDeployments ∷ [(ScriptHash, TxIn)] = do
               (_slot, slotUpdates) ← irreversibleUpdates
               ConfirmScriptDeployment hash input ← toList slotUpdates
-              guard $ isAwaitingConfirmation hash input
               pure (hash, input)
 
             applyConfirmation

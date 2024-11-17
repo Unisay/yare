@@ -6,23 +6,6 @@ module Yare.Http.Server
   ) where
 
 import Yare.Prelude
-  ( Applicative (pure)
-  , ConvertUtf8 (encodeUtf8)
-  , Either (Left, Right)
-  , IO
-  , Maybe (Just, Nothing)
-  , MonadFail (fail)
-  , MonadIO (liftIO)
-  , Proxy (Proxy)
-  , Semigroup ((<>))
-  , Set
-  , toShort
-  , ($)
-  , (.)
-  , (<$>)
-  , (<<$>>)
-  , (>>>)
-  )
 
 import Cardano.Api.Shelley
   ( Lovelace
@@ -38,12 +21,11 @@ import Cardano.Ledger.Hashes qualified as Ledger
 import Control.Monad.Error.Class (MonadError (..))
 import Data.ByteString.Base16 qualified as Base16
 import Data.Map qualified as Map
-import Data.Tuple (uncurry)
 import Network.Wai qualified as Wai
 import Servant qualified
 import Servant.API (Capture, FromHttpApiData, Get, Post, ReqBody, ToHttpApiData (..), type (:<|>) (..), type (:>))
 import Servant.API.ContentTypes (JSON, PlainText)
-import Servant.Server (err400)
+import Servant.Server (err400, err404)
 import Yare.App.Services (Services (serveCollateralAddresses))
 import Yare.App.Services qualified as App
 import Yare.App.Services.DeployScript qualified as DeployScript
@@ -158,7 +140,7 @@ endpointScriptDeployment services scriptHash = do
   deployments ← liftIO serveScriptDeployments
   case Map.lookup scriptHash deployments of
     Just deployment → pure (Http.ScriptDeployment scriptHash deployment)
-    Nothing → throwError err400 {Servant.errBody = "Unknown script hash"}
+    Nothing → throwError err404 {Servant.errBody = "Unknown script hash"}
 
 endpointAddresses ∷ App.Services IO → Servant.Handler [Http.Address]
 endpointAddresses App.Services {serveAddresses} = liftIO do

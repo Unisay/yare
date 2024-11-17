@@ -64,7 +64,7 @@ import Yare.Address qualified as Address
 import Yare.Address.Derivation (AddressWithKey (..))
 import Yare.App.Types (NetworkInfo (..), StorageMode (..))
 import Yare.Chain.Types (LedgerAddress)
-import Yare.Storage (Storage (..), StorageMgr (..), readDefaultStorage)
+import Yare.Storage (Storage (..), StorageMgr (..), readDefaultStorage, defaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (stateMay)
 import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)

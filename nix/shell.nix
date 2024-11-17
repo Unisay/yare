@@ -47,6 +47,7 @@ cabalProject: {
       group = "development";
       exec = ''
         cabal run yare-offchain -- \
+          +RTS -M512M -RTS \
           --node-socket $CARDANO_NODE_SOCKET_PATH \
           --network-magic $TESTNET_MAGIC \
           --mnemonic-file test/data/mnemonic24.txt \

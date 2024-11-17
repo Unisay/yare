@@ -32,6 +32,7 @@ type Tracersᵣ =
   , Tracer IO SlotNo
   , Tracer IO ChainPoint
   , Tracer IO StorageMode
+  , Tracer IO SomeException
   ]
 
 type Tracers = HList Tracersᵣ
@@ -43,6 +44,7 @@ tracers =
     `strictHCons` tracerSync
     `strictHCons` tracerRollback
     `strictHCons` tracerStorageMode
+    `strictHCons` chainSyncExceptionTracer
     `strictHCons` HNil
 
 tracerTx ∷ Tracer IO (AnyEra Tx)
@@ -69,3 +71,12 @@ tracerStorageMode = printMode >$< debugTracer
   printMode = \case
     Volatile → "Switched to volatile storage"
     Durable → "Switched to durable storage\n"
+
+chainSyncExceptionTracer ∷ Tracer IO SomeException
+chainSyncExceptionTracer = f >$< debugTracer
+ where
+  f ∷ SomeException → String
+  f e =
+    "Chain sync protocol stopped because of the \
+    \unhandled application exception:\n"
+      <> displayException e

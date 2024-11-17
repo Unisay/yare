@@ -131,9 +131,10 @@ library
     , strict                         ^>=0.5.1
     , strict-sop-core                ^>=0.1.1
     , string-interpolate             ^>=0.3.3
-    , text                           ^>=2.1.1
+    , text                           ^>=2.0.2
     , text-ansi                      ^>=0.3.0.1
     , transformers                   ^>=0.6.1.0
+    , unliftio
     , wai                            ^>=3.2.4
     , wai-cors                       ^>=0.2.7
     , wai-extra                      ^>=3.1.15
@@ -157,6 +158,7 @@ library
     Yare.Address.Derivation
     Yare.App
     Yare.App.Scripts
+    Yare.App.Scripts.Test
     Yare.App.Services
     Yare.App.Services.DeployScript
     Yare.App.State
@@ -192,7 +194,7 @@ library
 executable yare-offchain
   import:         opts
   hs-source-dirs: exe/offchain
-  ghc-options:    -threaded
+  ghc-options:    -threaded -rtsopts
   main-is:        Main.hs
   build-depends:
     , cardano-addresses          ^>=3.12
