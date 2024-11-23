@@ -1,3 +1,4 @@
+*.gitignored
 .pre-commit-config.yaml
 .envrc-local
 .devenv

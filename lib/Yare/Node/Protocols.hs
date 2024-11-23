@@ -6,8 +6,7 @@ import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.Client.Subscription (MuxMode (..))
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Tracer (nullTracer)
-import Control.Tracer.Extended (Tracer, debugTracer, withFaint, withPrefix)
-import Data.Maybe.Strict (StrictMaybe, strictMaybeToMaybe)
+import Control.Tracer.Extended (debugTracer, withFaint, withPrefix)
 import Ouroboros.Consensus.Block.Abstract (CodecConfig)
 import Ouroboros.Consensus.Cardano.Block (CardanoBlock)
 import Ouroboros.Consensus.Cardano.Node (protocolClientInfoCardano)
@@ -45,20 +44,22 @@ import Yare.Submitter qualified as Submitter
 
 makeNodeToClientProtocols
   ∷ ∀ ntcAddr
-   . Tracer IO SomeException
-  → ChainFollower IO
+   . ChainFollower IO
+  -- ^ Handles new blocks and rollbacks
   → Query.Q
+  -- ^ Handles local state queries
   → Submitter.Q
-  → Tagged "syncFrom" (StrictMaybe ChainPoint)
+  -- ^ Handles tx submission
+  → IO [ChainPoint]
+  -- ^ known chain points
   → NodeToClientVersion
   → BlockNodeToClientVersion (CardanoBlock StandardCrypto)
   → NodeToClientProtocols InitiatorMode ntcAddr LByteString IO () Void
 makeNodeToClientProtocols
-  chainSyncExceptionTracer
   chainFollower
   qryQ
   submitQ
-  syncFrom
+  knownChainPoints
   n2cVer
   blockVer =
     NodeToClientProtocols
@@ -81,11 +82,7 @@ makeNodeToClientProtocols
       InitiatorProtocolOnly $ mkMiniProtocolCbFromPeer \_context →
         ( nullTracer
         , cChainSyncCodec
-        , chainSyncClientPeer $
-            ChainSync.client
-              chainSyncExceptionTracer
-              chainFollower
-              (maybeToList (strictMaybeToMaybe (untag syncFrom)))
+        , chainSyncClientPeer (ChainSync.client chainFollower knownChainPoints)
         )
 
     localTxSubmissionProtocol

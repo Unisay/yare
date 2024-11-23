@@ -8,8 +8,8 @@ import Cardano.Api.Shelley
   , EraHistory (..)
   , NetworkMagic
   , ShelleyBasedEra (..)
-  , babbageEraOnwardsToShelleyBasedEra
   , toLedgerEpochInfo
+  , inject
   )
 import Codec.Serialise.Class.Orphans ()
 import Control.Exception (throwIO)
@@ -68,8 +68,7 @@ start env = withHandledErrors do
         (,,)
           <$> Query.querySystemStart
           <*> Query.queryHistoryInterpreter
-          <*> Query.queryCurrentPParams
-            (babbageEraOnwardsToShelleyBasedEra currentEra)
+          <*> Query.queryCurrentPParams (inject currentEra)
     protocolParameters ←
       case errorOrProtocolParams of
         Left err → throwError err

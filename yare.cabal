@@ -122,7 +122,6 @@ library
     , placeholders                   ^>=0.1
     , plutus-ledger-api
     , plutus-tx
-    , plutus-tx-plugin
     , pretty-simple                  ^>=4.1.2
     , serialise                      ^>=0.2
     , servant                        ^>=0.20.1
@@ -140,6 +139,7 @@ library
     , wai-extra                      ^>=3.1.15
     , warp                           ^>=3.4.1
     , Win32-network                  ^>=0.2
+    , yare:onchain
 
   other-modules:
     Codec.Serialise.Class.Orphans
@@ -158,7 +158,6 @@ library
     Yare.Address.Derivation
     Yare.App
     Yare.App.Scripts
-    Yare.App.Scripts.Test
     Yare.App.Services
     Yare.App.Services.DeployScript
     Yare.App.State
@@ -190,6 +189,22 @@ library
     Yare.Utxo
     Yare.Utxo.Indexer
     Yare.Utxo.Internal
+
+library onchain
+  import:          opts
+  hs-source-dirs:  onchain
+  exposed-modules: Yare.App.Scripts.Test
+  build-depends:
+    , cardano-api
+    , plutus-ledger-api
+    , plutus-tx
+    , plutus-tx-plugin
+
+  ghc-options:
+    -fplugin PlutusTx.Plugin -fno-full-laziness
+    -fno-ignore-interface-pragmas -fno-omit-interface-pragmas
+    -fno-spec-constr -fno-specialise -fno-strictness
+    -fno-unbox-small-strict-fields -fno-unbox-strict-fields
 
 executable yare-offchain
   import:         opts

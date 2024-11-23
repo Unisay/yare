@@ -22,7 +22,7 @@ import Data.Text.Encoding qualified as Text
 import Ouroboros.Network.Block (Tip)
 import Path (Abs, File, Path)
 import Yare.Chain.Block (StdCardanoBlock)
-import Yare.Chain.Block.Reference (BlockRef(..))
+import Yare.Chain.Block.Reference (BlockRef (..))
 import Yare.Chain.Point (ChainPoint, parseChainPoint)
 
 type ChainTip = Tip StdCardanoBlock

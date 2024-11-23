@@ -17,6 +17,7 @@ import Cardano.Api.Shelley
   , BuildTxWith (BuildTxWith)
   , CtxTx
   , InAnyShelleyBasedEra (..)
+  , Inject (..)
   , KeyWitnessInCtx (KeyWitnessForSpending)
   , PlutusScriptV3
   , PoolId
@@ -38,7 +39,6 @@ import Cardano.Api.Shelley
   , Value
   , Witness (KeyWitness)
   , addTxOut
-  , babbageEraOnwardsToShelleyBasedEra
   , constructBalancedTx
   , defaultTxBodyContent
   , fromShelleyAddrIsSbe
@@ -64,7 +64,7 @@ import Yare.Address qualified as Address
 import Yare.Address.Derivation (AddressWithKey (..))
 import Yare.App.Types (NetworkInfo (..), StorageMode (..))
 import Yare.Chain.Types (LedgerAddress)
-import Yare.Storage (Storage (..), StorageMgr (..), readDefaultStorage, defaultStorage)
+import Yare.Storage (Storage (..), StorageMgr (..), defaultStorage, readDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (stateMay)
 import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
@@ -91,7 +91,7 @@ service
   → IO TxIn
 service env scriptHash script = do
   let NetworkInfo {currentEra} = look env
-      shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
+      shelleyBasedEra = inject @(BabbageEraOnwards era) currentEra
   let storageManager ∷ StorageMgr IO state = look env
   setStorageMode storageManager Durable
   storage ← defaultStorage storageManager
@@ -156,7 +156,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
         , network
         } = networkInfo
 
-      shelleyBasedEra = babbageEraOnwardsToShelleyBasedEra currentEra
+      shelleyBasedEra = inject currentEra
 
   feeInputs ∷ NonEmpty (TxIn, (AddressWithKey, Value)) ←
     stateMay (Utxo.useFeeInputs addresses)

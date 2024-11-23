@@ -6,12 +6,12 @@ import Cardano.Api.Shelley (NetworkMagic, TxId)
 import Cardano.Client.Subscription (subscribe)
 import Codec.Serialise.Class.Orphans ()
 import Control.Tracer.Extended
-  ( Tracer
-  , debugTracer
+  ( debugTracer
   , nullTracer
   , withFaint
   , withPrefix
   )
+import Data.Maybe.Strict (StrictMaybe)
 import Fmt.Orphans ()
 import Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy)
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
@@ -56,8 +56,7 @@ start
      )
   ⇒ env
   → IO Void
-start env = withIOManager \ioManager → do
-  yareState ← readDefaultStorage @state env
+start env = withIOManager \ioManager →
   subscribe
     (localSnocket ioManager)
     (look @NetworkMagic env)
@@ -81,14 +80,15 @@ start env = withIOManager \ioManager → do
             <> yareErrorPolicies
       }
     ( makeNodeToClientProtocols
-        (look @(Tracer IO SomeException) env)
         (newChainFollower @state env)
         (look @Query.Q env)
         (look @Submitter.Q env)
-        ( let lastIndexed = lookTagged @"last-indexed" yareState
+        do
+          yareState ← readDefaultStorage @state env
+          let lastIndexedBlockRef = lookTagged @"last-indexed" yareState
+              lastIndexed = blockRefPoint <$> lastIndexedBlockRef
               syncFrom = lookTagged @"syncFrom" env
-           in Tagged (fmap blockRefPoint lastIndexed <|> syncFrom)
-        )
+          pure . toList @StrictMaybe $ lastIndexed <|> syncFrom
     )
 
 yareErrorPolicies ∷ ErrorPolicies
