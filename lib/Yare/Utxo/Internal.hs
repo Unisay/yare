@@ -1,19 +1,21 @@
 module Yare.Utxo.Internal where
 
-import Yare.Prelude
+import Yare.Prelude hiding (update)
 
 import Cardano.Api (ScriptHash, TxIn (..), Value, renderTxIn)
 import Cardano.Slotting.Slot (SlotNo (..))
 import Codec.Serialise (Serialise)
 import Codec.Serialise.Class.Orphans ()
 import Control.DeepSeq.Orphans ()
+import Data.Foldable (foldrM)
+import Data.List.NonEmpty ((<|))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
-import Data.Set (member, notMember)
+import Data.Set (member, notMember, (\\))
 import Data.Set qualified as Set
 import Fmt (Buildable (..), Builder, blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
-import NoThunks.Class.Extended (NoThunks (..), foldlNoThunks)
+import NoThunks.Class.Extended (NoThunks (..))
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Yare.Address (AddressWithKey (..), Addresses)
@@ -50,7 +52,8 @@ instance Buildable Update where
 
 data UpdateError
   = NoTxInputToSpend TxIn
-  | InvalidScriptDeploymentConfirmation (Maybe ScriptStatus) TxIn
+  | ScriptDeploymentConfirmationDuplicate (Maybe ScriptStatus) TxIn
+  | ScriptDeploymentConfirmationInputMismatch (Maybe ScriptStatus) TxIn
   | InputAlreadyExists TxIn
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NoThunks, Exception)
@@ -168,35 +171,41 @@ useCollateralInputs addresses s = do
   utxo ∷ Utxo = look s
 
 updateUtxo ∷ SlotNo → NonEmpty Update → Utxo → Either UpdateError Utxo
-updateUtxo slot updates utxo =
-  utxo {reversibleUpdates = (slot, updates) : reversibleUpdates utxo}
-    `maybeToLeft` validateUpdates utxo updates
+updateUtxo slot updates utxo = foldrM (applyUpdate slot) utxo updates
 
-validateUpdates ∷ Utxo → NonEmpty Update → Maybe UpdateError
-validateUpdates utxo =
-  asum . fmap \case
-    AddSpendableTxInput txIn _addr _value →
-      guard (txIn `member` Map.keysSet (allEntries utxo))
-        $> InputAlreadyExists txIn
-    SpendTxInput txIn →
-      guard (txIn `notMember` Map.keysSet (allEntries utxo))
-        $> NoTxInputToSpend txIn
-    ConfirmScriptDeployment scriptHash confirmedTxIn →
-      case Map.lookup scriptHash (scriptDeployments utxo) of
-        Nothing →
-          Just $ InvalidScriptDeploymentConfirmation Nothing confirmedTxIn
-        Just (ScriptDeployment initiatedTxIn scriptStatus) →
-          case scriptStatus of
-            ScriptStatusDeployCompleted →
-              Just $
-                InvalidScriptDeploymentConfirmation
-                  (Just scriptStatus)
-                  confirmedTxIn
-            ScriptStatusDeployInitiated →
-              guard (confirmedTxIn /= initiatedTxIn)
-                $> InvalidScriptDeploymentConfirmation
-                  (Just scriptStatus)
-                  confirmedTxIn
+applyUpdate ∷ SlotNo → Update → Utxo → Either UpdateError Utxo
+applyUpdate slot update utxo@Utxo {reversibleUpdates} = do
+  case validateUpdate utxo update of
+    Just err → Left err
+    Nothing →
+      Right case reversibleUpdates of
+        [] → utxo {reversibleUpdates = [(slot, pure update)]}
+        (prevSlot, prevUpdates) : rest
+          | prevSlot == slot →
+              utxo {reversibleUpdates = (slot, update <| prevUpdates) : rest}
+        _ → utxo {reversibleUpdates = (slot, pure update) : reversibleUpdates}
+
+validateUpdate ∷ Utxo → Update → Maybe UpdateError
+validateUpdate utxo = \case
+  AddSpendableTxInput txIn _addr _value →
+    guard (txIn `member` txInputs utxo) $> InputAlreadyExists txIn
+  SpendTxInput txIn →
+    guard (txIn `notMember` txInputs utxo) $> NoTxInputToSpend txIn
+  ConfirmScriptDeployment scriptHash confirmedTxIn →
+    case Map.lookup scriptHash (scriptDeployments utxo) of
+      Nothing → Nothing
+      Just (ScriptDeployment initiatedTxIn scriptStatus) →
+        case scriptStatus of
+          ScriptStatusDeployCompleted →
+            Just $
+              ScriptDeploymentConfirmationDuplicate
+                (Just scriptStatus)
+                confirmedTxIn
+          ScriptStatusDeployInitiated →
+            guard (confirmedTxIn /= initiatedTxIn)
+              $> ScriptDeploymentConfirmationInputMismatch
+                (Just scriptStatus)
+                confirmedTxIn
 
 rollback ∷ SlotNo → Utxo → Maybe Utxo
 rollback rollbackSlot utxo =
@@ -274,7 +283,22 @@ spendableEntries ∷ Utxo → Entries
 spendableEntries utxo = Map.withoutKeys (allEntries utxo) (usedInputs utxo)
 
 txInputs ∷ Utxo → Set TxIn
-txInputs = Map.keysSet . allEntries
+txInputs utxo = finalInputs <> (addedInputs \\ spentInputs)
+ where
+  finalInputs =
+    Map.keysSet (finalEntries utxo)
+  addedInputs =
+    Set.fromList
+      [ txIn
+      | (_slot, updates) ← reversibleUpdates utxo
+      , AddSpendableTxInput txIn _ _ ← toList updates
+      ]
+  spentInputs =
+    Set.fromList
+      [ txIn
+      | (_slot, updates) ← reversibleUpdates utxo
+      , SpendTxInput txIn ← toList updates
+      ]
 
 spendableTxInputs ∷ Utxo → Set TxIn
 spendableTxInputs = Map.keysSet . spendableEntries
@@ -288,10 +312,10 @@ updatesToEntries ∷ [(SlotNo, NonEmpty Update)] → Entries → Entries
 updatesToEntries allUpdates entries = foldr overUpdates entries allUpdates
  where
   overUpdates ∷ (SlotNo, NonEmpty Update) → Entries → Entries
-  overUpdates (_slot, !updates) = foldlNoThunks overUpdate id (toList updates)
+  overUpdates (_slot, !updates) = foldr overUpdate id (toList updates)
    where
-    overUpdate ∷ (Entries → Entries) → Update → (Entries → Entries)
-    overUpdate !prevUpdate = \case
+    overUpdate ∷ Update → (Entries → Entries) → (Entries → Entries)
+    overUpdate !update !prevUpdate = case update of
       ConfirmScriptDeployment _hash _input → prevUpdate
       SpendTxInput input → Map.delete input . prevUpdate
       AddSpendableTxInput input addr val →

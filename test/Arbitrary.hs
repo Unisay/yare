@@ -53,23 +53,24 @@ instance Arbitrary ScriptDeployment where
         )
       ]
 
-newtype NonEmptyUtxo = NonEmptyUtxo Utxo
+newtype WithoutScriptDeployments = WithoutScriptDeployments Utxo
   deriving newtype (Eq, Show)
 
-instance Arbitrary NonEmptyUtxo where
+instance Arbitrary WithoutScriptDeployments where
+  arbitrary = do
+    utxo ← arbitrary
+    pure $ WithoutScriptDeployments utxo {scriptDeployments = mempty}
+
+newtype NotEmpty a = NotEmpty a
+  deriving newtype (Eq, Show)
+
+instance Arbitrary (NotEmpty Utxo) where
   arbitrary = do
     n ← Gen.chooseInt (0, 3)
-    updates ←
-      Gen.vectorOf n $
-        Gen.frequency
-          [ (3, untag <$> arbitrary @(Tag "AddSpendableTxInput" Utxo.Update))
-          , (1, untag <$> arbitrary @(Tag "SpendTxInput" Utxo.Update))
-          ]
-
+    updates ← Gen.vectorOf n arbitrary
     scriptDeployments ← arbitrary
     finalEntries ← arbitrary
-
-    NonEmptyUtxo
+    NotEmpty
       <$> if null updates
         then do
           txIn ← arbitrary

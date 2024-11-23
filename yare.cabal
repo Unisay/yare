@@ -255,6 +255,7 @@ test-suite yare-test
     , cardano-slotting
     , cardano-slotting:testlib
     , containers
+    , fmt
     , QuickCheck                   ^>=2.15
     , sydtest                      ^>=0.17
     , sydtest-discover             ^>=0.0.0.4

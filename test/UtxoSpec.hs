@@ -2,14 +2,14 @@ module UtxoSpec (spec) where
 
 import Yare.Prelude hiding (untag)
 
-import Arbitrary (NonEmptyUtxo (..), TwoSlots (..), untag)
+import Arbitrary (NotEmpty (..), TwoSlots (..), WithoutScriptDeployments (..), untag)
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Set (member, notMember)
-import Data.Set qualified as Set
+import Fmt (pretty)
 import Test.Cardano.Ledger.Core.Arbitrary ()
 import Test.Cardano.Slotting.Arbitrary ()
-import Test.QuickCheck (property, (==>))
+import Test.QuickCheck (counterexample, ioProperty, property, (===), (==>))
 import Test.Syd
   ( Spec
   , describe
@@ -21,7 +21,7 @@ import Test.Syd
 import Yare.Utxo.Internal (Update (..), allEntries)
 import Yare.Utxo.Internal qualified as Utxo
 
-spec ∷ Spec
+spec ∷ HasCallStack ⇒ Spec
 spec = describe "UTxO" do
   --
   describe "Initial" do
@@ -81,28 +81,50 @@ spec = describe "UTxO" do
               utxo1
         Map.lookup txIn (Utxo.spendableEntries utxo2) `shouldBe` Nothing
 
-    it "Adding and then spending an output cancels out" do
-      property \slot utxo (untag @"AddSpendInputPair" → (u1, u2)) → do
-        utxo' ←
-          expectRight "AddSpendInputPair" $
-            Utxo.updateUtxo slot (u1 :| [u2]) utxo
-        allEntries utxo' `shouldBe` allEntries utxo
+    it "Adding and then spending an output cancels out (same slot)" do
+      property \slot utxo (untag @"AddSpendInputPair" → (addIn, spendIn)) →
+        ioProperty do
+          let updates = spendIn :| [addIn]
+          utxo' ← expectRight "updateUtxo" $ Utxo.updateUtxo slot updates utxo
+          pure . counterexample (pretty utxo') $
+            allEntries utxo' === allEntries utxo
+
+    it "Adding and then spending an output cancels out (different slots)" do
+      property \slots utxo0 (untag @"AddSpendInputPair" → ins) → ioProperty do
+        let TwoSlots slot1 slot2 = slots
+            updates1 = NE.singleton (fst ins)
+            updates2 = NE.singleton (snd ins)
+        utxo1 ← expectRight "utxo 1" $ Utxo.updateUtxo slot1 updates1 utxo0
+        utxo2 ← expectRight "utxo 2" $ Utxo.updateUtxo slot2 updates2 utxo1
+        pure . counterexample (pretty utxo2) $
+          allEntries utxo0 === allEntries utxo2
 
     it "Spending a non-existing output is an error" do
       property \slot utxo txIn →
-        notMember txIn (Utxo.txInputs utxo)
-          ==> Utxo.updateUtxo slot (NE.singleton (Utxo.SpendTxInput txIn)) utxo
-          `shouldSatisfy` \case
-            Left (Utxo.NoTxInputToSpend _) → True
+        notMember txIn (Utxo.txInputs utxo) ==> do
+          let updates = NE.singleton (Utxo.SpendTxInput txIn)
+          Utxo.updateUtxo slot updates utxo `shouldSatisfy` \case
+            Left Utxo.NoTxInputToSpend {} → True
             _ → False
 
     it "Adding an existing output is an error" do
-      property \slot (NonEmptyUtxo utxo) addr value → do
-        let txIn = Set.elemAt 0 (Utxo.txInputs utxo)
-        let updates = NE.singleton (Utxo.AddSpendableTxInput txIn addr value)
+      property \slot (NotEmpty utxo) addr value txIn → do
+        let updates =
+              NE.fromList
+                [ Utxo.AddSpendableTxInput txIn addr value
+                , Utxo.AddSpendableTxInput txIn addr value
+                ]
         Utxo.updateUtxo slot updates utxo `shouldSatisfy` \case
           Left (Utxo.InputAlreadyExists txIn') | txIn == txIn' → True
           _ → False
+
+    it "Confirming a script deployment succeeds for an unknown script" do
+      property \slot (WithoutScriptDeployments utxo) txIn scriptHash → do
+        let updates =
+              NE.singleton $ Utxo.ConfirmScriptDeployment scriptHash txIn
+        Utxo.updateUtxo slot updates utxo `shouldSatisfy` \case
+          Left _updateErr → False
+          Right _utxo → True
 
 {-
 expectJust ∷ String → Maybe a → IO a
