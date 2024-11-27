@@ -53,7 +53,7 @@ instance Buildable Update where
 data UpdateError
   = NoTxInputToSpend TxIn
   | ScriptDeploymentConfirmationDuplicate (Maybe ScriptStatus) TxIn
-  | ScriptDeploymentConfirmationInputMismatch (Maybe ScriptStatus) TxIn
+  | ScriptDeploymentConfirmationMismatch (Maybe ScriptStatus) TxIn
   | InputAlreadyExists TxIn
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NoThunks, Exception)
@@ -191,21 +191,16 @@ validateUpdate utxo = \case
     guard (txIn `member` txInputs utxo) $> InputAlreadyExists txIn
   SpendTxInput txIn →
     guard (txIn `notMember` txInputs utxo) $> NoTxInputToSpend txIn
-  ConfirmScriptDeployment scriptHash confirmedTxIn →
-    case Map.lookup scriptHash (scriptDeployments utxo) of
-      Nothing → Nothing
-      Just (ScriptDeployment initiatedTxIn scriptStatus) →
+  ConfirmScriptDeployment scriptHash txIn' →
+    Map.lookup scriptHash (scriptDeployments utxo)
+      >>= \(ScriptDeployment txIn scriptStatus) →
         case scriptStatus of
           ScriptStatusDeployCompleted →
-            Just $
-              ScriptDeploymentConfirmationDuplicate
-                (Just scriptStatus)
-                confirmedTxIn
+            guard (txIn' == txIn)
+              $> ScriptDeploymentConfirmationDuplicate (Just scriptStatus) txIn'
           ScriptStatusDeployInitiated →
-            guard (confirmedTxIn /= initiatedTxIn)
-              $> ScriptDeploymentConfirmationInputMismatch
-                (Just scriptStatus)
-                confirmedTxIn
+            guard (txIn' /= txIn)
+              $> ScriptDeploymentConfirmationMismatch (Just scriptStatus) txIn'
 
 rollback ∷ SlotNo → Utxo → Maybe Utxo
 rollback rollbackSlot utxo =
@@ -222,8 +217,7 @@ useByAddress utxo addr = (utxo', entries)
   entries = do
     -- This query is not optimized for performance
     entry@(_input, (outputAddr, _value)) ← Map.toList (spendableEntries utxo)
-    guard $ addr == outputAddr
-    pure entry
+    guard (addr == outputAddr) $> entry
 
 -- | Finalize the UTxO set up to the given slot (inclusive).
 finalise ∷ SlotNo → Utxo → Utxo

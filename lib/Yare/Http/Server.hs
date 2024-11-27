@@ -58,6 +58,7 @@ type YareApi =
                   :<|> "change" :> Get '[JSON] [Http.Address]
                   :<|> "fees" :> Get '[JSON] [Http.Address]
                   :<|> "collateral" :> Get '[JSON] [Http.Address]
+                  :<|> "scripts" :> Get '[JSON] [Http.Address]
                )
           :<|> "transactions"
             :> ( Get '[JSON] Http.Transactions
@@ -84,6 +85,7 @@ application services =
               :<|> endpointAddressesChange services
               :<|> endpointAddressesFees services
               :<|> endpointAddressesCollateral services
+              :<|> endpointAddressesScripts services
            )
       :<|> ( endpointTransactions services
               :<|> endpointTransactionsInLedger services
@@ -157,6 +159,10 @@ endpointAddressesFees App.Services {serveFeeAddresses} = liftIO do
 endpointAddressesCollateral ∷ App.Services IO → Servant.Handler [Http.Address]
 endpointAddressesCollateral App.Services {serveCollateralAddresses} = liftIO do
   Http.Address.fromLedgerAddress <<$>> serveCollateralAddresses
+
+endpointAddressesScripts ∷ App.Services IO → Servant.Handler [Http.Address]
+endpointAddressesScripts App.Services {serveScriptAddresses} = liftIO do
+  Http.Address.fromLedgerAddress <<$>> serveScriptAddresses
 
 endpointTransactions ∷ Services IO → Servant.Handler Http.Transactions
 endpointTransactions App.Services {..} = liftIO do

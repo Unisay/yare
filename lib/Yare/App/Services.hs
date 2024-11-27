@@ -5,6 +5,7 @@ module Yare.App.Services
 
 import Yare.Prelude
 
+import Cardano.Api.Ledger (Network)
 import Cardano.Api.Shelley
   ( Lovelace
   , PlutusScriptV3
@@ -12,11 +13,14 @@ import Cardano.Api.Shelley
   , ScriptHash
   , TxId
   , TxIn
+  , hashScript
   , selectLovelace
+  , toShelleyScriptHash
   )
 import Data.Maybe.Strict (strictMaybeToMaybe)
 import Yare.Address (AddressWithKey (..), Addresses, externalAddresses)
 import Yare.Address qualified as Address
+import Yare.App.Scripts qualified as Scripts
 import Yare.App.Services.DeployScript qualified as DeployScript
 import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (BlockRef, ChainTip, LastIndexedBlock, LedgerAddress)
@@ -30,6 +34,7 @@ data Services m = Services
   { serveAddresses ∷ m [LedgerAddress]
   , serveChangeAddresses ∷ m [LedgerAddress]
   , serveFeeAddresses ∷ m [LedgerAddress]
+  , serveScriptAddresses ∷ m [LedgerAddress]
   , serveCollateralAddresses ∷ m [LedgerAddress]
   , serveUtxo ∷ m Utxo.Entries
   , serveUtxoAdaBalance ∷ m Lovelace
@@ -57,11 +62,14 @@ mkServices
 mkServices env =
   Services
     { serveAddresses = pure do
-        toList . fmap ledgerAddress . externalAddresses $ look @Addresses env
+        scriptAddresses (network (look @(NetworkInfo era) env))
+          ++ toList (ledgerAddress <$> externalAddresses (look @Addresses env))
     , serveChangeAddresses = pure do
         pure . ledgerAddress . Address.useForChange $ look @Addresses env
     , serveFeeAddresses = pure do
         pure . ledgerAddress . Address.useForFees $ look @Addresses env
+    , serveScriptAddresses = pure do
+        scriptAddresses (network (look @(NetworkInfo era) env))
     , serveCollateralAddresses = pure do
         pure . ledgerAddress . Address.useForCollateral $ look @Addresses env
     , serveUtxo =
@@ -83,3 +91,10 @@ mkServices env =
     , serveTransactionsSubmitted =
         lookTagged @"submitted" @(Set TxId) <$> readDefaultStorage @state env
     }
+
+scriptAddresses ∷ Network → [LedgerAddress]
+scriptAddresses net =
+  [ Address.forScript net do
+      toShelleyScriptHash . hashScript $
+        Scripts.yareScript Scripts.testYareScript
+  ]
