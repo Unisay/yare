@@ -191,20 +191,32 @@ library
     Yare.Utxo.Internal
 
 library onchain
-  import:          opts
-  hs-source-dirs:  onchain
-  exposed-modules: Yare.App.Scripts.Test
+  import:             opts
+  hs-source-dirs:     onchain
+  exposed-modules:
+    Plutus.Prelude
+    Yare.App.Scripts.MintingPolicy
+    Yare.App.Scripts.Test
+
   build-depends:
     , cardano-api
+    , plutus-core
     , plutus-ledger-api
     , plutus-tx
     , plutus-tx-plugin
 
   ghc-options:
-    -fplugin PlutusTx.Plugin -fno-full-laziness
+    -fplugin PlutusTx.Plugin -fplugin-opt
+    PlutusTx.Plugin:target-version=1.1.0 -fno-full-laziness
     -fno-ignore-interface-pragmas -fno-omit-interface-pragmas
     -fno-spec-constr -fno-specialise -fno-strictness
     -fno-unbox-small-strict-fields -fno-unbox-strict-fields
+    -fno-full-laziness -fno-ignore-interface-pragmas
+    -fno-omit-interface-pragmas -fno-spec-constr -fno-specialise
+    -fno-strictness -fno-unbox-small-strict-fields
+    -fno-unbox-strict-fields -Wno-redundant-bang-patterns
+
+  default-extensions: Strict
 
 executable yare-offchain
   import:         opts

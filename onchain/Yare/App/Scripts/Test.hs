@@ -7,6 +7,7 @@ module Yare.App.Scripts.Test
   , blueprint
   ) where
 
+import Plutus.Prelude qualified as P
 import Relude
 
 import Cardano.Api.Shelley
@@ -18,11 +19,7 @@ import Cardano.Api.Shelley
 import Data.ByteString.Short qualified as BS
 import Data.Set qualified as Set
 import PlutusLedgerApi.Common (serialiseCompiledCode, unsafeFromBuiltinData)
-import PlutusLedgerApi.V3 (getRedeemer, scriptContextRedeemer)
-import PlutusLedgerApi.V3 qualified as V3
-import PlutusTx qualified as P
 import PlutusTx.Blueprint
-import PlutusTx.Prelude qualified as P
 
 type Redeemer = Integer
 
@@ -61,7 +58,7 @@ blueprint =
     , contractDefinitions = deriveDefinitions @'[Redeemer]
     }
 
-serialisedScript ∷ V3.SerialisedScript
+serialisedScript ∷ P.SerialisedScript
 serialisedScript = serialiseCompiledCode compiledCode
 
 serialisedScriptHash ∷ ByteString
@@ -79,6 +76,7 @@ validator scriptContextData =
   P.check (redeemer P.== 42)
  where
   redeemer ∷ Redeemer =
-    unsafeFromBuiltinData (getRedeemer (scriptContextRedeemer scriptContext))
-  scriptContext ∷ V3.ScriptContext =
+    unsafeFromBuiltinData
+      (P.getRedeemer (P.scriptContextRedeemer scriptContext))
+  scriptContext ∷ P.ScriptContext =
     unsafeFromBuiltinData scriptContextData
