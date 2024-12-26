@@ -3,6 +3,8 @@ module Yare.App.Scripts.MintingPolicy
   , serialised
   ) where
 
+import Data.ByteString (ByteString)
+import Data.ByteString.Short qualified as BS
 import Plutus.Prelude
 
 type MintingParams = (PubKeyHash, TxOutRef)
@@ -39,5 +41,16 @@ compiled ∷ MintingParams → CompiledCode (BuiltinData → BuiltinUnit)
 compiled params =
   $$(compile [||untyped||]) `unsafeApplyCode` liftCode plcVersion110 params
 
-serialised ∷ MintingParams → SerialisedScript
-serialised = serialiseCompiledCode . compiled
+type SerialisedScriptHash = ByteString
+
+serialised ∷ MintingParams → (SerialisedScript, SerialisedScriptHash)
+serialised params = (script, scriptHash)
+ where
+  script ∷ SerialisedScript
+  script = serialiseCompiledCode (compiled params)
+
+  scriptHash ∷ SerialisedScriptHash
+  scriptHash = compiledValidatorHash validator
+
+  validator ∷ CompiledValidator
+  validator = compiledValidator PlutusV3 (BS.fromShort script)

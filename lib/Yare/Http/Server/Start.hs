@@ -8,8 +8,8 @@ import Cardano.Api.Shelley
   , EraHistory (..)
   , NetworkMagic
   , ShelleyBasedEra (..)
-  , toLedgerEpochInfo
   , inject
+  , toLedgerEpochInfo
   )
 import Codec.Serialise.Class.Orphans ()
 import Control.Exception (throwIO)
@@ -18,8 +18,14 @@ import Control.Monad.Oops (Variant)
 import Control.Monad.Oops qualified as Oops
 import Fmt.Orphans ()
 import GHC.IO.Exception (userError)
+import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp qualified as Warp
-import Network.Wai.Middleware.Cors (simpleCors)
+import Network.Wai.Middleware.Cors
+  ( CorsResourcePolicy (..)
+  , cors
+  , corsMethods
+  , simpleHeaders
+  )
 import Ouroboros.Consensus.Cardano.Block (EraMismatch)
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (AcquireFailure)
 import Yare.Address (Addresses)
@@ -88,9 +94,27 @@ start env = withHandledErrors do
     -- Running the server ------------------------------------------------
     liftIO
       . Warp.run (look @Warp.Port env)
-      . simpleCors
+      . corsMiddleware
       . Http.application
       $ App.mkServices @era @Yare.State envWithNetworkInfo
+
+--------------------------------------------------------------------------------
+-- CORS ------------------------------------------------------------------------
+
+corsMiddleware ∷ Wai.Middleware
+corsMiddleware = cors \_request → Just ourPolicy
+ where
+  ourPolicy =
+    CorsResourcePolicy
+      { corsOrigins = Nothing
+      , corsMethods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+      , corsExposedHeaders = Nothing
+      , corsMaxAge = Just 2
+      , corsVaryOrigin = False
+      , corsRequireOrigin = False
+      , corsIgnoreFailures = False
+      , corsRequestHeaders = "Access-Control-Allow-Origin" : simpleHeaders
+      }
 
 --------------------------------------------------------------------------------
 -- Error handling --------------------------------------------------------------

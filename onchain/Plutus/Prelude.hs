@@ -18,3 +18,4 @@ import PlutusLedgerApi.V3 as Reexport
 
 import PlutusLedgerApi.V3.Contexts as Reexport
 
+import PlutusTx.Blueprint as Reexport

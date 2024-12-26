@@ -65,6 +65,7 @@ type YareApi =
                   :<|> "in-ledger" :> Get '[JSON] (Set TxId)
                   :<|> "submitted" :> Get '[JSON] (Set TxId)
                )
+          :<|> "nft" :> "mint" :> Post '[JSON] TxId
        )
 
 application ∷ App.Services IO → Wai.Application
@@ -91,8 +92,9 @@ application services =
               :<|> endpointTransactionsInLedger services
               :<|> endpointTransactionsSubmitted services
            )
+      :<|> endpointNftMint services
 
-endpointBalance ∷ Services IO → Servant.Handler Lovelace
+endpointBalance ∷ App.Services IO → Servant.Handler Lovelace
 endpointBalance App.Services {serveUtxoAdaBalance} =
   liftIO serveUtxoAdaBalance
 
@@ -100,7 +102,7 @@ endpointUtxo ∷ App.Services IO → Servant.Handler Http.Utxo
 endpointUtxo services =
   liftIO $ Http.Utxo <$> App.serveUtxo services
 
-endpointNetworkInfo ∷ Services IO → Servant.Handler Http.NetworkInfo
+endpointNetworkInfo ∷ App.Services IO → Servant.Handler Http.NetworkInfo
 endpointNetworkInfo services = do
   networkTip ← endpointChainTip services
   lastIndexed ← endpointLastIndexed services
@@ -110,7 +112,7 @@ endpointChainTip ∷ App.Services IO → Servant.Handler Http.ChainTip
 endpointChainTip services =
   liftIO $ Http.ChainTip <$> App.serveTip services
 
-endpointLastIndexed ∷ Services IO → Servant.Handler (Maybe Http.BlockRef)
+endpointLastIndexed ∷ App.Services IO → Servant.Handler (Maybe Http.BlockRef)
 endpointLastIndexed services =
   liftIO $ Http.BlockRef <<$>> App.serveLastIndexed services
 
@@ -177,6 +179,11 @@ endpointTransactionsSubmitted App.Services {serveTransactionsSubmitted} =
 endpointTransactionsInLedger ∷ Services IO → Servant.Handler (Set TxId)
 endpointTransactionsInLedger App.Services {serveTransactionsInLedger} =
   liftIO serveTransactionsInLedger
+
+endpointNftMint ∷ App.Services IO → Servant.Handler TxId
+endpointNftMint _ =
+  pure $
+    fromString "0000000000000000000000000000000000000000000000000000000000000000"
 
 --------------------------------------------------------------------------------
 -- Helpers ---------------------------------------------------------------------

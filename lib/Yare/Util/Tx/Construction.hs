@@ -12,7 +12,7 @@ import Cardano.Api.Shelley
   , ReferenceScript
   , ShelleyBasedEra
   , TxOut (..)
-  , TxOutDatum
+  , TxOutDatum, inject
   )
 import Cardano.Api.Shelley qualified as CA
 import Data.Map.Strict qualified as Map
@@ -52,7 +52,7 @@ mkUtxoFromInputs
 mkUtxoFromInputs currentEra inputs =
   CA.UTxO $ Map.fromList $ toTxOut <<$>> toList inputs
  where
-  shelleyBasedEra = CA.babbageEraOnwardsToShelleyBasedEra currentEra
+  shelleyBasedEra = inject currentEra
   toTxOut (AddressWithKey {ledgerAddress}, value) =
     TxOut
       (CA.fromShelleyAddr shelleyBasedEra ledgerAddress)
