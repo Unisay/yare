@@ -11,7 +11,7 @@ import Data.Foldable (foldrM)
 import Data.List.NonEmpty ((<|))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
-import Data.Set (member, notMember, (\\))
+import Data.Set (member, notMember)
 import Data.Set qualified as Set
 import Fmt (Buildable (..), Builder, blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
@@ -277,22 +277,7 @@ spendableEntries ∷ Utxo → Entries
 spendableEntries utxo = Map.withoutKeys (allEntries utxo) (usedInputs utxo)
 
 txInputs ∷ Utxo → Set TxIn
-txInputs utxo = finalInputs <> (addedInputs \\ spentInputs)
- where
-  finalInputs =
-    Map.keysSet (finalEntries utxo)
-  addedInputs =
-    Set.fromList
-      [ txIn
-      | (_slot, updates) ← reversibleUpdates utxo
-      , AddSpendableTxInput txIn _ _ ← toList updates
-      ]
-  spentInputs =
-    Set.fromList
-      [ txIn
-      | (_slot, updates) ← reversibleUpdates utxo
-      , SpendTxInput txIn ← toList updates
-      ]
+txInputs = Map.keysSet . allEntries
 
 spendableTxInputs ∷ Utxo → Set TxIn
 spendableTxInputs = Map.keysSet . spendableEntries

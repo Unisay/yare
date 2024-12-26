@@ -7,6 +7,8 @@ module Yare.Address
   , useForChange
   , useForFees
   , useForCollateral
+  , useForSingleShotting
+  , useForNFTs
   , forScript
   , networkMagicToLedgerNetwork
   , networkMagicToAddressesTag
@@ -25,6 +27,7 @@ import Cardano.Mnemonic (MkMnemonicError)
 import Codec.Serialise.Class.Orphans ()
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Trans.Except (except, withExceptT)
+import Data.List.NonEmpty ((!!))
 import Data.List.NonEmpty qualified as NE
 import Fmt (Buildable (build), blockListF, nameF)
 import NoThunks.Class.Extended (NoThunks)
@@ -114,13 +117,19 @@ isOwnAddress Addresses {network, paymentCredentials} = \case
     network == addrNnetwork && paymentCred `elem` paymentCredentials
 
 useForChange ∷ Addresses → AddressWithKey
-useForChange Addresses {externalAddresses} = NE.head externalAddresses
+useForChange Addresses {externalAddresses} = externalAddresses !! 1
 
 useForFees ∷ Addresses → AddressWithKey
-useForFees Addresses {externalAddresses} = NE.head externalAddresses
+useForFees Addresses {externalAddresses} = externalAddresses !! 1
 
 useForCollateral ∷ Addresses → AddressWithKey
 useForCollateral Addresses {externalAddresses} = NE.last externalAddresses
+
+useForSingleShotting ∷ Addresses → AddressWithKey
+useForSingleShotting Addresses {externalAddresses} = externalAddresses !! 2
+
+useForNFTs ∷ Addresses → AddressWithKey
+useForNFTs Addresses {externalAddresses} = externalAddresses !! 3
 
 forScript
   ∷ Ledger.Network

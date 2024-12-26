@@ -8,10 +8,12 @@ module Yare.Http.Server
 import Yare.Prelude
 
 import Cardano.Api.Shelley
-  ( Lovelace
+  ( AssetName
+  , Lovelace
   , PlutusScript (..)
   , PlutusScriptV3
   , PlutusScriptVersion (PlutusScriptV3)
+  , PolicyId
   , Script (PlutusScript)
   , ScriptHash (..)
   , TxId
@@ -23,9 +25,10 @@ import Data.ByteString.Base16 qualified as Base16
 import Data.Map qualified as Map
 import Network.Wai qualified as Wai
 import Servant qualified
-import Servant.API (Capture, FromHttpApiData, Get, Post, ReqBody, ToHttpApiData (..), type (:<|>) (..), type (:>))
+import Servant.API (Capture, FromHttpApiData, Get, Post, Put, ReqBody, ToHttpApiData (..), type (:<|>) (..), type (:>))
 import Servant.API.ContentTypes (JSON, PlainText)
 import Servant.Server (err400, err404)
+import Web.HttpApiData.Orphans ()
 import Yare.App.Services (Services (serveCollateralAddresses))
 import Yare.App.Services qualified as App
 import Yare.App.Services.DeployScript qualified as DeployScript
@@ -65,6 +68,10 @@ type YareApi =
                   :<|> "in-ledger" :> Get '[JSON] (Set TxId)
                   :<|> "submitted" :> Get '[JSON] (Set TxId)
                )
+          :<|> "assets"
+            :> Capture "policy" PolicyId
+            :> Capture "asset" AssetName
+            :> Put '[JSON] TxId
        )
 
 application ∷ App.Services IO → Wai.Application
@@ -91,8 +98,9 @@ application services =
               :<|> endpointTransactionsInLedger services
               :<|> endpointTransactionsSubmitted services
            )
+      :<|> endpointNftMint services
 
-endpointBalance ∷ Services IO → Servant.Handler Lovelace
+endpointBalance ∷ App.Services IO → Servant.Handler Lovelace
 endpointBalance App.Services {serveUtxoAdaBalance} =
   liftIO serveUtxoAdaBalance
 
@@ -100,7 +108,7 @@ endpointUtxo ∷ App.Services IO → Servant.Handler Http.Utxo
 endpointUtxo services =
   liftIO $ Http.Utxo <$> App.serveUtxo services
 
-endpointNetworkInfo ∷ Services IO → Servant.Handler Http.NetworkInfo
+endpointNetworkInfo ∷ App.Services IO → Servant.Handler Http.NetworkInfo
 endpointNetworkInfo services = do
   networkTip ← endpointChainTip services
   lastIndexed ← endpointLastIndexed services
@@ -110,7 +118,7 @@ endpointChainTip ∷ App.Services IO → Servant.Handler Http.ChainTip
 endpointChainTip services =
   liftIO $ Http.ChainTip <$> App.serveTip services
 
-endpointLastIndexed ∷ Services IO → Servant.Handler (Maybe Http.BlockRef)
+endpointLastIndexed ∷ App.Services IO → Servant.Handler (Maybe Http.BlockRef)
 endpointLastIndexed services =
   liftIO $ Http.BlockRef <<$>> App.serveLastIndexed services
 
@@ -177,6 +185,12 @@ endpointTransactionsSubmitted App.Services {serveTransactionsSubmitted} =
 endpointTransactionsInLedger ∷ Services IO → Servant.Handler (Set TxId)
 endpointTransactionsInLedger App.Services {serveTransactionsInLedger} =
   liftIO serveTransactionsInLedger
+
+endpointNftMint ∷ App.Services IO → PolicyId → AssetName → Servant.Handler TxId
+endpointNftMint App.Services {requestMinting} policy asset =
+  liftIO (requestMinting policy asset) >>= \case
+    Left err → throwError err400 {Servant.errBody = show err}
+    Right txId → pure txId
 
 --------------------------------------------------------------------------------
 -- Helpers ---------------------------------------------------------------------

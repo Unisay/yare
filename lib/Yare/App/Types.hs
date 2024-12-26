@@ -10,7 +10,7 @@ import Yare.Prelude
 
 import Cardano.Api.Ledger (Network, StrictMaybe)
 import Cardano.Api.Shelley
-  ( BabbageEraOnwards
+  ( ConwayEraOnwards
   , LedgerEpochInfo
   , LedgerProtocolParameters
   , SystemStart
@@ -36,7 +36,7 @@ data NetworkInfo era = NetworkInfo
   { network ∷ Network
   , systemStart ∷ SystemStart
   , epochInfo ∷ LedgerEpochInfo
-  , currentEra ∷ BabbageEraOnwards era
+  , currentEra ∷ ConwayEraOnwards era
   , protocolParameters ∷ LedgerProtocolParameters era
   }
 

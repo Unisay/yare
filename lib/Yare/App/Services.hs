@@ -7,8 +7,10 @@ import Yare.Prelude
 
 import Cardano.Api.Ledger (Network)
 import Cardano.Api.Shelley
-  ( Lovelace
+  ( AssetName
+  , Lovelace
   , PlutusScriptV3
+  , PolicyId
   , Script
   , ScriptHash
   , TxId
@@ -22,6 +24,7 @@ import Yare.Address (AddressWithKey (..), Addresses, externalAddresses)
 import Yare.Address qualified as Address
 import Yare.App.Scripts qualified as Scripts
 import Yare.App.Services.DeployScript qualified as DeployScript
+import Yare.App.Services.Minting qualified as Minting
 import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (BlockRef, ChainTip, LastIndexedBlock, LedgerAddress)
 import Yare.Storage (StorageMgr, readDefaultStorage)
@@ -44,6 +47,7 @@ data Services m = Services
   , deployScript ∷ ScriptHash → Script PlutusScriptV3 → IO TxIn
   , serveTransactionsInLedger ∷ m (Set TxId)
   , serveTransactionsSubmitted ∷ m (Set TxId)
+  , requestMinting ∷ PolicyId → AssetName → m (Either Minting.Error TxId)
   }
 
 mkServices
@@ -90,6 +94,8 @@ mkServices env =
         lookTagged @"in-ledger" @(Set TxId) <$> readDefaultStorage @state env
     , serveTransactionsSubmitted =
         lookTagged @"submitted" @(Set TxId) <$> readDefaultStorage @state env
+    , requestMinting =
+        Minting.service @era @state env
     }
 
 scriptAddresses ∷ Network → [LedgerAddress]

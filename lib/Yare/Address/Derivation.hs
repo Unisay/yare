@@ -2,6 +2,8 @@ module Yare.Address.Derivation
   ( externalPaymentAdressesKeys
   , internalPaymentAdressesKeys
   , AddressWithKey (..)
+  , addressPublicKey
+  , addressWitnessSigningKey
   , toLedgerAddress
   , Error (..)
   ) where
@@ -19,10 +21,15 @@ import Cardano.Address.Derivation
     )
   , Index
   , XPrv
+  , XPub
   , nextIndex
   , toXPub
   )
 import Cardano.Address.Style.Shelley qualified as CAddr
+import Cardano.Api.Shelley
+  ( ShelleyWitnessSigningKey (WitnessPaymentExtendedKey)
+  , SigningKey (PaymentExtendedSigningKey)
+  )
 import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Api (StandardCrypto)
 import Cardano.Ledger.Api.Tx.Address qualified as Ledger
@@ -49,6 +56,13 @@ instance Buildable AddressWithKey where
     build ledgerAddress
       <> "\n"
       <> build (toPaymentCredential ledgerAddress)
+
+addressPublicKey ∷ AddressWithKey → CAddr.Shelley PaymentK XPub
+addressPublicKey AddressWithKey {paymentKey} = toXPub <$> paymentKey
+
+addressWitnessSigningKey ∷ AddressWithKey → ShelleyWitnessSigningKey
+addressWitnessSigningKey AddressWithKey {paymentKey = CAddr.getKey → key} =
+  WitnessPaymentExtendedKey (PaymentExtendedSigningKey key)
 
 externalPaymentAdressesKeys
   ∷ NetworkTag

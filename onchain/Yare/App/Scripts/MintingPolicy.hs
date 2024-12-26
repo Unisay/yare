@@ -3,6 +3,14 @@ module Yare.App.Scripts.MintingPolicy
   , serialised
   ) where
 
+import Cardano.Api.Shelley
+  ( PlutusScript (..)
+  , PlutusScriptV3
+  , PlutusScriptVersion (..)
+  , Script (..)
+  )
+import Data.ByteString (ByteString)
+import Data.ByteString.Short qualified as BS
 import Plutus.Prelude
 
 type MintingParams = (PubKeyHash, TxOutRef)
@@ -39,5 +47,12 @@ compiled ∷ MintingParams → CompiledCode (BuiltinData → BuiltinUnit)
 compiled params =
   $$(compile [||untyped||]) `unsafeApplyCode` liftCode plcVersion110 params
 
-serialised ∷ MintingParams → SerialisedScript
-serialised = serialiseCompiledCode . compiled
+type SerialisedScriptHash = ByteString
+
+serialised ∷ MintingParams → (Script PlutusScriptV3, SerialisedScriptHash)
+serialised params =
+  ( PlutusScript PlutusScriptV3 (PlutusScriptSerialised script)
+  , compiledValidatorHash (compiledValidator PlutusV3 (BS.fromShort script))
+  )
+ where
+  script = serialiseCompiledCode $ compiled params

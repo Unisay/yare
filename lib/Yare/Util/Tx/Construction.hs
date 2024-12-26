@@ -5,16 +5,7 @@ module Yare.Util.Tx.Construction
 
 import Yare.Prelude
 
-import Cardano.Api qualified as CA
-import Cardano.Api.Shelley
-  ( CtxTx
-  , LedgerProtocolParameters (unLedgerProtocolParameters)
-  , ReferenceScript
-  , ShelleyBasedEra
-  , TxOut (..)
-  , TxOutDatum
-  )
-import Cardano.Api.Shelley qualified as CA
+import Cardano.Api.Shelley qualified as A
 import Data.Map.Strict qualified as Map
 import Yare.Address (AddressWithKey (..))
 import Yare.Chain.Types (LedgerAddress)
@@ -23,43 +14,45 @@ import Yare.Chain.Types (LedgerAddress)
 The value of the output is calculated to be the minimum UTxO value.
 -}
 mkScriptOutput
-  ∷ ShelleyBasedEra era
-  → LedgerProtocolParameters era
+  ∷ A.ShelleyBasedEra era
+  → A.LedgerProtocolParameters era
   → LedgerAddress
-  → TxOutDatum CtxTx era
-  → ReferenceScript era
-  → TxOut CtxTx era
+  → A.TxOutDatum A.CtxTx era
+  → A.ReferenceScript era
+  → A.TxOut A.CtxTx era
 mkScriptOutput era protocolParameters addr datum refScript =
-  TxOut eraAddress minAdaValue datum refScript
+  A.TxOut eraAddress minAdaValue datum refScript
  where
-  eraAddress = CA.fromShelleyAddrIsSbe era addr
-  emptyValue = CA.lovelaceToTxOutValue era 0
+  eraAddress = A.fromShelleyAddrIsSbe era addr
+  emptyValue = A.lovelaceToTxOutValue era 0
   minAdaValue =
-    CA.lovelaceToTxOutValue era $
-      CA.calculateMinimumUTxO
+    A.lovelaceToTxOutValue era $
+      A.calculateMinimumUTxO
         era
-        (TxOut eraAddress emptyValue datum refScript)
-        (unLedgerProtocolParameters protocolParameters)
+        (A.TxOut eraAddress emptyValue datum refScript)
+        (A.unLedgerProtocolParameters protocolParameters)
 
 {- | Convert a list of inputs with their corresponding addresses and values
  to a Cardano.Api.UTxO to use in the transaction construction functions.
 -}
 mkUtxoFromInputs
-  ∷ Foldable f
-  ⇒ CA.BabbageEraOnwards era
-  → f (CA.TxIn, (AddressWithKey, CA.Value))
-  → CA.UTxO era
-mkUtxoFromInputs currentEra inputs =
-  CA.UTxO $ Map.fromList $ toTxOut <<$>> toList inputs
+  ∷ ∀ era f
+   . Foldable f
+  ⇒ A.ConwayEraOnwards era
+  → f (A.TxIn, (AddressWithKey, A.Value))
+  → A.UTxO era
+mkUtxoFromInputs conwayEraOnwards inputs =
+  A.UTxO $ Map.fromList $ toTxOut <<$>> toList inputs
  where
-  shelleyBasedEra = CA.babbageEraOnwardsToShelleyBasedEra currentEra
+  shelleyBasedEra ∷ A.ShelleyBasedEra era = A.inject conwayEraOnwards
+  babbageEraOnwards ∷ A.BabbageEraOnwards era = A.inject conwayEraOnwards
+  maryEraOnwards ∷ A.MaryEraOnwards era = A.inject babbageEraOnwards
   toTxOut (AddressWithKey {ledgerAddress}, value) =
-    TxOut
-      (CA.fromShelleyAddr shelleyBasedEra ledgerAddress)
-      ( CA.shelleyBasedEraConstraints shelleyBasedEra $
-          let maryEra = CA.babbageEraOnwardsToMaryEraOnwards currentEra
-              ledgerValue = CA.toLedgerValue maryEra value
-           in CA.TxOutValueShelleyBased shelleyBasedEra ledgerValue
+    A.TxOut
+      (A.fromShelleyAddr shelleyBasedEra ledgerAddress)
+      ( A.shelleyBasedEraConstraints shelleyBasedEra $
+          A.TxOutValueShelleyBased shelleyBasedEra $
+            A.toLedgerValue maryEraOnwards value
       )
-      CA.TxOutDatumNone
-      CA.ReferenceScriptNone
+      A.TxOutDatumNone
+      A.ReferenceScriptNone

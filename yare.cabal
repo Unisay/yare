@@ -62,7 +62,7 @@ common opts
     -Wno-missing-import-lists -Wno-missing-export-lists
     -fprint-explicit-foralls -Wno-missing-kind-signatures
     -Werror=missing-fields -fprint-expanded-synonyms
-    -Wno-missed-specialisations
+    -Wno-all-missed-specialisations -Wno-missed-specialisations
 
   build-depends:
     , base    ^>=4.18
@@ -104,6 +104,7 @@ library
     , fmt                            ^>=0.6.3
     , generics-sop                   ^>=0.5.1.4
     , HList                          ^>=0.5.3
+    , http-api-data                  ^>=0.6.1
     , int-cast                       ^>=0.2
     , io-classes                     ^>=1.5
     , lens                           ^>=5.3.2
@@ -134,7 +135,7 @@ library
     , text                           ^>=2.0.2
     , text-ansi                      ^>=0.3.0.1
     , transformers                   ^>=0.6.1.0
-    , unliftio
+    , unliftio                       ^>=0.2.25
     , wai                            ^>=3.2.4
     , wai-cors                       ^>=0.2.7
     , wai-extra                      ^>=3.1.15
@@ -148,6 +149,7 @@ library
     Fmt.Orphans
     GHC.Generics.Orphans
     NoThunks.Class.Orphans
+    Web.HttpApiData.Orphans
 
   exposed-modules:
     Control.Tracer.Extended
@@ -161,6 +163,8 @@ library
     Yare.App.Scripts
     Yare.App.Services
     Yare.App.Services.DeployScript
+    Yare.App.Services.Error
+    Yare.App.Services.Minting
     Yare.App.State
     Yare.App.Types
     Yare.Chain.Block
