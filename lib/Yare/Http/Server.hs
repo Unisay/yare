@@ -8,7 +8,8 @@ module Yare.Http.Server
 import Yare.Prelude
 
 import Cardano.Api.Shelley
-  ( Lovelace
+  ( AssetName
+  , Lovelace
   , PlutusScript (..)
   , PlutusScriptV3
   , PlutusScriptVersion (PlutusScriptV3)
@@ -23,9 +24,19 @@ import Data.ByteString.Base16 qualified as Base16
 import Data.Map qualified as Map
 import Network.Wai qualified as Wai
 import Servant qualified
-import Servant.API (Capture, FromHttpApiData, Get, Post, ReqBody, ToHttpApiData (..), type (:<|>) (..), type (:>))
+import Servant.API
+  ( Capture
+  , FromHttpApiData
+  , Get
+  , Post
+  , ReqBody
+  , ToHttpApiData (..)
+  , type (:<|>) (..)
+  , type (:>)
+  )
 import Servant.API.ContentTypes (JSON, PlainText)
 import Servant.Server (err400, err404)
+import Web.HttpApiData.Orphans ()
 import Yare.App.Services (Services (serveCollateralAddresses))
 import Yare.App.Services qualified as App
 import Yare.App.Services.DeployScript qualified as DeployScript
@@ -65,7 +76,9 @@ type YareApi =
                   :<|> "in-ledger" :> Get '[JSON] (Set TxId)
                   :<|> "submitted" :> Get '[JSON] (Set TxId)
                )
-          :<|> "nft" :> "mint" :> Post '[JSON] TxId
+          :<|> "assets"
+            :> Capture "asset" AssetName
+            :> Post '[JSON] Http.AssetMint
        )
 
 application ∷ App.Services IO → Wai.Application
@@ -180,10 +193,10 @@ endpointTransactionsInLedger ∷ Services IO → Servant.Handler (Set TxId)
 endpointTransactionsInLedger App.Services {serveTransactionsInLedger} =
   liftIO serveTransactionsInLedger
 
-endpointNftMint ∷ App.Services IO → Servant.Handler TxId
-endpointNftMint _ =
-  pure $
-    fromString "0000000000000000000000000000000000000000000000000000000000000000"
+endpointNftMint ∷ App.Services IO → AssetName → Servant.Handler Http.AssetMint
+endpointNftMint App.Services {requestMinting} asset = liftIO do
+  (policy, tx) ← requestMinting asset
+  pure Http.AssetMint {policy, tx}
 
 --------------------------------------------------------------------------------
 -- Helpers ---------------------------------------------------------------------

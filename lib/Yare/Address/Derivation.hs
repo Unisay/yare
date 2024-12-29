@@ -3,6 +3,7 @@ module Yare.Address.Derivation
   , internalPaymentAdressesKeys
   , AddressWithKey (..)
   , toLedgerAddress
+  , toPaymentCredential
   , Error (..)
   ) where
 
@@ -23,9 +24,10 @@ import Cardano.Address.Derivation
   , toXPub
   )
 import Cardano.Address.Style.Shelley qualified as CAddr
+import Cardano.Crypto.Wallet qualified as Crypto
 import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Api (StandardCrypto)
-import Cardano.Ledger.Api.Tx.Address qualified as Ledger
+import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
 import Codec.Serialise.Class.Orphans ()
@@ -36,16 +38,15 @@ import NoThunks.Class.Extended (NoThunks)
 import Text.Show (show)
 import Yare.Chain.Types (LedgerAddress)
 
-data AddressWithKey = AddressWithKey
-  { cardanoAddress ∷ !Address
-  , ledgerAddress ∷ !LedgerAddress
-  , paymentKey ∷ CAddr.Shelley PaymentK XPrv
+data AddressWithKey = MkAddressWithKey
+  { ledgerAddress ∷ !LedgerAddress
+  , paymentKey ∷ !Crypto.XPrv
   }
   deriving stock (Generic)
   deriving anyclass (NoThunks, NFData)
 
 instance Buildable AddressWithKey where
-  build AddressWithKey {ledgerAddress} =
+  build MkAddressWithKey {ledgerAddress} =
     build ledgerAddress
       <> "\n"
       <> build (toPaymentCredential ledgerAddress)
@@ -80,7 +81,7 @@ paymentAddressesKeys role networkTag mnemonic =
     → Either Error AddressWithKey
   makePaymentAddressWithKey paymentAddrIx = do
     ledgerAddress ← toLedgerAddress cardanoAddress
-    pure AddressWithKey {cardanoAddress, ledgerAddress, paymentKey}
+    pure MkAddressWithKey {ledgerAddress, paymentKey = CAddr.getKey paymentKey}
    where
     cardanoAddress ∷ Address =
       CAddr.paymentAddress networkTag $

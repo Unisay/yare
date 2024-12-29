@@ -7,28 +7,26 @@ module Yare.App.Services.DeployScript
 
 import Yare.Prelude hiding (show)
 
-import Cardano.Address.Style.Shelley qualified as CAddr
 import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
 import Cardano.Api.Ledger qualified as L
 import Cardano.Api.Shelley
-  ( AlonzoEraOnwards (..)
+  ( AddressInEra
+  , AlonzoEraOnwards (..)
   , BabbageEraOnwards (..)
   , BuildTx
   , BuildTxWith (BuildTxWith)
+  , ConwayEraOnwards (..)
   , CtxTx
-  , InAnyShelleyBasedEra (..)
-  , Inject (..)
   , KeyWitnessInCtx (KeyWitnessForSpending)
   , PlutusScriptV3
   , PoolId
   , ReferenceScript (..)
   , Script (..)
   , ScriptHash
-  , ShelleyWitnessSigningKey
+  , ShelleyBasedEra
   , StakeCredential
   , Tx (..)
   , TxBodyContent (..)
-  , TxBodyErrorAutoBalance
   , TxId
   , TxIn (..)
   , TxInMode (..)
@@ -36,10 +34,10 @@ import Cardano.Api.Shelley
   , TxIx (..)
   , TxOut (..)
   , TxOutDatum (..)
-  , Value
   , Witness (KeyWitness)
   , addTxOut
   , constructBalancedTx
+  , convert
   , defaultTxBodyContent
   , fromShelleyAddrIsSbe
   , getTxBody
@@ -51,23 +49,31 @@ import Cardano.Api.Shelley
   , toScriptInAnyLang
   , toShelleyScriptHash
   )
-import Cardano.Api.Shelley qualified as CApi
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Exception (throwIO)
 import Control.Monad.Except (Except, throwError)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Text.Pretty.Simple (pShow)
-import Text.Show (show)
 import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address.Derivation (AddressWithKey (..))
+import Yare.App.Services.Error (TxConstructionError (..))
 import Yare.App.Types (NetworkInfo (..), StorageMode (..))
-import Yare.Chain.Types (LedgerAddress)
-import Yare.Storage (Storage (..), StorageMgr (..), defaultStorage, readDefaultStorage)
+import Yare.Storage
+  ( Storage (..)
+  , StorageMgr (..)
+  , defaultStorage
+  , readDefaultStorage
+  )
 import Yare.Submitter qualified as Submitter
-import Yare.Util.State (stateMay)
-import Yare.Util.Tx.Construction (mkScriptOutput, mkUtxoFromInputs)
+
+import Yare.Util.State (usingMonadState)
+import Yare.Util.Tx.Construction
+  ( mkCardanoApiUtxo
+  , mkScriptOutput
+  , witnessUtxoEntry
+  )
 import Yare.Utxo (ScriptDeployment, ScriptStatus, Utxo)
 import Yare.Utxo qualified as Utxo
 
@@ -91,7 +97,7 @@ service
   → IO TxIn
 service env scriptHash script = do
   let NetworkInfo {currentEra} = look env
-      shelleyBasedEra = inject @(BabbageEraOnwards era) currentEra
+      shelleyBasedEra ∷ ShelleyBasedEra era = convert currentEra
   let storageManager ∷ StorageMgr IO state = look env
   setStorageMode storageManager Durable
   storage ← defaultStorage storageManager
@@ -148,86 +154,92 @@ constructTx
   → Script PlutusScriptV3
   → StateT state (Except DeployScriptError) (Tx era, TxIn)
 constructTx addresses networkInfo scriptHash plutusScript = do
-  let NetworkInfo
-        { protocolParameters
-        , epochInfo
-        , systemStart
-        , currentEra
-        , network
-        } = networkInfo
+  let
+    NetworkInfo
+      { protocolParameters
+      , epochInfo
+      , systemStart
+      , currentEra
+      , network
+      } = networkInfo
 
-      shelleyBasedEra = inject currentEra
+    shelleyBasedEra ∷ ShelleyBasedEra era = convert currentEra
+    babbageEraOnwards ∷ BabbageEraOnwards era = convert currentEra
 
-  feeInputs ∷ NonEmpty (TxIn, (AddressWithKey, Value)) ←
-    stateMay (Utxo.useFeeInputs addresses)
-      >>= maybe (throwError NoFeeInputs) pure
+  utxoEntryForFee ∷ Utxo.Entry ←
+    usingMonadState (Utxo.useInputFee addresses)
+      >>= maybe (throwError (DeployScriptError NoFeeInputs)) pure
 
-  colInputs ∷ NonEmpty (TxIn, (AddressWithKey, Value)) ←
-    stateMay (Utxo.useCollateralInputs addresses)
-      >>= maybe (throwError NoCollateralInputs) pure
-
-  let AddressWithKey {ledgerAddress = changeAddr} =
-        Address.useForChange addresses
+  utxoEntryForCollateral ∷ Utxo.Entry ←
+    usingMonadState (Utxo.useInputCollateral addresses)
+      >>= maybe (throwError (DeployScriptError NoCollateralInputs)) pure
 
   let
-    scriptAddr ∷ LedgerAddress
-    scriptAddr = Address.forScript network (toShelleyScriptHash scriptHash)
-
-    scriptOutput ∷ TxOut CtxTx era =
-      mkScriptOutput
-        shelleyBasedEra
-        protocolParameters
-        scriptAddr
-        TxOutDatumNone
-        (ReferenceScript currentEra (toScriptInAnyLang plutusScript))
-
-    txInsCollateral =
-      let
-        collInputs ∷ AlonzoEraOnwards era → TxInsCollateral era
-        collInputs = (`TxInsCollateral` toList (fmap fst colInputs))
-       in
-        case currentEra of
-          BabbageEraOnwardsBabbage → collInputs AlonzoEraOnwardsBabbage
-          BabbageEraOnwardsConway → collInputs AlonzoEraOnwardsConway
-
-    bodyContent ∷ TxBodyContent BuildTx era =
-      defaultTxBodyContent shelleyBasedEra
-        & setTxIns
-          [ (txIn, BuildTxWith (KeyWitness KeyWitnessForSpending))
-          | (txIn, _addrWithKeyAndValue) ← toList feeInputs
-          ]
-        & setTxInsCollateral txInsCollateral
-        & addTxOut scriptOutput -- The script output has index 0
-    witnesses ∷ [ShelleyWitnessSigningKey]
-    witnesses =
-      [ CApi.WitnessPaymentExtendedKey
-        (CApi.PaymentExtendedSigningKey (CAddr.getKey (paymentKey addr)))
-      | (_txIn, (addr, _value)) ← toList (feeInputs <> colInputs)
-      ]
-
-  let wrapError = TxAutoBalanceError . inAnyShelleyBasedEra shelleyBasedEra
+    wrapError =
+      DeployScriptError
+        . TxAutoBalanceError
+        . inAnyShelleyBasedEra shelleyBasedEra
 
   -- Pure construction of the transaction:
   either (throwError . wrapError) pure do
     let
-      overrideKeyWitnesses ∷ Maybe Word = Nothing
-      registeredPools ∷ Set PoolId = Set.empty
-      delegations ∷ Map StakeCredential L.Coin = Map.empty
-      rewards ∷ Map (Credential DRepRole StandardCrypto) L.Coin = Map.empty
+      overrideKeyWitnesses ∷ Maybe Word =
+        Nothing
+
+      registeredPools ∷ Set PoolId =
+        Set.empty
+
+      delegations ∷ Map StakeCredential L.Coin =
+        Map.empty
+
+      rewards ∷ Map (Credential DRepRole StandardCrypto) L.Coin =
+        Map.empty
+
+      changeAddress ∷ AddressInEra era =
+        fromShelleyAddrIsSbe shelleyBasedEra . ledgerAddress $
+          Address.useForChange addresses
+
+      scriptOutput ∷ TxOut CtxTx era =
+        mkScriptOutput
+          shelleyBasedEra
+          protocolParameters
+          (Address.forScript network (toShelleyScriptHash scriptHash))
+          TxOutDatumNone
+          (ReferenceScript babbageEraOnwards (toScriptInAnyLang plutusScript))
+
+      txInsCollateral ∷ TxInsCollateral era =
+        case currentEra of
+          ConwayEraOnwardsConway →
+            TxInsCollateral
+              AlonzoEraOnwardsConway
+              [Utxo.utxoEntryInput utxoEntryForCollateral]
+
+      bodyContent ∷ TxBodyContent BuildTx era =
+        defaultTxBodyContent shelleyBasedEra
+          & setTxIns
+            [
+              ( Utxo.utxoEntryInput utxoEntryForFee
+              , BuildTxWith (KeyWitness KeyWitnessForSpending)
+              )
+            ]
+          & setTxInsCollateral txInsCollateral
+          & addTxOut scriptOutput -- The script output has index 0
     tx ←
       constructBalancedTx
         shelleyBasedEra
         bodyContent
-        (fromShelleyAddrIsSbe shelleyBasedEra changeAddr)
+        changeAddress
         overrideKeyWitnesses
-        (mkUtxoFromInputs currentEra feeInputs)
+        (mkCardanoApiUtxo currentEra [utxoEntryForFee])
         protocolParameters
         epochInfo
         systemStart
         registeredPools
         delegations
         rewards
-        witnesses
+        [ witnessUtxoEntry utxoEntryForFee
+        , witnessUtxoEntry utxoEntryForCollateral
+        ]
 
     let
       -- TxIn containing the script output
@@ -241,18 +253,6 @@ constructTx addresses networkInfo scriptHash plutusScript = do
 --------------------------------------------------------------------------------
 -- Error types -----------------------------------------------------------------
 
-data DeployScriptError
-  = NoFeeInputs
-  | NoCollateralInputs
-  | TxAutoBalanceError (InAnyShelleyBasedEra TxBodyErrorAutoBalance)
-
-instance Show DeployScriptError where
-  show = \case
-    NoFeeInputs →
-      "No fee inputs available."
-    NoCollateralInputs →
-      "No collateral inputs available."
-    TxAutoBalanceError (InAnyShelleyBasedEra era e) →
-      "Tx balancing error in era " <> show era <> ": " <> show e
-
-deriving anyclass instance Exception DeployScriptError
+newtype DeployScriptError = DeployScriptError TxConstructionError
+  deriving newtype (Show)
+  deriving anyclass (Exception)

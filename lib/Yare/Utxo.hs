@@ -1,5 +1,5 @@
 module Yare.Utxo
-  ( Entries
+  ( Entry (..)
   , ScriptStatus (..)
   , ScriptDeployment (..)
   , Update (..)
@@ -7,8 +7,9 @@ module Yare.Utxo
   , Utxo
 
     -- * Updates
-  , useFeeInputs
-  , useCollateralInputs
+  , useInputFee
+  , useInputCollateral
+  , useInputLowestAdaOnly
   , updateUtxo
   , rollback
   , finalise

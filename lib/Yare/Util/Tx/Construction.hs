@@ -1,36 +1,29 @@
 module Yare.Util.Tx.Construction
   ( mkScriptOutput
-  , mkUtxoFromInputs
+  , mkCardanoApiUtxo
+  , witnessUtxoEntry
   ) where
 
 import Yare.Prelude
 
-import Cardano.Api qualified as CA
-import Cardano.Api.Shelley
-  ( CtxTx
-  , LedgerProtocolParameters (unLedgerProtocolParameters)
-  , ReferenceScript
-  , ShelleyBasedEra
-  , TxOut (..)
-  , TxOutDatum, inject
-  )
 import Cardano.Api.Shelley qualified as CA
 import Data.Map.Strict qualified as Map
-import Yare.Address (AddressWithKey (..))
 import Yare.Chain.Types (LedgerAddress)
+import Yare.Utxo (Entry (MkEntry))
+import Yare.Utxo qualified as Utxo
 
 {- | Construct a transaction output with a datum and a reference script.
 The value of the output is calculated to be the minimum UTxO value.
 -}
 mkScriptOutput
-  ∷ ShelleyBasedEra era
-  → LedgerProtocolParameters era
+  ∷ CA.ShelleyBasedEra era
+  → CA.LedgerProtocolParameters era
   → LedgerAddress
-  → TxOutDatum CtxTx era
-  → ReferenceScript era
-  → TxOut CtxTx era
+  → CA.TxOutDatum CA.CtxTx era
+  → CA.ReferenceScript era
+  → CA.TxOut CA.CtxTx era
 mkScriptOutput era protocolParameters addr datum refScript =
-  TxOut eraAddress minAdaValue datum refScript
+  CA.TxOut eraAddress minAdaValue datum refScript
  where
   eraAddress = CA.fromShelleyAddrIsSbe era addr
   emptyValue = CA.lovelaceToTxOutValue era 0
@@ -38,28 +31,41 @@ mkScriptOutput era protocolParameters addr datum refScript =
     CA.lovelaceToTxOutValue era $
       CA.calculateMinimumUTxO
         era
-        (TxOut eraAddress emptyValue datum refScript)
-        (unLedgerProtocolParameters protocolParameters)
+        (CA.TxOut eraAddress emptyValue datum refScript)
+        (CA.unLedgerProtocolParameters protocolParameters)
 
 {- | Convert a list of inputs with their corresponding addresses and values
  to a Cardano.Api.UTxO to use in the transaction construction functions.
 -}
-mkUtxoFromInputs
-  ∷ Foldable f
-  ⇒ CA.BabbageEraOnwards era
-  → f (CA.TxIn, (AddressWithKey, CA.Value))
+mkCardanoApiUtxo
+  ∷ ∀ era f
+   . Foldable f
+  ⇒ CA.ConwayEraOnwards era
+  → f Utxo.Entry
   → CA.UTxO era
-mkUtxoFromInputs currentEra inputs =
-  CA.UTxO $ Map.fromList $ toTxOut <<$>> toList inputs
+mkCardanoApiUtxo conwayEraOnwards =
+  CA.UTxO . Map.fromList . map toTxOut . toList
  where
-  shelleyBasedEra = inject currentEra
-  toTxOut (AddressWithKey {ledgerAddress}, value) =
-    TxOut
-      (CA.fromShelleyAddr shelleyBasedEra ledgerAddress)
-      ( CA.shelleyBasedEraConstraints shelleyBasedEra $
-          let maryEra = CA.babbageEraOnwardsToMaryEraOnwards currentEra
-              ledgerValue = CA.toLedgerValue maryEra value
-           in CA.TxOutValueShelleyBased shelleyBasedEra ledgerValue
-      )
-      CA.TxOutDatumNone
-      CA.ReferenceScriptNone
+  shelleyBasedEra ∷ CA.ShelleyBasedEra era =
+    CA.convert conwayEraOnwards
+  babbageEraOnwards ∷ CA.BabbageEraOnwards era =
+    CA.convert conwayEraOnwards
+  maryEraOnwards ∷ CA.MaryEraOnwards era =
+    CA.convert babbageEraOnwards
+  toTxOut MkEntry {..} =
+    ( utxoEntryInput
+    , CA.TxOut
+        (CA.fromShelleyAddr shelleyBasedEra utxoEntryAddress)
+        ( CA.shelleyBasedEraConstraints shelleyBasedEra $
+            CA.TxOutValueShelleyBased shelleyBasedEra $
+              CA.toLedgerValue maryEraOnwards utxoEntryValue
+        )
+        CA.TxOutDatumNone
+        CA.ReferenceScriptNone
+    )
+
+witnessUtxoEntry ∷ Utxo.Entry → CA.ShelleyWitnessSigningKey
+witnessUtxoEntry =
+  CA.WitnessPaymentExtendedKey
+    . CA.PaymentExtendedSigningKey
+    . Utxo.utxoEntryKey

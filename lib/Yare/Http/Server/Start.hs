@@ -4,11 +4,11 @@ import Yare.Prelude hiding (atomically)
 
 import Cardano.Api.Shelley
   ( AnyShelleyBasedEra (..)
-  , BabbageEraOnwards (BabbageEraOnwardsBabbage, BabbageEraOnwardsConway)
+  , ConwayEraOnwards (..)
   , EraHistory (..)
   , NetworkMagic
   , ShelleyBasedEra (..)
-  , inject
+  , convert
   , toLedgerEpochInfo
   )
 import Codec.Serialise.Class.Orphans ()
@@ -59,12 +59,11 @@ start env = withHandledErrors do
         ShelleyBasedEraAllegra → unsupportedEra
         ShelleyBasedEraMary → unsupportedEra
         ShelleyBasedEraAlonzo → unsupportedEra
-        ShelleyBasedEraBabbage →
-          withBabbageEraOnwards @era BabbageEraOnwardsBabbage
+        ShelleyBasedEraBabbage → unsupportedEra
         ShelleyBasedEraConway →
-          withBabbageEraOnwards @era BabbageEraOnwardsConway
+          withBabbageEraOnwards @era ConwayEraOnwardsConway
  where
-  withBabbageEraOnwards ∷ ∀ era. BabbageEraOnwards era → ExceptT Errors IO ()
+  withBabbageEraOnwards ∷ ∀ era. ConwayEraOnwards era → ExceptT Errors IO ()
   withBabbageEraOnwards currentEra = do
     -- Making NetworkInfo ------------------------------------------------
     network ← Oops.hoistEither do
@@ -74,7 +73,7 @@ start env = withHandledErrors do
         (,,)
           <$> Query.querySystemStart
           <*> Query.queryHistoryInterpreter
-          <*> Query.queryCurrentPParams (inject currentEra)
+          <*> Query.queryCurrentPParams (convert currentEra)
     protocolParameters ←
       case errorOrProtocolParams of
         Left err → throwError err

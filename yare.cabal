@@ -12,7 +12,6 @@ common opts
   default-language:   Haskell2010
   default-extensions:
     AllowAmbiguousTypes
-    ApplicativeDo
     BangPatterns
     BlockArguments
     ConstraintKinds
@@ -77,8 +76,8 @@ library
     , aeson                          ^>=2.2.3
     , base16-bytestring              ^>=1.0.2
     , bytestring
-    , cardano-addresses              ^>=3.12
-    , cardano-api                    ^>=10.3
+    , cardano-addresses
+    , cardano-api                    ^>=10.10
     , cardano-client
     , cardano-crypto
     , cardano-crypto-class
@@ -104,11 +103,13 @@ library
     , fmt                            ^>=0.6.3
     , generics-sop                   ^>=0.5.1.4
     , HList                          ^>=0.5.3
+    , http-api-data
     , int-cast                       ^>=0.2
     , io-classes                     ^>=1.5
     , lens                           ^>=5.3.2
     , mmorph                         ^>=1.2
     , mtl                            ^>=2.3.1
+    , network-mux                    ^>=0.6
     , nothunks                       ^>=0.2.1
     , oops                           ^>=0.2.0.1
     , ouroboros-consensus
@@ -127,6 +128,7 @@ library
     , serialise                      ^>=0.2
     , servant                        ^>=0.20.1
     , servant-server                 ^>=0.20
+    , si-timers
     , stm                            ^>=2.5.1
     , strict                         ^>=0.5.1
     , strict-sop-core                ^>=0.1.1
@@ -148,6 +150,7 @@ library
     Fmt.Orphans
     GHC.Generics.Orphans
     NoThunks.Class.Orphans
+    Web.HttpApiData.Orphans
 
   exposed-modules:
     Control.Tracer.Extended
@@ -161,6 +164,8 @@ library
     Yare.App.Scripts
     Yare.App.Services
     Yare.App.Services.DeployScript
+    Yare.App.Services.Error
+    Yare.App.Services.Minting
     Yare.App.State
     Yare.App.Types
     Yare.Chain.Block
@@ -171,13 +176,13 @@ library
     Yare.Chain.Sync
     Yare.Chain.Tx
     Yare.Chain.Types
+    Yare.Compat.Plutus
     Yare.Env
     Yare.Http.Address
     Yare.Http.Server
     Yare.Http.Server.Start
     Yare.Http.Types
     Yare.Mnemonic
-    Yare.Node.Protocols
     Yare.Node.Socket
     Yare.Node.Subscription
     Yare.Prelude
@@ -225,7 +230,7 @@ executable yare-offchain
   ghc-options:    -threaded -rtsopts
   main-is:        Main.hs
   build-depends:
-    , cardano-addresses          ^>=3.12
+    , cardano-addresses
     , cardano-strict-containers
     , optparse-applicative       ^>=0.18.1
     , ouroboros-network-api
@@ -241,7 +246,7 @@ executable yare-onchain
   build-depends:
     , base16-bytestring
     , bytestring
-    , cardano-addresses           ^>=3.12
+    , cardano-addresses
     , optparse-applicative        ^>=0.18.1
     , path-io                     ^>=1.8.2
     , plutus-ledger-api

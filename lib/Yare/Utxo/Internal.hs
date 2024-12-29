@@ -2,19 +2,27 @@ module Yare.Utxo.Internal where
 
 import Yare.Prelude hiding (update)
 
-import Cardano.Api (ScriptHash, TxIn (..), Value, renderTxIn)
+import Cardano.Api.Shelley
+  ( AssetId (AdaAssetId)
+  , ScriptHash
+  , TxIn (..)
+  , Value
+  , renderTxIn
+  , selectLovelace
+  )
+import Cardano.Crypto.Wallet qualified as Crypto
 import Cardano.Slotting.Slot (SlotNo (..))
 import Codec.Serialise (Serialise)
 import Codec.Serialise.Class.Orphans ()
 import Control.DeepSeq.Orphans ()
 import Data.Foldable (foldrM)
 import Data.List.NonEmpty ((<|))
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
-import Data.Set (member, notMember, (\\))
+import Data.Set (member, notMember)
 import Data.Set qualified as Set
 import Fmt (Buildable (..), Builder, blockListF, nameF, (+|), (|+))
 import Fmt.Orphans ()
+import GHC.IsList qualified as GHC
 import NoThunks.Class.Extended (NoThunks (..))
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
@@ -25,7 +33,14 @@ import Yare.Chain.Types (LedgerAddress, ledgerAddressToText)
 --------------------------------------------------------------------------------
 -- Data Types ------------------------------------------------------------------
 
-type Entries = Map TxIn (LedgerAddress, Value)
+data Entry = MkEntry
+  { utxoEntryInput ∷ !TxIn
+  , utxoEntryAddress ∷ !LedgerAddress
+  , utxoEntryValue ∷ !Value
+  , utxoEntryKey ∷ Crypto.XPrv
+  }
+  deriving stock (Generic)
+  deriving anyclass (NFData, NoThunks)
 
 data Update
   = -- | Add a new spendable input to the UTxO set.
@@ -84,7 +99,7 @@ instance Buildable ScriptDeployment where
 
 data Utxo = Utxo
   { reversibleUpdates ∷ ![(SlotNo, NonEmpty Update)]
-  , finalEntries ∷ !Entries
+  , finalEntries ∷ !(Map TxIn (LedgerAddress, Value))
   , usedInputs ∷ !(Set TxIn)
   , scriptDeployments ∷ !(Map ScriptHash ScriptDeployment)
   }
@@ -139,36 +154,50 @@ initial =
 --------------------------------------------------------------------------------
 -- UTxO updates ----------------------------------------------------------------
 
-useFeeInputs
-  ∷ ∀ state
-   . Utxo ∈ state
-  ⇒ Addresses
-  → state
-  → Maybe (state, NonEmpty (TxIn, (AddressWithKey, Value)))
-useFeeInputs addresses s = do
-  feeInputs ← NE.nonEmpty (first (const feeAddress) <<$>> feeEntries)
-  pure (s', feeInputs)
- where
-  s' = setter utxo' s
-  feeAddress = Addresses.useForFees addresses
-  (utxo', feeEntries) = useByAddress utxo (ledgerAddress feeAddress)
-  utxo ∷ Utxo = look s
+useInputFee ∷ Addresses → Utxo → Maybe (Utxo, Entry)
+useInputFee = flip useInputWithAddress . Addresses.useForFee
 
-useCollateralInputs
-  ∷ ∀ state
-   . Utxo ∈ state
-  ⇒ Addresses
-  → state
-  → Maybe (state, NonEmpty (TxIn, (AddressWithKey, Value)))
-useCollateralInputs addresses s = do
-  colInputs ← NE.nonEmpty collateralEntries
-  pure (s', first (const collateralAddressWithKey) <<$>> colInputs)
- where
-  s' = setter utxo' s
-  collateralAddressWithKey = Addresses.useForCollateral addresses
-  (utxo', collateralEntries) = useByAddress utxo collateralAddr
-  collateralAddr = ledgerAddress collateralAddressWithKey
-  utxo ∷ Utxo = look s
+useInputCollateral ∷ Addresses → Utxo → Maybe (Utxo, Entry)
+useInputCollateral = flip useInputWithAddress . Addresses.useForCollateral
+
+useInputWithAddress ∷ Utxo → AddressWithKey → Maybe (Utxo, Entry)
+useInputWithAddress utxo MkAddressWithKey {..} = do
+  let (utxo', usedByAddress) = useByAddress utxo ledgerAddress
+  entry@MkEntry {utxoEntryInput} ←
+    entryWithLowestValue do
+      (utxoEntryInput, (addr, utxoEntryValue)) ← usedByAddress
+      guard (addr == ledgerAddress)
+        $> MkEntry
+          { utxoEntryInput
+          , utxoEntryValue
+          , utxoEntryKey = paymentKey
+          , utxoEntryAddress = ledgerAddress
+          }
+  let utxo'' = utxo' {usedInputs = Set.insert utxoEntryInput (usedInputs utxo')}
+  pure (utxo'', entry)
+
+useInputLowestAdaOnly ∷ HasCallStack ⇒ Addresses → Utxo → Maybe (Utxo, Entry)
+useInputLowestAdaOnly addresses utxo = do
+  entry@MkEntry {utxoEntryInput} ← entryWithLowestValue do
+    (input, (addr, value)) ← Map.toList (spendableEntries utxo)
+    pure case Addresses.asOwnAddress addresses addr of
+      Nothing → impossible "UTxO entry address is not own"
+      Just MkAddressWithKey {..} →
+        MkEntry
+          { utxoEntryInput = input
+          , utxoEntryValue = value
+          , utxoEntryKey = paymentKey
+          , utxoEntryAddress = ledgerAddress
+          }
+  pure (utxo {usedInputs = Set.insert utxoEntryInput (usedInputs utxo)}, entry)
+
+entryWithLowestValue ∷ [Entry] → Maybe Entry
+entryWithLowestValue entries =
+  viaNonEmpty head $ sortOn (selectLovelace . utxoEntryValue) do
+    entry@MkEntry {utxoEntryValue} ← entries
+    let assets = [asset | (asset, _qty) ← GHC.toList utxoEntryValue]
+    guard $ all (== AdaAssetId) assets
+    pure entry
 
 updateUtxo ∷ SlotNo → NonEmpty Update → Utxo → Either UpdateError Utxo
 updateUtxo slot updates utxo = foldrM (applyUpdate slot) utxo updates
@@ -223,11 +252,7 @@ useByAddress utxo addr = (utxo', entries)
 finalise ∷ SlotNo → Utxo → Utxo
 finalise
   immutableSlot
-  utxo@Utxo
-    { scriptDeployments
-    , reversibleUpdates
-    , finalEntries
-    } =
+  utxo@Utxo {scriptDeployments, reversibleUpdates, finalEntries} =
     utxo
       { reversibleUpdates = reversibleUpdates'
       , finalEntries = updatesToEntries irreversibleUpdates finalEntries
@@ -264,8 +289,10 @@ initiateScriptDeployment hash input utxo =
 --------------------------------------------------------------------------------
 -- UTxO queries ----------------------------------------------------------------
 
--- | All entries in the UTxO set: both reversible and final inputs.
-allEntries ∷ Utxo → Entries
+{- | All entries in the UTxO set: both reversible and final inputs.
+May include already used inputs.
+-}
+allEntries ∷ Utxo → Map TxIn (LedgerAddress, Value)
 allEntries Utxo {reversibleUpdates, finalEntries} =
   updatesToEntries reversibleUpdates finalEntries
 
@@ -273,26 +300,11 @@ allEntries Utxo {reversibleUpdates, finalEntries} =
 Everything that could be spent (i.e. not already used),
 including both reversible and final inputs.
 -}
-spendableEntries ∷ Utxo → Entries
+spendableEntries ∷ Utxo → Map TxIn (LedgerAddress, Value)
 spendableEntries utxo = Map.withoutKeys (allEntries utxo) (usedInputs utxo)
 
 txInputs ∷ Utxo → Set TxIn
-txInputs utxo = finalInputs <> (addedInputs \\ spentInputs)
- where
-  finalInputs =
-    Map.keysSet (finalEntries utxo)
-  addedInputs =
-    Set.fromList
-      [ txIn
-      | (_slot, updates) ← reversibleUpdates utxo
-      , AddSpendableTxInput txIn _ _ ← toList updates
-      ]
-  spentInputs =
-    Set.fromList
-      [ txIn
-      | (_slot, updates) ← reversibleUpdates utxo
-      , SpendTxInput txIn ← toList updates
-      ]
+txInputs = Map.keysSet . allEntries
 
 spendableTxInputs ∷ Utxo → Set TxIn
 spendableTxInputs = Map.keysSet . spendableEntries
@@ -302,13 +314,22 @@ totalValue =
   Map.foldr' (\(_addr, value) acc → value <> acc) mempty . spendableEntries
 
 -- | Converts a list of UTxO updates to a map of UTxO entries.
-updatesToEntries ∷ [(SlotNo, NonEmpty Update)] → Entries → Entries
+updatesToEntries
+  ∷ [(SlotNo, NonEmpty Update)]
+  → Map TxIn (LedgerAddress, Value)
+  → Map TxIn (LedgerAddress, Value)
 updatesToEntries allUpdates entries = foldr overUpdates entries allUpdates
  where
-  overUpdates ∷ (SlotNo, NonEmpty Update) → Entries → Entries
+  overUpdates
+    ∷ (SlotNo, NonEmpty Update)
+    → Map TxIn (LedgerAddress, Value)
+    → Map TxIn (LedgerAddress, Value)
   overUpdates (_slot, !updates) = foldr overUpdate id (toList updates)
    where
-    overUpdate ∷ Update → (Entries → Entries) → (Entries → Entries)
+    overUpdate
+      ∷ Update
+      → (Map TxIn (LedgerAddress, Value) → Map TxIn (LedgerAddress, Value))
+      → (Map TxIn (LedgerAddress, Value) → Map TxIn (LedgerAddress, Value))
     overUpdate !update !prevUpdate = case update of
       ConfirmScriptDeployment _hash _input → prevUpdate
       SpendTxInput input → Map.delete input . prevUpdate
