@@ -4,6 +4,7 @@ import Yare.Prelude hiding (update)
 
 import Cardano.Api.Shelley
   ( AssetId (AdaAssetId)
+  , Lovelace
   , ScriptHash
   , TxIn (..)
   , Value
@@ -154,11 +155,13 @@ initial =
 --------------------------------------------------------------------------------
 -- UTxO updates ----------------------------------------------------------------
 
-useInputFee ∷ Addresses → Utxo → Maybe (Utxo, Entry)
-useInputFee = flip useInputWithAddress . Addresses.useForFee
+useInputFee ∷ Addresses → Lovelace → Utxo → Maybe (Utxo, Entry)
+useInputFee = useInputLowestAdaOnly
 
 useInputCollateral ∷ Addresses → Utxo → Maybe (Utxo, Entry)
-useInputCollateral = flip useInputWithAddress . Addresses.useForCollateral
+useInputCollateral addresses =
+  let minAdaValue ∷ Lovelace = 0 -- disabled guard
+   in useInputLowestAdaOnly addresses minAdaValue
 
 useInputWithAddress ∷ Utxo → AddressWithKey → Maybe (Utxo, Entry)
 useInputWithAddress utxo MkAddressWithKey {..} = do
@@ -176,10 +179,19 @@ useInputWithAddress utxo MkAddressWithKey {..} = do
   let utxo'' = utxo' {usedInputs = Set.insert utxoEntryInput (usedInputs utxo')}
   pure (utxo'', entry)
 
-useInputLowestAdaOnly ∷ HasCallStack ⇒ Addresses → Utxo → Maybe (Utxo, Entry)
-useInputLowestAdaOnly addresses utxo = do
+useInputLowestAdaOnly
+  ∷ HasCallStack
+  ⇒ Addresses
+  -- ^ Addresses to use for the UTxO entry
+  → Lovelace
+  -- ^ Minimum ADA value
+  → Utxo
+  -- ^ UTxO set
+  → Maybe (Utxo, Entry)
+useInputLowestAdaOnly addresses minAdaValue utxo = do
   entry@MkEntry {utxoEntryInput} ← entryWithLowestValue do
     (input, (addr, value)) ← Map.toList (spendableEntries utxo)
+    guard (selectLovelace value >= minAdaValue)
     pure case Addresses.asOwnAddress addresses addr of
       Nothing → impossible "UTxO entry address is not own"
       Just MkAddressWithKey {..} →
@@ -246,7 +258,8 @@ useByAddress utxo addr = (utxo', entries)
   entries = do
     -- This query is not optimized for performance
     entry@(_input, (outputAddr, _value)) ← Map.toList (spendableEntries utxo)
-    guard (addr == outputAddr) $> entry
+    guard (addr == outputAddr)
+    pure entry
 
 -- | Finalize the UTxO set up to the given slot (inclusive).
 finalise ∷ SlotNo → Utxo → Utxo
