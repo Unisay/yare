@@ -112,8 +112,8 @@ are not considered.
 isOwnAddress ∷ Addresses → LedgerAddress → Bool
 isOwnAddress Addresses {network, paymentCredentials} = \case
   AddrBootstrap {} → False
-  Addr addrNnetwork paymentCred _stakeCred →
-    network == addrNnetwork && paymentCred `Map.member` paymentCredentials
+  Addr addrNetwork paymentCred _stakeCred →
+    network == addrNetwork && paymentCred `Map.member` paymentCredentials
 
 asOwnAddress ∷ Addresses → LedgerAddress → Maybe AddressWithKey
 asOwnAddress Addresses {network, paymentCredentials} = \case
