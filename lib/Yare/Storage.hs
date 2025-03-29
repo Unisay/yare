@@ -150,7 +150,7 @@ onDisk (toFilePath → fp) !s0 = do
               let (s', a) = pureStateTransition s
               catch
                 (liftIO (after a) >>= \b → writeStoredData s' $> Right b)
-                (\(e ∷ SomeException) → writeStoredData s0 $> Left e)
+                (\(e ∷ SomeException) → writeStoredData s $> Left e)
       , readStorage =
           LMDB.readOnlyTransaction lmdb readStoredData
       }
