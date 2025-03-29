@@ -6,20 +6,31 @@ import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
 import Cardano.Api.Ledger qualified as L
 import Cardano.Api.Shelley
   ( AddressInEra
+  , AlonzoEraOnwards (..)
+  , AssetId (..)
   , AssetName
+  , BabbageEraOnwards
   , BuildTx
   , BuildTxWith (BuildTxWith)
   , ConwayEraOnwards (..)
   , CtxTx
+  , ExecutionUnits (..)
   , KeyWitnessInCtx (KeyWitnessForSpending)
+  , LedgerEpochInfo
+  , LedgerProtocolParameters
+  , Lovelace
+  , MaryEraOnwards (..)
   , PlutusScriptOrReferenceInput (PScript)
   , PlutusScriptV3
   , PlutusScriptVersion (PlutusScriptV3)
-  , PolicyId
+  , PolicyId (..)
   , PoolId
-  , Quantity
+  , Quantity (..)
   , ReferenceScript (..)
+  , ScriptData (ScriptDataConstructor)
+  , ScriptDatum (NoScriptDatumForMint)
   , ScriptLanguageInEra (..)
+  , ScriptWitness (PlutusScriptWitness)
   , ShelleyBasedEra
   , StakeCredential
   , Tx (..)
@@ -30,6 +41,9 @@ import Cardano.Api.Shelley
   , TxMintValue (..)
   , TxOut (..)
   , TxOutDatum (..)
+  , TxOutValue (TxOutValueShelleyBased)
+  , Value
+  , WitCtxMint
   , Witness (KeyWitness)
   , addTxOut
   , constructBalancedTx
@@ -43,13 +57,17 @@ import Cardano.Api.Shelley
   , setTxIns
   , setTxInsCollateral
   , setTxMintValue
+  , setTxProtocolParams
+  , shelleyBasedEraConstraints
+  , toLedgerValue
+  , unsafeHashableScriptData
   )
-import Cardano.Api.Shelley qualified as CApi
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Exception (throwIO)
 import Control.Monad.Except (Except, throwError)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Debug.Trace qualified as Debug
 import Plutus.Prelude qualified as Plutus
 import Text.Pretty.Simple (pShow)
 import Yare.Address (Addresses)
@@ -109,24 +127,21 @@ mint
   → AssetName
   → StateT state (Except Error) (PolicyId, Tx era)
 mint env asset = do
-  let
-    NetworkInfo {protocolParameters, epochInfo, systemStart, currentEra} =
-      look @(NetworkInfo era) env
-
-    addresses = look @Addresses env
-
-    shelleyBasedEra ∷ ShelleyBasedEra era = convert currentEra
-
-  utxoEntryForFee ∷ Utxo.Entry ←
-    usingMonadState (Utxo.useInputFee addresses)
-      >>= maybe (throwError (MintingTxError NoFeeInputs)) pure
+  let network ∷ NetworkInfo era = look env
+      protocolParams ∷ LedgerProtocolParameters era = protocolParameters network
+      era ∷ ConwayEraOnwards era = currentEra network
+      epoch ∷ LedgerEpochInfo = epochInfo network
+      addresses ∷ Addresses = look @Addresses env
+      shelleyBasedEra ∷ ShelleyBasedEra era = convert era
+      babbageEraOnwards ∷ BabbageEraOnwards era = convert era
+      maryEraOnwards ∷ MaryEraOnwards era = convert babbageEraOnwards
 
   utxoEntryForCollateral@Utxo.MkEntry {utxoEntryAddress = collateralAddress} ←
     usingMonadState (Utxo.useInputCollateral addresses)
       >>= maybe (throwError (MintingTxError NoCollateralInputs)) pure
 
   Utxo.MkEntry {utxoEntryInput = singletonInput} ←
-    usingMonadState (Utxo.useInputLowestAdaOnly addresses)
+    usingMonadState (Utxo.useInputLowestAdaOnly addresses (0 ∷ Lovelace))
       >>= maybe (throwError (MintingTxError NoSingletonInputs)) pure
 
   whoCanMint ∷ Plutus.PubKeyHash ←
@@ -139,28 +154,53 @@ mint env asset = do
       Nothing → throwError (MintingTxError ScriptAddressNoPublicKeyHash)
       Just pkh → pure pkh
 
+  let (plutusScript, PolicyId → policy) =
+        MintingPolicy.serialised
+          MintingPolicy.MkMintingParams
+            { whoCanMint
+            , singletonTxOut =
+                -- Minting policy is a singleton policy that allows only one
+                -- minting ever. This is done by giving the minting policy a
+                -- tx output reference as a configuration parameter, for the
+                -- minting policy to check if the minting transaction also
+                -- spends configured tx output. Because a tx output can only
+                -- be spent once, this ensures that the minting policy can only
+                -- be used once.
+                txOutRefFromTxIn singletonInput
+            }
+
+  let (scriptOutputAda ∷ Lovelace, scriptOutput ∷ TxOut CtxTx era) =
+        let
+          val ∷ Value = fromList [(AssetId policy asset, Quantity 1)]
+          txOutValue ∷ TxOutValue era =
+            shelleyBasedEraConstraints shelleyBasedEra $
+              TxOutValueShelleyBased shelleyBasedEra $
+                toLedgerValue maryEraOnwards val
+          address ∷ LedgerAddress =
+            ledgerAddress (Address.useForMinting addresses)
+         in
+          mkScriptOutput
+            shelleyBasedEra
+            protocolParams
+            address
+            txOutValue
+            TxOutDatumNone
+            ReferenceScriptNone
+
+  -- The fee entry should contain enough ADA to cover the minimum UTxO value
+  -- of the script output. Otherwise the 'createBalancedTx' function will fail
+  -- with an "Negative value" error.
+  utxoEntryForFee ∷ Utxo.Entry ←
+    usingMonadState
+      (Utxo.useInputFee addresses {- not less than: -} scriptOutputAda)
+      >>= maybe (throwError (MintingTxError NoFeeInputs)) pure
+
   let
     wrapError =
       MintingTxError
         . TxAutoBalanceError
         . inAnyShelleyBasedEra shelleyBasedEra
 
-    (plutusScript, CApi.PolicyId → policy) =
-      MintingPolicy.serialised
-        MintingPolicy.MkMintingParams
-          { whoCanMint
-          , singletonTxOut =
-              -- Minting policy is a singleton policy that allows only one
-              -- minting ever. This is done by giving the minting policy a
-              -- tx output reference as a configuration parameter, for the
-              -- minting policy to check if the minting transaction also
-              -- spends configured tx output. Because a tx output can only
-              -- be spent once, this ensures that the minting policy can only
-              -- be used once.
-              txOutRefFromTxIn singletonInput
-          }
-
-  -- Pure construction of the transaction:
   tx ← either (throwError . wrapError) pure do
     let
       overrideKeyWitnesses ∷ Maybe Word =
@@ -179,47 +219,35 @@ mint env asset = do
         fromShelleyAddrIsSbe shelleyBasedEra . ledgerAddress $
           Address.useForChange addresses
 
-      outputAddress ∷ LedgerAddress =
-        ledgerAddress (Address.useForMinting addresses)
-
-      scriptOutput ∷ TxOut CtxTx era =
-        mkScriptOutput
-          shelleyBasedEra
-          protocolParameters
-          outputAddress
-          TxOutDatumNone
-          ReferenceScriptNone
-
       txInsCollateral ∷ TxInsCollateral era =
-        case currentEra of
+        case era of
           ConwayEraOnwardsConway →
             TxInsCollateral
-              CApi.AlonzoEraOnwardsConway
+              AlonzoEraOnwardsConway
               [Utxo.utxoEntryInput utxoEntryForCollateral]
 
       txMintValue ∷ TxMintValue BuildTx era =
         let
           lang ∷ ScriptLanguageInEra PlutusScriptV3 era =
-            case currentEra of ConwayEraOnwardsConway → PlutusScriptV3InConway
+            case era of ConwayEraOnwardsConway → PlutusScriptV3InConway
 
-          wit ∷ BuildTxWith BuildTx (CApi.ScriptWitness CApi.WitCtxMint era) =
-            let datum = CApi.NoScriptDatumForMint
-                scriptData = CApi.ScriptDataConstructor 0 []
-                redeemer = CApi.unsafeHashableScriptData scriptData
+          wit ∷ BuildTxWith BuildTx (ScriptWitness WitCtxMint era) =
+            let datum = NoScriptDatumForMint
+                scriptData = ScriptDataConstructor 0 []
+                redeemer = unsafeHashableScriptData scriptData
              in BuildTxWith $
-                  CApi.PlutusScriptWitness
+                  PlutusScriptWitness
                     lang
                     PlutusScriptV3
                     (PScript plutusScript)
                     datum
                     redeemer
-                    (CApi.ExecutionUnits 0 0) -- calculated during balancing
-          quantity ∷ Quantity =
-            1 -- NFT = only 1 token
+                    (ExecutionUnits 0 0) -- calculated during balancing
+          quantity = Quantity 1 -- NFT = only 1 token
          in
-          case currentEra of
+          case era of
             ConwayEraOnwardsConway →
-              TxMintValue CApi.MaryEraOnwardsConway $
+              TxMintValue MaryEraOnwardsConway $
                 Map.singleton policy [(asset, quantity, wit)]
 
       bodyContent ∷ TxBodyContent BuildTx era =
@@ -233,20 +261,25 @@ mint env asset = do
           & setTxInsCollateral txInsCollateral
           & addTxOut scriptOutput
           & setTxMintValue txMintValue
+          & setTxProtocolParams (BuildTxWith (Just protocolParams))
+
+    Debug.traceM (toString (pShow (mkCardanoApiUtxo era [utxoEntryForFee])))
 
     constructBalancedTx
       shelleyBasedEra
       bodyContent
       changeAddress
       overrideKeyWitnesses
-      (mkCardanoApiUtxo currentEra [utxoEntryForFee])
-      protocolParameters
-      epochInfo
-      systemStart
+      (mkCardanoApiUtxo era [utxoEntryForFee])
+      protocolParams
+      epoch
+      (systemStart network)
       registeredPools
       delegations
       rewards
-      [witnessUtxoEntry utxoEntryForFee, witnessUtxoEntry utxoEntryForCollateral]
+      [ witnessUtxoEntry utxoEntryForFee
+      , witnessUtxoEntry utxoEntryForCollateral
+      ]
 
   modify' $ updateTagged @"submitted" (Set.insert (getTxId (getTxBody tx)))
   pure (policy, tx)
