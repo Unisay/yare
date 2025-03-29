@@ -8,7 +8,6 @@ module Yare.App.Services.DeployScript
 import Yare.Prelude hiding (show)
 
 import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
-import Cardano.Api.Ledger qualified as L
 import Cardano.Api.Shelley
   ( AddressInEra
   , AlonzoEraOnwards (..)
@@ -18,6 +17,7 @@ import Cardano.Api.Shelley
   , ConwayEraOnwards (..)
   , CtxTx
   , KeyWitnessInCtx (KeyWitnessForSpending)
+  , Lovelace
   , PlutusScriptV3
   , PoolId
   , ReferenceScript (..)
@@ -43,9 +43,11 @@ import Cardano.Api.Shelley
   , getTxBody
   , getTxId
   , inAnyShelleyBasedEra
+  , lovelaceToTxOutValue
   , runExcept
   , setTxIns
   , setTxInsCollateral
+  , setTxProtocolParams
   , toScriptInAnyLang
   , toShelleyScriptHash
   )
@@ -167,7 +169,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
     babbageEraOnwards ∷ BabbageEraOnwards era = convert currentEra
 
   utxoEntryForFee ∷ Utxo.Entry ←
-    usingMonadState (Utxo.useInputFee addresses)
+    usingMonadState (Utxo.useInputFee addresses (0 ∷ Lovelace))
       >>= maybe (throwError (DeployScriptError NoFeeInputs)) pure
 
   utxoEntryForCollateral ∷ Utxo.Entry ←
@@ -189,21 +191,22 @@ constructTx addresses networkInfo scriptHash plutusScript = do
       registeredPools ∷ Set PoolId =
         Set.empty
 
-      delegations ∷ Map StakeCredential L.Coin =
+      delegations ∷ Map StakeCredential Lovelace =
         Map.empty
 
-      rewards ∷ Map (Credential DRepRole StandardCrypto) L.Coin =
+      rewards ∷ Map (Credential DRepRole StandardCrypto) Lovelace =
         Map.empty
 
       changeAddress ∷ AddressInEra era =
         fromShelleyAddrIsSbe shelleyBasedEra . ledgerAddress $
           Address.useForChange addresses
 
-      scriptOutput ∷ TxOut CtxTx era =
+      (_adaValue, scriptOutput ∷ TxOut CtxTx era) =
         mkScriptOutput
           shelleyBasedEra
           protocolParameters
           (Address.forScript network (toShelleyScriptHash scriptHash))
+          (lovelaceToTxOutValue shelleyBasedEra 0)
           TxOutDatumNone
           (ReferenceScript babbageEraOnwards (toScriptInAnyLang plutusScript))
 
@@ -224,6 +227,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
             ]
           & setTxInsCollateral txInsCollateral
           & addTxOut scriptOutput -- The script output has index 0
+          & setTxProtocolParams (BuildTxWith (Just protocolParameters))
     tx ←
       constructBalancedTx
         shelleyBasedEra
