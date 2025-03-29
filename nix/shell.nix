@@ -85,6 +85,6 @@ cabalProject: {
   preCommit = {
     hlint.enable = true;
     cabal-fmt.enable = true;
-    nixpkgs-fmt.enable = true;
+    nixpkgs-fmt.enable = false;
   };
 }
