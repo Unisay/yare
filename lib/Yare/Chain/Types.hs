@@ -8,13 +8,18 @@ module Yare.Chain.Types
   , parseChainPoint
   , LedgerAddress
   , ledgerAddressToText
+  , ledgerAddressPaymentKeyHash
+  , ledgerAddressPaymentCredential
   ) where
 
 import Yare.Prelude
 
+import Cardano.Api.Ledger (Credential (..))
+import Cardano.Api.Shelley (Hash (PaymentKeyHash), PaymentKey)
 import Cardano.Api.Shelley qualified as Api
 import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Address qualified as Ledger
+import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Data.ByteString.Base16 qualified as B16
 import Data.Maybe.Strict (StrictMaybe)
@@ -27,13 +32,16 @@ import Yare.Chain.Point (ChainPoint, parseChainPoint)
 
 type ChainTip = Tip StdCardanoBlock
 
-type LedgerAddress = Addr StandardCrypto
-
 type LastIndexedBlock = Tagged "last-indexed" (StrictMaybe BlockRef)
 
 type MnemonicPath = Tagged "mnemonic" (Path Abs File)
 
 type DatabasePath = Tagged "database" (Path Abs File)
+
+--------------------------------------------------------------------------------
+-- Ledger address --------------------------------------------------------------
+
+type LedgerAddress = Addr StandardCrypto
 
 ledgerAddressToText ∷ LedgerAddress → Text
 ledgerAddressToText = \case
@@ -45,3 +53,15 @@ ledgerAddressToText = \case
     -- Shelley addresses are encoded in BECH32
     -- using functionality from 'Cardano.Api.Shelley'.
     Api.serialiseToBech32 $ Api.ShelleyAddress network cred stakeRef
+
+ledgerAddressPaymentKeyHash ∷ LedgerAddress → Maybe (Hash PaymentKey)
+ledgerAddressPaymentKeyHash addr = do
+  paymentCredential ← ledgerAddressPaymentCredential addr
+  case paymentCredential of
+    KeyHashObj keyHash → Just (PaymentKeyHash keyHash)
+    ScriptHashObj {} → Nothing
+
+ledgerAddressPaymentCredential ∷ LedgerAddress → Maybe (PaymentCredential StandardCrypto)
+ledgerAddressPaymentCredential = \case
+  Addr _ paymentCredential _ → Just paymentCredential
+  AddrBootstrap {} → Nothing
