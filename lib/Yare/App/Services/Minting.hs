@@ -2,8 +2,7 @@ module Yare.App.Services.Minting where
 
 import Yare.Prelude hiding (show)
 
-import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
-import Cardano.Api.Ledger qualified as L
+import Cardano.Api (TxExtraKeyWitnesses (..))
 import Cardano.Api.Shelley
   ( AddressInEra
   , AlonzoEraOnwards (..)
@@ -15,16 +14,17 @@ import Cardano.Api.Shelley
   , ConwayEraOnwards (..)
   , CtxTx
   , ExecutionUnits (..)
+  , Hash
   , KeyWitnessInCtx (KeyWitnessForSpending)
   , LedgerEpochInfo
   , LedgerProtocolParameters
   , Lovelace
   , MaryEraOnwards (..)
+  , PaymentKey
   , PlutusScriptOrReferenceInput (PScript)
   , PlutusScriptV3
   , PlutusScriptVersion (PlutusScriptV3)
   , PolicyId (..)
-  , PoolId
   , Quantity (..)
   , ReferenceScript (..)
   , ScriptData (ScriptDataConstructor)
@@ -32,7 +32,6 @@ import Cardano.Api.Shelley
   , ScriptLanguageInEra (..)
   , ScriptWitness (PlutusScriptWitness)
   , ShelleyBasedEra
-  , StakeCredential
   , Tx (..)
   , TxBodyContent (..)
   , TxId
@@ -54,6 +53,7 @@ import Cardano.Api.Shelley
   , getTxId
   , inAnyShelleyBasedEra
   , runExcept
+  , setTxExtraKeyWits
   , setTxIns
   , setTxInsCollateral
   , setTxMintValue
@@ -62,13 +62,10 @@ import Cardano.Api.Shelley
   , toLedgerValue
   , unsafeHashableScriptData
   )
-import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Exception (throwIO)
 import Control.Monad.Except (Except, throwError)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Debug.Trace qualified as Debug
-import Plutus.Prelude qualified as Plutus
 import Text.Pretty.Simple (pShow)
 import Yare.Address (Addresses)
 import Yare.Address qualified as Address
@@ -76,8 +73,8 @@ import Yare.Address.Derivation (AddressWithKey (..))
 import Yare.App.Scripts.MintingPolicy qualified as MintingPolicy
 import Yare.App.Services.Error (TxConstructionError (..))
 import Yare.App.Types (NetworkInfo (..), StorageMode (..))
-import Yare.Chain.Types (LedgerAddress)
-import Yare.Compat.Plutus (pubKeyHashFromLedgerAddress, txOutRefFromTxIn)
+import Yare.Chain.Types (LedgerAddress, ledgerAddressPaymentKeyHash)
+import Yare.Compat.Plutus (paymentKeyHashToPubKeyHash, txOutRefFromTxIn)
 import Yare.Storage (StorageMgr (..), overDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (usingMonadState)
@@ -133,8 +130,9 @@ mint env asset = do
       epoch ∷ LedgerEpochInfo = epochInfo network
       addresses ∷ Addresses = look @Addresses env
       shelleyBasedEra ∷ ShelleyBasedEra era = convert era
-      babbageEraOnwards ∷ BabbageEraOnwards era = convert era
-      maryEraOnwards ∷ MaryEraOnwards era = convert babbageEraOnwards
+      babbageOnwards ∷ BabbageEraOnwards era = convert era
+      alonzoOnwards ∷ AlonzoEraOnwards era = convert babbageOnwards
+      maryOnwards ∷ MaryEraOnwards era = convert babbageOnwards
 
   utxoEntryForCollateral@Utxo.MkEntry {utxoEntryAddress = collateralAddress} ←
     usingMonadState (Utxo.useInputCollateral addresses)
@@ -144,20 +142,20 @@ mint env asset = do
     usingMonadState (Utxo.useInputLowestAdaOnly addresses (0 ∷ Lovelace))
       >>= maybe (throwError (MintingTxError NoSingletonInputs)) pure
 
-  whoCanMint ∷ Plutus.PubKeyHash ←
+  whoCanMint ∷ Hash PaymentKey ←
     -- Minting policy only allows to mint if Tx is signed by the owner of the
     -- public key given to it as a configuration parameter. In order not to
     -- add extra signature to the minting Tx (thus increasing its size) we use
     -- public key hash of the collateral address as its signature is added to
     -- the minting Tx anyway.
-    case pubKeyHashFromLedgerAddress collateralAddress of
+    case ledgerAddressPaymentKeyHash collateralAddress of
       Nothing → throwError (MintingTxError ScriptAddressNoPublicKeyHash)
       Just pkh → pure pkh
 
   let (plutusScript, PolicyId → policy) =
         MintingPolicy.serialised
           MintingPolicy.MkMintingParams
-            { whoCanMint
+            { whoCanMint = paymentKeyHashToPubKeyHash whoCanMint
             , singletonTxOut =
                 -- Minting policy is a singleton policy that allows only one
                 -- minting ever. This is done by giving the minting policy a
@@ -175,7 +173,7 @@ mint env asset = do
           txOutValue ∷ TxOutValue era =
             shelleyBasedEraConstraints shelleyBasedEra $
               TxOutValueShelleyBased shelleyBasedEra $
-                toLedgerValue maryEraOnwards val
+                toLedgerValue maryOnwards val
           address ∷ LedgerAddress =
             ledgerAddress (Address.useForMinting addresses)
          in
@@ -203,18 +201,6 @@ mint env asset = do
 
   tx ← either (throwError . wrapError) pure do
     let
-      overrideKeyWitnesses ∷ Maybe Word =
-        Nothing
-
-      registeredPools ∷ Set PoolId =
-        Set.empty
-
-      delegations ∷ Map StakeCredential L.Coin =
-        Map.empty
-
-      rewards ∷ Map (Credential DRepRole StandardCrypto) L.Coin =
-        Map.empty
-
       changeAddress ∷ AddressInEra era =
         fromShelleyAddrIsSbe shelleyBasedEra . ledgerAddress $
           Address.useForChange addresses
@@ -262,21 +248,20 @@ mint env asset = do
           & addTxOut scriptOutput
           & setTxMintValue txMintValue
           & setTxProtocolParams (BuildTxWith (Just protocolParams))
-
-    Debug.traceM (toString (pShow (mkCardanoApiUtxo era [utxoEntryForFee])))
+          & setTxExtraKeyWits (TxExtraKeyWitnesses alonzoOnwards [whoCanMint])
 
     constructBalancedTx
       shelleyBasedEra
       bodyContent
       changeAddress
-      overrideKeyWitnesses
+      empty {- overrideKeyWitnesses -}
       (mkCardanoApiUtxo era [utxoEntryForFee])
       protocolParams
       epoch
       (systemStart network)
-      registeredPools
-      delegations
-      rewards
+      mempty {- registered pools -}
+      mempty {- delegations      -}
+      mempty {- rewards          -}
       [ witnessUtxoEntry utxoEntryForFee
       , witnessUtxoEntry utxoEntryForCollateral
       ]

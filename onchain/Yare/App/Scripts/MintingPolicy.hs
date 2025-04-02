@@ -23,9 +23,7 @@ type MintingRedeemer = ()
 {-# INLINEABLE policy #-}
 policy ∷ MintingParams → ScriptContext → Bool
 policy MkMintingParams {whoCanMint, singletonTxOut} scriptContext =
-  signedBy whoCanMint
-    && mintedExactlyOneToken
-    && ensureSpentOutput
+  mintedExactlyOneToken && signedBy whoCanMint && ensureSpentOutput
  where
   txInfo = scriptContextTxInfo scriptContext
   signedBy = txSignedBy txInfo
