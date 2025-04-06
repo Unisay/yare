@@ -158,10 +158,8 @@ initial =
 useInputFee ∷ Addresses → Lovelace → Utxo → Maybe (Utxo, Entry)
 useInputFee = useInputLowestAdaOnly
 
-useInputCollateral ∷ Addresses → Utxo → Maybe (Utxo, Entry)
-useInputCollateral addresses =
-  let minAdaValue ∷ Lovelace = 0 -- disabled guard
-   in useInputLowestAdaOnly addresses minAdaValue
+useInputCollateral ∷ Addresses → Lovelace → Utxo → Maybe (Utxo, Entry)
+useInputCollateral = useInputLowestAdaOnly
 
 useInputWithAddress ∷ Utxo → AddressWithKey → Maybe (Utxo, Entry)
 useInputWithAddress utxo MkAddressWithKey {..} = do

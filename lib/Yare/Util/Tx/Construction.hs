@@ -7,6 +7,7 @@ module Yare.Util.Tx.Construction
 
 import Yare.Prelude
 
+import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Api.Shelley
   ( BabbageEraOnwards
   , Convert (convert)
@@ -17,6 +18,7 @@ import Cardano.Api.Shelley
   , MaryEraOnwards
   , ReferenceScript (ReferenceScriptNone)
   , ShelleyBasedEra
+  , ShelleyLedgerEra
   , ShelleyWitnessSigningKey (WitnessPaymentExtendedKey)
   , SigningKey (PaymentExtendedSigningKey)
   , TxOut (..)
@@ -26,10 +28,10 @@ import Cardano.Api.Shelley
   , calculateMinimumUTxO
   , fromShelleyAddr
   , fromShelleyAddrIsSbe
-  , lovelaceToTxOutValue
   , shelleyBasedEraConstraints
   , toLedgerValue
   )
+import Cardano.Ledger.Val (modifyCoin)
 import Data.Map.Strict qualified as Map
 import Yare.Chain.Types (LedgerAddress)
 import Yare.Utxo (Entry (MkEntry))
@@ -42,13 +44,15 @@ mkScriptOutput
   ∷ ShelleyBasedEra era
   → LedgerProtocolParameters era
   → LedgerAddress
-  → TxOutValue era
+  → Ledger.Value (ShelleyLedgerEra era)
   → TxOutDatum CtxTx era
   → ReferenceScript era
   → (Lovelace, TxOut CtxTx era)
 mkScriptOutput era protocolParameters addr value datum script =
   let ada = minAdaValue era protocolParameters addr value datum script
-      val = lovelaceToTxOutValue era ada
+      val =
+        shelleyBasedEraConstraints era $
+          TxOutValueShelleyBased era (modifyCoin (+ ada) value)
    in (ada, TxOut (fromShelleyAddrIsSbe era addr) val datum script)
 {-# INLINEABLE mkScriptOutput #-}
 
@@ -57,14 +61,19 @@ minAdaValue
   ∷ ShelleyBasedEra era
   → LedgerProtocolParameters era
   → LedgerAddress
-  → TxOutValue era
+  → Ledger.Value (ShelleyLedgerEra era)
   → TxOutDatum CtxTx era
   → ReferenceScript era
   → Lovelace
 minAdaValue era protocolParameters addr value datum refScript =
   calculateMinimumUTxO
     era
-    (TxOut (fromShelleyAddrIsSbe era addr) value datum refScript)
+    ( TxOut
+        (fromShelleyAddrIsSbe era addr)
+        (shelleyBasedEraConstraints era (TxOutValueShelleyBased era value))
+        datum
+        refScript
+    )
     (unLedgerProtocolParameters protocolParameters)
 {-# INLINEABLE minAdaValue #-}
 

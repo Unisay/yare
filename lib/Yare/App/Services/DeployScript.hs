@@ -7,7 +7,8 @@ module Yare.App.Services.DeployScript
 
 import Yare.Prelude hiding (show)
 
-import Cardano.Api.Ledger (Credential, KeyRole (DRepRole))
+import Cardano.Api.Ledger (Coin (..), Credential, KeyRole (DRepRole))
+import Cardano.Api.Ledger.Lens (mkAdaValue)
 import Cardano.Api.Shelley
   ( AddressInEra
   , AlonzoEraOnwards (..)
@@ -44,7 +45,6 @@ import Cardano.Api.Shelley
   , getTxBody
   , getTxId
   , inAnyShelleyBasedEra
-  , lovelaceToTxOutValue
   , runExcept
   , setTxIns
   , setTxInsCollateral
@@ -70,7 +70,6 @@ import Yare.Storage
   , readDefaultStorage
   )
 import Yare.Submitter qualified as Submitter
-
 import Yare.Util.State (usingMonadState)
 import Yare.Util.Tx.Construction
   ( mkCardanoApiUtxo
@@ -174,7 +173,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
       >>= maybe (throwError (DeployScriptError NoFeeInputs)) pure
 
   utxoEntryForCollateral ∷ Utxo.Entry ←
-    usingMonadState (Utxo.useInputCollateral addresses)
+    usingMonadState (Utxo.useInputCollateral addresses (0 ∷ Lovelace))
       >>= maybe (throwError (DeployScriptError NoCollateralInputs)) pure
 
   let
@@ -207,7 +206,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
           shelleyBasedEra
           (LedgerProtocolParameters protocolParameters)
           (Address.forScript network (toShelleyScriptHash scriptHash))
-          (lovelaceToTxOutValue shelleyBasedEra 0)
+          (mkAdaValue shelleyBasedEra (Coin 0))
           TxOutDatumNone
           (ReferenceScript babbageEraOnwards (toScriptInAnyLang plutusScript))
 

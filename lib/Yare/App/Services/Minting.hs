@@ -2,7 +2,6 @@ module Yare.App.Services.Minting where
 
 import Yare.Prelude hiding (show)
 
-import Cardano.Api (TxExtraKeyWitnesses (..))
 import Cardano.Api.Shelley
   ( AddressInEra
   , AlonzoEraOnwards (..)
@@ -11,13 +10,14 @@ import Cardano.Api.Shelley
   , BabbageEraOnwards
   , BuildTx
   , BuildTxWith (BuildTxWith)
+  , ConwayEra
   , ConwayEraOnwards (..)
   , CtxTx
   , ExecutionUnits (..)
   , Hash
   , KeyWitnessInCtx (KeyWitnessForSpending)
   , LedgerEpochInfo
-  , LedgerProtocolParameters
+  , LedgerProtocolParameters (..)
   , Lovelace
   , MaryEraOnwards (..)
   , PaymentKey
@@ -32,19 +32,22 @@ import Cardano.Api.Shelley
   , ScriptLanguageInEra (..)
   , ScriptWitness (PlutusScriptWitness)
   , ShelleyBasedEra
+  , ShelleyLedgerEra
   , Tx (..)
   , TxBodyContent (..)
+  , TxExtraKeyWitnesses (..)
   , TxId
   , TxInMode (..)
   , TxInsCollateral (..)
   , TxMintValue (..)
   , TxOut (..)
   , TxOutDatum (..)
-  , TxOutValue (TxOutValueShelleyBased)
-  , Value
+  , TxOutValue
+  , UTxO
   , WitCtxMint
   , Witness (KeyWitness)
   , addTxOut
+  , calculateMinimumUTxO
   , constructBalancedTx
   , convert
   , defaultTxBodyContent
@@ -52,28 +55,30 @@ import Cardano.Api.Shelley
   , getTxBody
   , getTxId
   , inAnyShelleyBasedEra
+  , lovelaceToTxOutValue
   , runExcept
   , setTxExtraKeyWits
   , setTxIns
   , setTxInsCollateral
   , setTxMintValue
   , setTxProtocolParams
-  , shelleyBasedEraConstraints
   , toLedgerValue
   , unsafeHashableScriptData
   )
+import Cardano.Ledger.Api qualified as Ledger
 import Control.Exception (throwIO)
 import Control.Monad.Except (Except, throwError)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Text.Pretty.Simple (pShow)
+import Unsafe.Coerce (unsafeCoerce)
 import Yare.Address (Addresses)
 import Yare.Address qualified as Address
 import Yare.Address.Derivation (AddressWithKey (..))
 import Yare.App.Scripts.MintingPolicy qualified as MintingPolicy
 import Yare.App.Services.Error (TxConstructionError (..))
 import Yare.App.Types (NetworkInfo (..), StorageMode (..))
-import Yare.Chain.Types (LedgerAddress, ledgerAddressPaymentKeyHash)
+import Yare.Chain.Types (ledgerAddressPaymentKeyHash)
 import Yare.Compat.Plutus (paymentKeyHashToPubKeyHash, txOutRefFromTxIn)
 import Yare.Storage (StorageMgr (..), overDefaultStorage)
 import Yare.Submitter qualified as Submitter
@@ -101,7 +106,10 @@ service env asset = do
   let storageManager ∷ StorageMgr IO state = look env
   setStorageMode storageManager Durable
   overDefaultStorage storageManager mint' \case
-    Left err → throwIO err
+    Left err → do
+      putTextLn "Error while minting:"
+      putTextLn . toStrict $ pShow err
+      throwIO err
     Right (policyId, tx) → do
       putTextLn "Submitting the transaction:"
       putTextLn . toStrict $ pShow tx
@@ -136,12 +144,30 @@ mint env asset = do
     alonzoOnwards ∷ AlonzoEraOnwards era = convert babbageOnwards
     maryOnwards ∷ MaryEraOnwards era = convert babbageOnwards
 
+    changeAddress ∷ AddressInEra era =
+      fromShelleyAddrIsSbe shelleyBasedEra . ledgerAddress $
+        Address.useForChange addresses
+
+    -- The minimum UTxO ADA value is calculated for a dummy tx output. This is
+    -- done to avoid an error when the [collateral] change output is created by
+    -- the 'constructBalancedTx' function with a value that is less than the
+    -- minimum UTxO value.
+    minUtxoAda ∷ Lovelace =
+      calculateMinimumUTxO shelleyBasedEra dummyTxOut protocolParams
+     where
+      dummyTxOut ∷ TxOut CtxTx era =
+        TxOut changeAddress dummyBalance TxOutDatumNone ReferenceScriptNone
+      dummyBalance ∷ TxOutValue era =
+        lovelaceToTxOutValue shelleyBasedEra 10_000_000
+
+    expectedTotalCollateral ∷ Lovelace = 600_000 -- found empirically
+    minCollateralAdaValue ∷ Lovelace = expectedTotalCollateral + minUtxoAda
   utxoEntryForCollateral@Utxo.MkEntry {utxoEntryAddress = collateralAddress} ←
-    usingMonadState (Utxo.useInputCollateral addresses)
+    usingMonadState (Utxo.useInputCollateral addresses minCollateralAdaValue)
       >>= maybe (throwError (MintingTxError NoCollateralInputs)) pure
 
-  Utxo.MkEntry {utxoEntryInput = singletonInput} ←
-    usingMonadState (Utxo.useInputLowestAdaOnly addresses (0 ∷ Lovelace))
+  utxoEntryForSingleton@Utxo.MkEntry {utxoEntryInput = singletonInput} ←
+    usingMonadState (Utxo.useInputLowestAdaOnly addresses minUtxoAda)
       >>= maybe (throwError (MintingTxError NoSingletonInputs)) pure
 
   whoCanMint ∷ Hash PaymentKey ←
@@ -169,30 +195,31 @@ mint env asset = do
                 txOutRefFromTxIn singletonInput
             }
 
-  let (scriptOutputAda ∷ Lovelace, scriptOutput ∷ TxOut CtxTx era) =
-        let
-          val ∷ Value = fromList [(AssetId policy asset, Quantity 1)]
-          txOutValue ∷ TxOutValue era =
-            shelleyBasedEraConstraints shelleyBasedEra $
-              TxOutValueShelleyBased shelleyBasedEra $
-                toLedgerValue maryOnwards val
-          address ∷ LedgerAddress =
-            ledgerAddress (Address.useForMinting addresses)
-         in
-          mkScriptOutput
-            shelleyBasedEra
-            protocolParams
-            address
-            txOutValue
-            TxOutDatumNone
-            ReferenceScriptNone
+  let
+    (scriptOutputAda ∷ Lovelace, scriptOutput ∷ TxOut CtxTx era) =
+      let
+        value = fromList [(AssetId policy asset, Quantity 1)]
+        address = ledgerAddress (Address.useForMinting addresses)
+       in
+        mkScriptOutput
+          shelleyBasedEra
+          (LedgerProtocolParameters protocolParams)
+          address
+          (toLedgerValue maryOnwards value)
+          TxOutDatumNone
+          ReferenceScriptNone
 
-  -- The fee entry should contain enough ADA to cover the minimum UTxO value
-  -- of the script output. Otherwise the 'createBalancedTx' function will fail
-  -- with an "Negative value" error.
-  utxoEntryForFee ∷ Utxo.Entry ←
+  utxoEntryForFee ∷ Utxo.Entry ← do
+    let
+      -- The fee value should cover:
+      -- 1. Expected total fee of the transaction.
+      -- 2. Minimum ADA value of the change output.
+      -- 3. Minimum ADA value of the script output.
+      expectedTotalFee ∷ Lovelace = 500_000 -- found empirically
+      minFeeAdaValue ∷ Lovelace =
+        expectedTotalFee + minUtxoAda + scriptOutputAda
     usingMonadState
-      (Utxo.useInputFee addresses {- not less than: -} scriptOutputAda)
+      (Utxo.useInputFee addresses {- not less than: -} minFeeAdaValue)
       >>= maybe (throwError (MintingTxError NoFeeInputs)) pure
 
   let
@@ -203,10 +230,6 @@ mint env asset = do
 
   tx ← either (throwError . wrapError) pure do
     let
-      changeAddress ∷ AddressInEra era =
-        fromShelleyAddrIsSbe shelleyBasedEra . ledgerAddress $
-          Address.useForChange addresses
-
       txInsCollateral ∷ TxInsCollateral era =
         case era of
           ConwayEraOnwardsConway →
@@ -245,12 +268,32 @@ mint env asset = do
               ( Utxo.utxoEntryInput utxoEntryForFee
               , BuildTxWith (KeyWitness KeyWitnessForSpending)
               )
+            ,
+              ( singletonInput
+              , BuildTxWith (KeyWitness KeyWitnessForSpending)
+              )
             ]
           & setTxInsCollateral txInsCollateral
           & addTxOut scriptOutput
           & setTxMintValue txMintValue
-          & setTxProtocolParams (BuildTxWith (Just protocolParams))
-          & setTxExtraKeyWits (TxExtraKeyWitnesses alonzoOnwards [whoCanMint])
+          & setTxExtraKeyWits
+            (TxExtraKeyWitnesses alonzoOnwards [whoCanMint])
+          & setTxProtocolParams
+            (BuildTxWith (Just (LedgerProtocolParameters protocolParams)))
+
+    let inputsForBalancing ∷ UTxO era =
+          mkCardanoApiUtxo
+            era
+            [ utxoEntryForFee
+            , utxoEntryForCollateral
+            , utxoEntryForSingleton
+            ]
+
+    traceM . toString $
+      pShow (unsafeCoerce bodyContent ∷ TxBodyContent BuildTx ConwayEra)
+
+    traceM . toString $
+      pShow inputsForBalancing
 
     constructBalancedTx
       shelleyBasedEra
@@ -266,6 +309,7 @@ mint env asset = do
       mempty {- rewards          -}
       [ witnessUtxoEntry utxoEntryForFee
       , witnessUtxoEntry utxoEntryForCollateral
+      , witnessUtxoEntry utxoEntryForSingleton
       ]
 
   modify' $ updateTagged @"submitted" (Set.insert (getTxId (getTxBody tx)))
