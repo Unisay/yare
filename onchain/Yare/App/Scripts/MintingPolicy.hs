@@ -1,3 +1,7 @@
+{-# OPTIONS_GHC -fplugin PlutusTx.Plugin #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:remove-trace #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:no-preserve-logging #-}
+
 module Yare.App.Scripts.MintingPolicy
   ( MintingParams (..)
   , serialised
@@ -23,7 +27,9 @@ type MintingRedeemer = ()
 {-# INLINEABLE policy #-}
 policy ∷ MintingParams → ScriptContext → Bool
 policy MkMintingParams {whoCanMint, singletonTxOut} scriptContext =
-  mintedExactlyOneToken && signedBy whoCanMint && ensureSpentOutput
+  traceBool "is one" "not one" mintedExactlyOneToken
+    && traceBool "is signed" "not signed" (signedBy whoCanMint)
+    && traceBool "is spent" "not spent" ensureSpentOutput
  where
   txInfo = scriptContextTxInfo scriptContext
   signedBy = txSignedBy txInfo
