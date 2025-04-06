@@ -124,15 +124,17 @@ mint
   → AssetName
   → StateT state (Except Error) (PolicyId, Tx era)
 mint env asset = do
-  let network ∷ NetworkInfo era = look env
-      protocolParams ∷ LedgerProtocolParameters era = protocolParameters network
-      era ∷ ConwayEraOnwards era = currentEra network
-      epoch ∷ LedgerEpochInfo = epochInfo network
-      addresses ∷ Addresses = look @Addresses env
-      shelleyBasedEra ∷ ShelleyBasedEra era = convert era
-      babbageOnwards ∷ BabbageEraOnwards era = convert era
-      alonzoOnwards ∷ AlonzoEraOnwards era = convert babbageOnwards
-      maryOnwards ∷ MaryEraOnwards era = convert babbageOnwards
+  let
+    network ∷ NetworkInfo era = look env
+    protocolParams ∷ Ledger.PParams (ShelleyLedgerEra era) =
+      protocolParameters network
+    era ∷ ConwayEraOnwards era = currentEra network
+    epoch ∷ LedgerEpochInfo = epochInfo network
+    addresses ∷ Addresses = look @Addresses env
+    shelleyBasedEra ∷ ShelleyBasedEra era = convert era
+    babbageOnwards ∷ BabbageEraOnwards era = convert era
+    alonzoOnwards ∷ AlonzoEraOnwards era = convert babbageOnwards
+    maryOnwards ∷ MaryEraOnwards era = convert babbageOnwards
 
   utxoEntryForCollateral@Utxo.MkEntry {utxoEntryAddress = collateralAddress} ←
     usingMonadState (Utxo.useInputCollateral addresses)
@@ -255,8 +257,8 @@ mint env asset = do
       bodyContent
       changeAddress
       empty {- overrideKeyWitnesses -}
-      (mkCardanoApiUtxo era [utxoEntryForFee])
-      protocolParams
+      inputsForBalancing
+      (LedgerProtocolParameters protocolParams)
       epoch
       (systemStart network)
       mempty {- registered pools -}

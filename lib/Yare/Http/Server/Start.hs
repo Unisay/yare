@@ -6,6 +6,7 @@ import Cardano.Api.Shelley
   ( AnyShelleyBasedEra (..)
   , ConwayEraOnwards (..)
   , EraHistory (..)
+  , LedgerProtocolParameters (..)
   , NetworkMagic
   , ShelleyBasedEra (..)
   , convert
@@ -77,7 +78,7 @@ start env = withHandledErrors do
     protocolParameters ←
       case errorOrProtocolParams of
         Left err → throwError err
-        Right ledgerProtocolParameters → pure ledgerProtocolParameters
+        Right (LedgerProtocolParameters pparams) → pure pparams
 
     let envWithNetworkInfo ∷ HList (NetworkInfo era ': envᵣ) =
           HCons

@@ -17,6 +17,7 @@ import Cardano.Api.Shelley
   , ConwayEraOnwards (..)
   , CtxTx
   , KeyWitnessInCtx (KeyWitnessForSpending)
+  , LedgerProtocolParameters (..)
   , Lovelace
   , PlutusScriptV3
   , PoolId
@@ -204,7 +205,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
       (_adaValue, scriptOutput ∷ TxOut CtxTx era) =
         mkScriptOutput
           shelleyBasedEra
-          protocolParameters
+          (LedgerProtocolParameters protocolParameters)
           (Address.forScript network (toShelleyScriptHash scriptHash))
           (lovelaceToTxOutValue shelleyBasedEra 0)
           TxOutDatumNone
@@ -227,7 +228,8 @@ constructTx addresses networkInfo scriptHash plutusScript = do
             ]
           & setTxInsCollateral txInsCollateral
           & addTxOut scriptOutput -- The script output has index 0
-          & setTxProtocolParams (BuildTxWith (Just protocolParameters))
+          & setTxProtocolParams
+            (BuildTxWith (Just (LedgerProtocolParameters protocolParameters)))
     tx ←
       constructBalancedTx
         shelleyBasedEra
@@ -235,7 +237,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
         changeAddress
         overrideKeyWitnesses
         (mkCardanoApiUtxo currentEra [utxoEntryForFee])
-        protocolParameters
+        (LedgerProtocolParameters protocolParameters)
         epochInfo
         systemStart
         registeredPools

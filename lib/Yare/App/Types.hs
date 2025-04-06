@@ -8,11 +8,11 @@ module Yare.App.Types
 
 import Yare.Prelude
 
-import Cardano.Api.Ledger (Network, StrictMaybe)
+import Cardano.Api.Ledger (Network, PParams, StrictMaybe)
 import Cardano.Api.Shelley
   ( ConwayEraOnwards
   , LedgerEpochInfo
-  , LedgerProtocolParameters
+  , ShelleyLedgerEra
   , SystemStart
   )
 import Network.Wai.Handler.Warp qualified as Warp
@@ -37,7 +37,7 @@ data NetworkInfo era = NetworkInfo
   , systemStart ∷ SystemStart
   , epochInfo ∷ LedgerEpochInfo
   , currentEra ∷ ConwayEraOnwards era
-  , protocolParameters ∷ LedgerProtocolParameters era
+  , protocolParameters ∷ PParams (ShelleyLedgerEra era)
   }
 
 data StorageMode = Volatile | Durable
