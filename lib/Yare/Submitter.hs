@@ -20,6 +20,8 @@ import Ouroboros.Network.Protocol.LocalTxSubmission.Client
   , LocalTxSubmissionClient (..)
   , SubmitResult (..)
   )
+import Text.Pretty.Simple (pShow)
+import Text.Show (show)
 import Yare.Chain.Block (StdCardanoBlock)
 
 type TxSubmitResult ∷ Type
@@ -68,5 +70,8 @@ submit submitQ txInMode = do
 
 newtype TxSubmissionException
   = TxSubmissionException (CardanoApplyTxErr StandardCrypto)
-  deriving stock (Show)
   deriving anyclass (Exception)
+
+instance Show TxSubmissionException where
+  show (TxSubmissionException err) =
+    "Transaction submission failed:\n" <> toString (pShow err)
