@@ -166,6 +166,7 @@ library
     Yare.App.Services.DeployScript
     Yare.App.Services.Error
     Yare.App.Services.Minting
+    Yare.App.Services.Rebalancing
     Yare.App.State
     Yare.App.Types
     Yare.Chain.Block
