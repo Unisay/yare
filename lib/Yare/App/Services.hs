@@ -49,6 +49,7 @@ data Services m = Services
   , serveTransactionsInLedger ∷ m (Set TxId)
   , serveTransactionsSubmitted ∷ m (Set TxId)
   , requestMinting ∷ AssetName → m (PolicyId, TxId)
+  , requestRebalancing ∷ m TxId
   }
 
 mkServices
@@ -97,6 +98,7 @@ mkServices env =
         lookTagged @"submitted" @(Set TxId) <$> readDefaultStorage @state env
     , requestMinting =
         Minting.service @era @state env
+    , requestRebalancing = $(todo "requestRebalancing")
     }
 
 scriptAddresses ∷ Network → [LedgerAddress]
