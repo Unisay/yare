@@ -161,21 +161,21 @@ useInputFee = useInputLowestAdaOnly
 useInputCollateral ∷ Addresses → Lovelace → Utxo → Maybe (Utxo, Entry)
 useInputCollateral = useInputLowestAdaOnly
 
-useInputWithAddress ∷ Utxo → AddressWithKey → Maybe (Utxo, Entry)
-useInputWithAddress utxo MkAddressWithKey {..} = do
-  let (utxo', usedByAddress) = useByAddress utxo ledgerAddress
+useInputWithAddressLowestAdaOnly ∷ Utxo → AddressWithKey → Maybe (Utxo, Entry)
+useInputWithAddressLowestAdaOnly utxo MkAddressWithKey {..} = do
   entry@MkEntry {utxoEntryInput} ←
-    entryWithLowestValue do
-      (utxoEntryInput, (addr, utxoEntryValue)) ← usedByAddress
-      guard (addr == ledgerAddress)
-        $> MkEntry
-          { utxoEntryInput
-          , utxoEntryValue
+    entryWithLowestAdaOnlyValue
+      [ MkEntry
+          { utxoEntryInput = input
+          , utxoEntryValue = value
           , utxoEntryKey = paymentKey
-          , utxoEntryAddress = ledgerAddress
+          , utxoEntryAddress = outputAddr
           }
-  let utxo'' = utxo' {usedInputs = Set.insert utxoEntryInput (usedInputs utxo')}
-  pure (utxo'', entry)
+      | (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
+      , ledgerAddress == outputAddr
+      ]
+
+  pure (utxo {usedInputs = Set.insert utxoEntryInput (usedInputs utxo)}, entry)
 
 useInputLowestAdaOnly
   ∷ HasCallStack
@@ -187,7 +187,7 @@ useInputLowestAdaOnly
   -- ^ UTxO set
   → Maybe (Utxo, Entry)
 useInputLowestAdaOnly addresses minAdaValue utxo = do
-  entry@MkEntry {utxoEntryInput} ← entryWithLowestValue do
+  entry@MkEntry {utxoEntryInput} ← entryWithLowestAdaOnlyValue do
     (input, (addr, value)) ← Map.toList (spendableEntries utxo)
     guard (selectLovelace value >= minAdaValue)
     pure case Addresses.asOwnAddress addresses addr of
@@ -201,8 +201,8 @@ useInputLowestAdaOnly addresses minAdaValue utxo = do
           }
   pure (utxo {usedInputs = Set.insert utxoEntryInput (usedInputs utxo)}, entry)
 
-entryWithLowestValue ∷ [Entry] → Maybe Entry
-entryWithLowestValue entries =
+entryWithLowestAdaOnlyValue ∷ [Entry] → Maybe Entry
+entryWithLowestAdaOnlyValue entries =
   viaNonEmpty head $ sortOn (selectLovelace . utxoEntryValue) do
     entry@MkEntry {utxoEntryValue} ← entries
     let assets = [asset | (asset, _qty) ← GHC.toList utxoEntryValue]
@@ -247,17 +247,6 @@ rollback rollbackSlot utxo =
     ([], _remainingUpdates) → Nothing
     (_discardedUpdates, remainingUpdates) →
       Just utxo {reversibleUpdates = remainingUpdates}
-
-useByAddress ∷ Utxo → LedgerAddress → (Utxo, [(TxIn, (LedgerAddress, Value))])
-useByAddress utxo addr = (utxo', entries)
- where
-  utxo' = utxo {usedInputs = Set.fromList inputs <> usedInputs utxo}
-  inputs = map fst entries
-  entries = do
-    -- This query is not optimized for performance
-    entry@(_input, (outputAddr, _value)) ← Map.toList (spendableEntries utxo)
-    guard (addr == outputAddr)
-    pure entry
 
 -- | Finalize the UTxO set up to the given slot (inclusive).
 finalise ∷ SlotNo → Utxo → Utxo

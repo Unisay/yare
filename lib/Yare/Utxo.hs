@@ -22,7 +22,6 @@ module Yare.Utxo
   , spendableEntries
   , spendableTxInputs
   , totalValue
-  , useByAddress
   ) where
 
 import Yare.Utxo.Internal
