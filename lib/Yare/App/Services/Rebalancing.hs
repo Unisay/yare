@@ -3,9 +3,10 @@ module Yare.App.Services.Rebalancing
   , service
   ) where
 
-import Yare.Prelude
+import Yare.Prelude hiding (toList)
 
-import Cardano.Api (TxId, inAnyShelleyBasedEra, setTxIns)
+import Cardano.Api (TxId, TxOut (TxOut), inAnyShelleyBasedEra, setTxIns)
+import Cardano.Api.Ledger.Lens (mkAdaValue)
 import Cardano.Api.Shelley
   ( AddressInEra
   , AlonzoEraOnwards (..)
@@ -15,11 +16,13 @@ import Cardano.Api.Shelley
   , KeyWitnessInCtx (KeyWitnessForSpending)
   , LedgerProtocolParameters (..)
   , Lovelace
+  , ReferenceScript (..)
   , ShelleyBasedEra
   , Tx (..)
   , TxBodyContent
   , TxInMode (..)
   , TxInsCollateral (..)
+  , TxOutDatum (TxOutDatumNone)
   , UTxO
   , Witness (KeyWitness)
   , constructBalancedTx
@@ -28,16 +31,20 @@ import Cardano.Api.Shelley
   , fromShelleyAddrIsSbe
   , getTxBody
   , getTxId
+  , lovelaceToTxOutValue
   , runExcept
   , selectLovelace
   , setTxInsCollateral
   , setTxOuts
   , setTxProtocolParams
   )
+import Cardano.Ledger.Coin (Coin (..))
 import Control.Exception (throwIO)
 import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Except (Except)
+import Data.List (zipWith3)
 import Data.Map.Strict qualified as Map
+import GHC.IsList (IsList (..))
 import Text.Pretty.Simple (pShow)
 import Yare.Address (AddressWithKey (..), Addresses (externalAddresses))
 import Yare.Address qualified as Address
@@ -47,7 +54,7 @@ import Yare.App.Types (NetworkInfo (..), StorageMode (..))
 import Yare.Storage (StorageMgr (..), overDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (usingMonadState)
-import Yare.Util.Tx.Construction (mkCardanoApiUtxo, witnessUtxoEntry)
+import Yare.Util.Tx.Construction (minAdaValue, mkCardanoApiUtxo, witnessUtxoEntry)
 import Yare.Utxo (Entry (..), Utxo, spendableEntries)
 import Yare.Utxo qualified as Utxo
 
@@ -91,6 +98,7 @@ rebalance
 rebalance env = do
   let
     addresses = look @Addresses env
+    rebalancingAddresses = externalAddresses addresses
     network ∷ NetworkInfo era = look env
     era ∷ ConwayEraOnwards era = currentEra network
     epoch = epochInfo network
@@ -110,7 +118,7 @@ rebalance env = do
       >>= maybe (throwError (RebalancingTxError NoCollateralInputs)) pure
 
   totalLovelaceBalance ∷ Lovelace ←
-    usingMonadState (calculateTotalBalance (externalAddresses addresses))
+    usingMonadState (calculateTotalBalance rebalancingAddresses)
       >>= maybe (throwError CalculateTotalBalanceError) pure
 
   rebalanceEntries ∷ [Utxo.Entry] ←
@@ -129,10 +137,42 @@ rebalance env = do
             AlonzoEraOnwardsConway
             [Utxo.utxoEntryInput utxoEntryForCollateral]
 
+    minUtxoValues ∷ NonEmpty Lovelace =
+      rebalancingAddresses
+        <&> \address →
+          minAdaValue
+            shelleyBasedEra
+            (LedgerProtocolParameters protocolParams)
+            (ledgerAddress address)
+            (mkAdaValue shelleyBasedEra (Coin 0))
+            TxOutDatumNone
+            ReferenceScriptNone
+
+    constructTxOut addr lovelace minUtxoValue =
+      TxOut
+        (fromShelleyAddrIsSbe shelleyBasedEra (Address.ledgerAddress addr))
+        (lovelaceToTxOutValue shelleyBasedEra (lovelace + minUtxoValue))
+        TxOutDatumNone
+        ReferenceScriptNone
+
+  distributedLovelace ←
+    either (throwError . DistributionError) pure $
+      expDistribute
+        (totalLovelaceBalance - sum minUtxoValues)
+        (length rebalancingAddresses)
+        (1.5 ∷ Double)
+  let
+    txOuts =
+      zipWith3
+        constructTxOut
+        (toList rebalancingAddresses)
+        distributedLovelace
+        (toList minUtxoValues)
+
     bodyContent ∷ TxBodyContent BuildTx era =
       defaultTxBodyContent shelleyBasedEra
         & setTxIns txIns
-        & setTxOuts _
+        & setTxOuts txOuts
         & setTxInsCollateral txInsCollateral
         & setTxProtocolParams
           (BuildTxWith (Just (LedgerProtocolParameters protocolParams)))
@@ -144,6 +184,12 @@ rebalance env = do
       RebalancingTxError
         . TxAutoBalanceError
         . inAnyShelleyBasedEra shelleyBasedEra
+
+    shelleyWitSigningKeys =
+      (witnessUtxoEntry <$> rebalanceEntries)
+        <> [ witnessUtxoEntry utxoEntryForFee
+           , witnessUtxoEntry utxoEntryForCollateral
+           ]
 
   either (throwError . wrapError) pure do
     constructBalancedTx
@@ -158,9 +204,7 @@ rebalance env = do
       mempty {- registered pools -}
       mempty {- delegations      -}
       mempty {- rewards          -}
-      [ witnessUtxoEntry utxoEntryForFee
-      , witnessUtxoEntry utxoEntryForCollateral
-      ]
+      shelleyWitSigningKeys
 
 calculateTotalBalance ∷ NonEmpty AddressWithKey → Utxo → Maybe (Utxo, Lovelace)
 calculateTotalBalance addresses utxo = Just (utxo, totalBalance)
@@ -174,6 +218,7 @@ useInputsForRebalancing ∷ Addresses → Utxo → Maybe (Utxo, [Utxo.Entry])
 useInputsForRebalancing addresses utxo = do
   let entries = do
         (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
+        guard (length (toList value) == 1)
         pure case Addresses.asOwnAddress addresses outputAddr of
           Nothing → impossible "useInputsForRebalancing: UTxO entry address is not own"
           Just MkAddressWithKey {..} →
@@ -185,8 +230,37 @@ useInputsForRebalancing addresses utxo = do
               }
   pure (utxo, entries)
 
+--------------------------------------------------------------------------------
+-- Exponencial distribution ----------------------------------------------------
+
+expDistribute
+  ∷ ∀ a n
+   . RealFrac a
+  ⇒ Integral n
+  ⇒ Lovelace
+  -- ^ Total balance > 0
+  → n
+  -- ^ Number of outputs > 0
+  → a
+  -- ^ Exponencial function base > 1
+  → Either Text [Lovelace]
+expDistribute total n a
+  | n <= 0 = Left "Number of outputs must be > 0."
+  | total <= 0 = Left "Total balance must be > 0."
+  | a <= 1 = Left "Exponencial function base must be > 1."
+  | otherwise = do
+      let
+        weights = fromList [a ^^ i | i ← [1 .. n]]
+        distributedLovelace =
+          weights
+            <&> \w → floor (fromInteger (unCoin total) * (w / sum weights))
+        finalDifference = total - sum distributedLovelace
+      Right ((head distributedLovelace + finalDifference) : tail distributedLovelace)
+
 data Error
   = RebalancingTxError TxConstructionError
   | CalculateTotalBalanceError
+  | NotEnoughFundsToRebalance
+  | DistributionError Text
   deriving anyclass (Exception)
   deriving stock (Show)
