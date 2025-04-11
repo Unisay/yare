@@ -26,6 +26,8 @@ import Cardano.Api.Shelley
   , convert
   , defaultTxBodyContent
   , fromShelleyAddrIsSbe
+  , getTxBody
+  , getTxId
   , runExcept
   , selectLovelace
   , setTxInsCollateral
@@ -39,13 +41,14 @@ import Data.Map.Strict qualified as Map
 import Text.Pretty.Simple (pShow)
 import Yare.Address (AddressWithKey (..), Addresses (externalAddresses))
 import Yare.Address qualified as Address
+import Yare.Address qualified as Addresses
 import Yare.App.Services.Error (TxConstructionError (..))
 import Yare.App.Types (NetworkInfo (..), StorageMode (..))
 import Yare.Storage (StorageMgr (..), overDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (usingMonadState)
 import Yare.Util.Tx.Construction (mkCardanoApiUtxo, witnessUtxoEntry)
-import Yare.Utxo (Utxo, spendableEntries)
+import Yare.Utxo (Entry (..), Utxo, spendableEntries)
 import Yare.Utxo qualified as Utxo
 
 service
@@ -69,7 +72,8 @@ service env = do
       putTextLn "Submitting the transaction:"
       putTextLn . toStrict $ pShow tx
       let txInMode = TxInMode (convert currentEra) tx
-      Submitter.submit submitQueue txInMode $> _
+      getTxId (getTxBody tx)
+        <$ Submitter.submit submitQueue txInMode
  where
   rebalance' ∷ state → (state, Either Error (Tx era))
   rebalance' s =
@@ -92,7 +96,6 @@ rebalance env = do
     epoch = epochInfo network
     protocolParams = protocolParameters network
     shelleyBasedEra ∷ ShelleyBasedEra era = convert era
-    rebalancingAddresses = externalAddresses (look @Addresses env)
 
     changeAddress ∷ AddressInEra era =
       fromShelleyAddrIsSbe shelleyBasedEra . ledgerAddress $
@@ -107,11 +110,12 @@ rebalance env = do
       >>= maybe (throwError (RebalancingTxError NoCollateralInputs)) pure
 
   totalLovelaceBalance ∷ Lovelace ←
-    usingMonadState (calculateTotalBalance rebalancingAddresses)
+    usingMonadState (calculateTotalBalance (externalAddresses addresses))
       >>= maybe (throwError CalculateTotalBalanceError) pure
 
   rebalanceEntries ∷ [Utxo.Entry] ←
-    $(todo "spendableEntries instead of useInputsWithAddresses")
+    usingMonadState (useInputsForRebalancing addresses)
+      >>= maybe (impossible "useInputsForRebalancing resulted in Nothing") pure
 
   let
     txIns =
@@ -166,33 +170,23 @@ calculateTotalBalance addresses utxo = Just (utxo, totalBalance)
     | addr `elem` (ledgerAddress <$> addresses) = acc <> value
     | otherwise = acc
 
-{-
-WIP
-
-useInputsWithAddresses ∷ NonEmpty AddressWithKey → Utxo → Maybe (Utxo, [Entry])
-useInputsWithAddresses addresses u = pure $ foldl' g (u, []) addresses
- where
-  g ∷ (Utxo, [Entry]) → AddressWithKey → (Utxo, [Entry])
-  g (utxo, entries) MkAddressWithKey {ledgerAddress, paymentKey} =
-    let
-      newEntries =
-        [ MkEntry
-          { utxoEntryInput = input
-          , utxoEntryValue = value
-          , utxoEntryKey = paymentKey
-          , utxoEntryAddress = outputAddr
-          }
-        | (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
-        , ledgerAddress == outputAddr
-        ]
-      utxo' = utxo {usedInputs = Set.fromList (utxoEntryInput <$> newEntries)}
-     in
-      (utxo, entries <> newEntries)
--}
+useInputsForRebalancing ∷ Addresses → Utxo → Maybe (Utxo, [Utxo.Entry])
+useInputsForRebalancing addresses utxo = do
+  let entries = do
+        (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
+        pure case Addresses.asOwnAddress addresses outputAddr of
+          Nothing → impossible "useInputsForRebalancing: UTxO entry address is not own"
+          Just MkAddressWithKey {..} →
+            MkEntry
+              { utxoEntryInput = input
+              , utxoEntryValue = value
+              , utxoEntryKey = paymentKey
+              , utxoEntryAddress = ledgerAddress
+              }
+  pure (utxo, entries)
 
 data Error
   = RebalancingTxError TxConstructionError
   | CalculateTotalBalanceError
-  | NoAddressesToRebalance
   deriving anyclass (Exception)
   deriving stock (Show)
