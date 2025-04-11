@@ -260,7 +260,6 @@ expDistribute total n a
 data Error
   = RebalancingTxError TxConstructionError
   | CalculateTotalBalanceError
-  | NotEnoughFundsToRebalance
   | DistributionError Text
   deriving anyclass (Exception)
   deriving stock (Show)
