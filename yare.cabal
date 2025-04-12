@@ -61,7 +61,7 @@ common opts
     -Wno-missing-import-lists -Wno-missing-export-lists
     -fprint-explicit-foralls -Wno-missing-kind-signatures
     -Werror=missing-fields -fprint-expanded-synonyms
-    -Wno-all-missed-specialisations
+    -Wno-all-missed-specialisations -Wno-missed-specialisations
 
   build-depends:
     , base    ^>=4.18

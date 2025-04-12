@@ -256,8 +256,9 @@ constructTx addresses networkInfo scriptHash plutusScript = do
     pure (tx, txIn)
 
 --------------------------------------------------------------------------------
--- Error types -----------------------------------------------------------------
+-- Errors ----------------------------------------------------------------------
 
 newtype DeployScriptError = DeployScriptError TxConstructionError
   deriving newtype (Show)
   deriving anyclass (Exception)
+

@@ -43,6 +43,7 @@ import Cardano.Api.Shelley
   )
 import Cardano.Ledger.Coin (Coin (..))
 import Control.Exception (throwIO)
+import Control.Lens.Combinators
 import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Except (Except)
 import Data.List (zipWith3)
@@ -57,9 +58,14 @@ import Yare.App.Types (NetworkInfo (..), StorageMode (..))
 import Yare.Storage (StorageMgr (..), overDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (usingMonadState)
-import Yare.Util.Tx.Construction (minAdaValue, mkCardanoApiUtxo, witnessUtxoEntry)
+import Yare.Util.Tx.Construction
+  ( minAdaValue
+  , mkCardanoApiUtxo
+  , witnessUtxoEntry
+  )
 import Yare.Utxo (Entry (..), Utxo, spendableEntries)
 import Yare.Utxo qualified as Utxo
+import Control.Lens ((%~))
 
 service
   ∷ ∀ era state env
@@ -128,7 +134,11 @@ rebalance env = do
       >>= maybe (throwError (RebalancingTxError NoFeeInputs)) pure
 
   utxoEntryForCollateral ∷ Utxo.Entry ←
-    usingMonadState (Utxo.useInputCollateral addresses (minUtxoAda + expectedTotalCollateral))
+    usingMonadState
+      ( Utxo.useInputCollateral
+          addresses
+          (minUtxoAda + expectedTotalCollateral)
+      )
       >>= maybe (throwError (RebalancingTxError NoCollateralInputs)) pure
 
   totalLovelaceBalance ∷ Lovelace ←
@@ -171,7 +181,7 @@ rebalance env = do
 
   distributedLovelace ←
     either (throwError . DistributionError) pure $
-      expDistribute
+      exponentialDistribution
         (totalLovelaceBalance - sum minUtxoValues)
         (length rebalancingAddresses)
         (1.5 ∷ Double)
@@ -192,7 +202,11 @@ rebalance env = do
           (BuildTxWith (Just (LedgerProtocolParameters protocolParams)))
 
     inputsForBalancing ∷ UTxO era =
-      mkCardanoApiUtxo era ([utxoEntryForFee, utxoEntryForCollateral] <> rebalanceEntries)
+      mkCardanoApiUtxo
+        era
+        ( [utxoEntryForFee, utxoEntryForCollateral]
+            <> rebalanceEntries
+        )
 
     wrapError =
       RebalancingTxError
@@ -234,7 +248,8 @@ useInputsForRebalancing addresses utxo = do
         (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
         guard (length (GHC.toList value) == 1)
         pure case Addresses.asOwnAddress addresses outputAddr of
-          Nothing → impossible "useInputsForRebalancing: UTxO entry address is not own"
+          Nothing →
+            impossible "useInputsForRebalancing: UTxO entry address is not own"
           Just MkAddressWithKey {..} →
             MkEntry
               { utxoEntryInput = input
@@ -244,10 +259,7 @@ useInputsForRebalancing addresses utxo = do
               }
   pure (utxo, entries)
 
---------------------------------------------------------------------------------
--- Exponencial distribution ----------------------------------------------------
-
-expDistribute
+exponentialDistribution
   ∷ ∀ a n
    . RealFrac a
   ⇒ Integral n
@@ -256,20 +268,22 @@ expDistribute
   → n
   -- ^ Number of outputs > 0
   → a
-  -- ^ Exponencial function base > 1
+  -- ^ Exponential function base > 1
   → Either Text [Lovelace]
-expDistribute total n a
+exponentialDistribution total n a
   | n <= 0 = Left "Number of outputs must be > 0."
   | total <= 0 = Left "Total balance must be > 0."
-  | a <= 1 = Left "Exponencial function base must be > 1."
-  | otherwise = do
-      let
-        weights = fromList [a ^^ i | i ← [1 .. n]]
-        distributedLovelace =
-          weights
-            <&> \w → floor (fromInteger (unCoin total) * (w / sum weights))
-        finalDifference = total - sum distributedLovelace
-      Right ((head distributedLovelace + finalDifference) : tail distributedLovelace)
+  | a <= 1 = Left "Exponential function base must be > 1."
+  | otherwise = Right (assignExcess finalDifference distributedLovelace)
+ where
+  weights = fromList [a ^^ i | i ← [1 .. n]]
+  distributedLovelace =
+    weights <&> \w → floor (fromInteger (unCoin total) * (w / sum weights))
+  finalDifference = total - sum distributedLovelace
+  assignExcess excess = _head %~ (+ excess)
+
+--------------------------------------------------------------------------------
+-- Errors ----------------------------------------------------------------------
 
 data Error
   = RebalancingTxError TxConstructionError
