@@ -167,6 +167,7 @@ library
     Yare.App.Services.Error
     Yare.App.Services.Minting
     Yare.App.Services.Rebalancing
+    Yare.App.Services.Rebalancing.Internal
     Yare.App.State
     Yare.App.Types
     Yare.Chain.Block
