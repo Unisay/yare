@@ -282,4 +282,7 @@ test-suite yare-test
 
   other-modules:
     Arbitrary
-    UtxoSpec
+    Spec
+    Spec.Services
+    Spec.Tools
+    Spec.Utxo

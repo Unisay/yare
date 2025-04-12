@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-missing-local-signatures #-}
+
 module Yare.App.Services.Rebalancing
   ( Error (..)
   , service
@@ -43,6 +45,7 @@ import Cardano.Api.Shelley
   )
 import Cardano.Ledger.Coin (Coin (..))
 import Control.Exception (throwIO)
+import Control.Lens ((%~))
 import Control.Lens.Combinators
 import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Except (Except)
@@ -65,7 +68,6 @@ import Yare.Util.Tx.Construction
   )
 import Yare.Utxo (Entry (..), Utxo, spendableEntries)
 import Yare.Utxo qualified as Utxo
-import Control.Lens ((%~))
 
 service
   ∷ ∀ era state env
