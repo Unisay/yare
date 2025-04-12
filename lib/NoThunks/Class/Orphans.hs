@@ -8,9 +8,14 @@ import Cardano.Address (Address)
 import Cardano.Address.Derivation (Depth (PaymentK), XPrv)
 import Cardano.Address.Style.Shelley (Shelley)
 import Cardano.Api qualified as CApi
+import Cardano.Crypto.Wallet qualified as Crypto
 import Data.Strict.Tuple (Pair ((:!:)))
 import Data.Typeable (typeRep)
 import NoThunks.Class (NoThunks (..), allNoThunks)
+
+instance NoThunks Crypto.XPrv where
+  wNoThunks _ctx _xprv = pure Nothing
+  showTypeOf _proxy = "XPrv"
 
 instance NoThunks Address where
   wNoThunks _ctx _address = pure Nothing

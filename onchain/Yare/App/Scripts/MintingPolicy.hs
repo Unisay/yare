@@ -1,32 +1,45 @@
+{-# OPTIONS_GHC -fplugin PlutusTx.Plugin #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:remove-trace #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:no-preserve-logging #-}
+
 module Yare.App.Scripts.MintingPolicy
-  ( MintingParams
+  ( MintingParams (..)
   , serialised
   ) where
 
-import Data.ByteString (ByteString)
-import Data.ByteString.Short qualified as BS
 import Plutus.Prelude
 
-type MintingParams = (PubKeyHash, TxOutRef)
+import Cardano.Api.Shelley qualified as CA
+import Data.ByteString (ByteString)
+import GHC.Generics (Generic)
+import PlutusTx qualified
+
+data MintingParams = MkMintingParams
+  { whoCanMint ∷ PubKeyHash
+  , singletonTxOut ∷ TxOutRef
+  }
+  deriving stock (Generic)
+
+$(PlutusTx.makeLift ''MintingParams)
 
 type MintingRedeemer = ()
 
 {-# INLINEABLE policy #-}
 policy ∷ MintingParams → ScriptContext → Bool
-policy (whoCanMint, txOutRef) scriptContext =
-  signedBy whoCanMint
-    && mintedExactlyOneToken
-    && ensureSpentOutput
+policy MkMintingParams {whoCanMint, singletonTxOut} scriptContext =
+  traceBool "is one" "not one" mintedExactlyOneToken
+    && traceBool "is signed" "not signed" (signedBy whoCanMint)
+    && traceBool "is spent" "not spent" ensureSpentOutput
  where
   txInfo = scriptContextTxInfo scriptContext
   signedBy = txSignedBy txInfo
   mintedExactlyOneToken =
-    case flattenValue (txInfoMint txInfo) of
+    case flattenValue (mintValueMinted (txInfoMint txInfo)) of
       [(currency, _tokenName, quantity)] →
         currency == ownCurrencySymbol scriptContext && quantity == 1
       _ → False
   ensureSpentOutput =
-    case findTxInByTxOutRef txOutRef txInfo of
+    case findTxInByTxOutRef singletonTxOut txInfo of
       Nothing → False
       Just _i → True
 
@@ -39,18 +52,13 @@ untyped params scriptContext =
 
 compiled ∷ MintingParams → CompiledCode (BuiltinData → BuiltinUnit)
 compiled params =
-  $$(compile [||untyped||]) `unsafeApplyCode` liftCode plcVersion110 params
+  $$(compile [||untyped||]) `unsafeApplyCode` liftCodeDef params
 
 type SerialisedScriptHash = ByteString
 
-serialised ∷ MintingParams → (SerialisedScript, SerialisedScriptHash)
-serialised params = (script, scriptHash)
+serialised ∷ MintingParams → (CA.PlutusScript CA.PlutusScriptV3, CA.ScriptHash)
+serialised params = (apiScript, apiScriptHash)
  where
-  script ∷ SerialisedScript
-  script = serialiseCompiledCode (compiled params)
-
-  scriptHash ∷ SerialisedScriptHash
-  scriptHash = compiledValidatorHash validator
-
-  validator ∷ CompiledValidator
-  validator = compiledValidator PlutusV3 (BS.fromShort script)
+  code = compiled params
+  apiScript = CA.PlutusScriptSerialised (serialiseCompiledCode code)
+  apiScriptHash = CA.hashScript (CA.PlutusScript CA.PlutusScriptV3 apiScript)

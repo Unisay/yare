@@ -23,10 +23,8 @@ import Cardano.Address.Derivation
   , toXPub
   )
 import Cardano.Address.Style.Shelley qualified as CAddr
-import Cardano.Ledger.Address (Addr (..))
-import Cardano.Ledger.Api (StandardCrypto)
-import Cardano.Ledger.Api.Tx.Address qualified as Ledger
-import Cardano.Ledger.Credential (PaymentCredential)
+import Cardano.Crypto.Wallet qualified as Crypto
+import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Mnemonic (Mnemonic, SomeMnemonic (..))
 import Codec.Serialise.Class.Orphans ()
 import Data.Traversable (for)
@@ -34,21 +32,20 @@ import Fmt (Buildable (..))
 import Fmt.Orphans ()
 import NoThunks.Class.Extended (NoThunks)
 import Text.Show (show)
-import Yare.Chain.Types (LedgerAddress)
+import Yare.Chain.Types (LedgerAddress, ledgerAddressPaymentCredential)
 
-data AddressWithKey = AddressWithKey
-  { cardanoAddress ∷ !Address
-  , ledgerAddress ∷ !LedgerAddress
-  , paymentKey ∷ CAddr.Shelley PaymentK XPrv
+data AddressWithKey = MkAddressWithKey
+  { ledgerAddress ∷ !LedgerAddress
+  , paymentKey ∷ !Crypto.XPrv
   }
   deriving stock (Generic)
   deriving anyclass (NoThunks, NFData)
 
 instance Buildable AddressWithKey where
-  build AddressWithKey {ledgerAddress} =
+  build MkAddressWithKey {ledgerAddress} =
     build ledgerAddress
       <> "\n"
-      <> build (toPaymentCredential ledgerAddress)
+      <> build (ledgerAddressPaymentCredential ledgerAddress)
 
 externalPaymentAdressesKeys
   ∷ NetworkTag
@@ -80,7 +77,7 @@ paymentAddressesKeys role networkTag mnemonic =
     → Either Error AddressWithKey
   makePaymentAddressWithKey paymentAddrIx = do
     ledgerAddress ← toLedgerAddress cardanoAddress
-    pure AddressWithKey {cardanoAddress, ledgerAddress, paymentKey}
+    pure MkAddressWithKey {ledgerAddress, paymentKey = CAddr.getKey paymentKey}
    where
     cardanoAddress ∷ Address =
       CAddr.paymentAddress networkTag $
@@ -102,11 +99,6 @@ toLedgerAddress ∷ Address → Either Error LedgerAddress
 toLedgerAddress address =
   maybeToRight (ToLedgerAddrConversionError address) $
     Ledger.decodeAddr (unAddress address)
-
-toPaymentCredential ∷ LedgerAddress → Maybe (PaymentCredential StandardCrypto)
-toPaymentCredential = \case
-  Addr _ paymentCredential _ → Just paymentCredential
-  AddrBootstrap {} → Nothing
 
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------

@@ -2,6 +2,7 @@ module Yare.Prelude
   ( module Reexport
   , (<<&>>)
   , strictHCons
+  , impossible
   ) where
 
 import Data.HList as Reexport (HList (HCons, HNil), (.*.))
@@ -20,3 +21,6 @@ strictHCons ∷ a → HList as → HList (a ': as)
 strictHCons !x !xs = HCons x xs
 
 infixr 2 `strictHCons`
+
+impossible ∷ HasCallStack ⇒ Text → a
+impossible msg = error $ "Impossible (BUG): " <> msg

@@ -73,6 +73,6 @@ instance Serialise CApi.Value where
   decode = CApi.fromLedgerValue CApi.ShelleyBasedEraConway <$> decodeMaryValue
    where
     decodeMaryValue ∷ CBOR.Decoder s (Ledger.MaryValue StandardCrypto)
-    decodeMaryValue = LB.toPlainDecoder maxBound LB.decCBOR
+    decodeMaryValue = LB.toPlainDecoder Nothing maxBound LB.decCBOR
 
 deriving newtype instance Serialise CApi.ScriptHash

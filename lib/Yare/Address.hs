@@ -4,9 +4,11 @@ module Yare.Address
   , externalAddresses
   , deriveFromMnemonic
   , isOwnAddress
+  , asOwnAddress
   , useForChange
-  , useForFees
+  , useForFee
   , useForCollateral
+  , useForMinting
   , forScript
   , networkMagicToLedgerNetwork
   , networkMagicToAddressesTag
@@ -18,6 +20,7 @@ import Yare.Prelude
 import Cardano.Address (NetworkTag)
 import Cardano.Address.Style.Shelley (shelleyMainnet, shelleyTestnet)
 import Cardano.Api.Ledger qualified as Ledger
+import Cardano.Crypto.Wallet qualified as Crypto
 import Cardano.Ledger.Api (Addr (..), StandardCrypto)
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Credential (PaymentCredential)
@@ -25,7 +28,9 @@ import Cardano.Mnemonic (MkMnemonicError)
 import Codec.Serialise.Class.Orphans ()
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Trans.Except (except, withExceptT)
+import Data.List.NonEmpty ((!!))
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict qualified as Map
 import Fmt (Buildable (build), blockListF, nameF)
 import NoThunks.Class.Extended (NoThunks)
 import Ouroboros.Network.Magic (NetworkMagic (..), unNetworkMagic)
@@ -43,7 +48,7 @@ data Addresses = Addresses
   { network ∷ !Ledger.Network
   , externalAddresses ∷ !(NonEmpty AddressWithKey)
   , internalAddresses ∷ !(NonEmpty AddressWithKey)
-  , paymentCredentials ∷ ![PaymentCredential StandardCrypto]
+  , paymentCredentials ∷ !(Map (PaymentCredential StandardCrypto) Crypto.XPrv)
   -- ^ Payment credentials of the external addresses cached for faster lookups.
   }
   deriving stock (Generic)
@@ -91,15 +96,12 @@ deriveFromMnemonic networkMagic mnemonicFile = runExceptT do
       { network = ledgerNetwork
       , externalAddresses = force externalLedgerAddrs
       , internalAddresses = force internalLedgerAddrs
-      , paymentCredentials =
-          force
-            [ cred
-            | AddressWithKey {ledgerAddress} ←
-                toList externalLedgerAddrs <> toList internalLedgerAddrs
-            , cred ← case ledgerAddress of
-                Addr _ paymentCredential _ → [paymentCredential]
-                AddrBootstrap {} → []
-            ]
+      , paymentCredentials = force $ Map.fromList do
+          MkAddressWithKey {ledgerAddress, paymentKey} ←
+            toList externalLedgerAddrs <> toList internalLedgerAddrs
+          case ledgerAddress of
+            Addr _ paymentCredential _ → pure (paymentCredential, paymentKey)
+            AddrBootstrap {} → impossible "derived a bootstrap address"
       }
 
 {- | Checks if the given address is one of the own addresses.
@@ -110,17 +112,32 @@ are not considered.
 isOwnAddress ∷ Addresses → LedgerAddress → Bool
 isOwnAddress Addresses {network, paymentCredentials} = \case
   AddrBootstrap {} → False
-  Addr addrNnetwork paymentCred _stakeCred →
-    network == addrNnetwork && paymentCred `elem` paymentCredentials
+  Addr addrNetwork paymentCred _stakeCred →
+    network == addrNetwork && paymentCred `Map.member` paymentCredentials
 
-useForChange ∷ Addresses → AddressWithKey
-useForChange Addresses {externalAddresses} = NE.head externalAddresses
+asOwnAddress ∷ Addresses → LedgerAddress → Maybe AddressWithKey
+asOwnAddress Addresses {network, paymentCredentials} = \case
+  AddrBootstrap {} → Nothing
+  ledgerAddress@(Addr addrNetwork paymentCred _stakeCred)
+    | network == addrNetwork → do
+        paymentKey ← Map.lookup paymentCred paymentCredentials
+        pure MkAddressWithKey {ledgerAddress, paymentKey}
+    | otherwise → Nothing
 
-useForFees ∷ Addresses → AddressWithKey
-useForFees Addresses {externalAddresses} = NE.head externalAddresses
+useForChange ∷ HasCallStack => Addresses → AddressWithKey
+useForChange Addresses {externalAddresses} = externalAddresses !! 1
+
+useForFee ∷ Addresses → AddressWithKey
+useForFee Addresses {externalAddresses} = NE.head externalAddresses
 
 useForCollateral ∷ Addresses → AddressWithKey
 useForCollateral Addresses {externalAddresses} = NE.last externalAddresses
+
+useForMinting ∷ HasCallStack ⇒ Addresses → AddressWithKey
+useForMinting Addresses {externalAddresses} =
+  case NE.tail externalAddresses of
+    [] → impossible "no external addresses"
+    addr : _ → addr
 
 forScript
   ∷ Ledger.Network

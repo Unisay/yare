@@ -6,32 +6,33 @@ module Yare.Http.Types
   , BlockRef (..)
   , Script (..)
   , ScriptDeployment (..)
+  , AssetMint (..)
   , Transactions (..)
   ) where
 
 import Yare.Prelude
 
 import Cardano.Api qualified as CA
-import Cardano.Api.Shelley (ScriptHash, TxId, TxIn (..))
+import Cardano.Api.Shelley (PolicyId, ScriptHash, TxId, TxIn (..))
 import Data.Aeson (ToJSON (..), object, pairs, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Encoding (pairStr)
 import Data.Aeson.Encoding qualified as Json
+import Data.ByteString.Base16 qualified as Base16
 import Data.Map.Strict qualified as Map
 import GHC.Exts (IsList (toList))
 import Ouroboros.Network.Block qualified as NB
 import Servant (MimeUnrender (..), PlainText)
 import Yare.App.Services.DeployScript qualified as DeployScript
-import Yare.Chain.Types (ledgerAddressToText)
+import Yare.Chain.Types (LedgerAddress, ledgerAddressToText)
 import Yare.Chain.Types qualified as Y
 import Yare.Http.Address as Address
 import Yare.Utxo qualified as DeployScript
-import Yare.Utxo qualified as Y
 
 --------------------------------------------------------------------------------
 -- UTXO ------------------------------------------------------------------------
 
-newtype Utxo = Utxo Y.Entries
+newtype Utxo = Utxo (Map TxIn (LedgerAddress, CA.Value))
   deriving stock (Eq, Show)
 
 instance ToJSON Utxo where
@@ -44,9 +45,13 @@ instance ToJSON Utxo where
         ]
    where
     assetIdToJSON ∷ CA.AssetId → Aeson.Value
-    assetIdToJSON = \case
-      CA.AdaAssetId → Aeson.String "lovelace"
-      CA.AssetId policyId assetName → toJSON (policyId, assetName)
+    assetIdToJSON =
+      Aeson.String . \case
+        CA.AdaAssetId → "lovelace"
+        CA.AssetId policyId (CA.AssetName assetName) →
+          CA.serialiseToRawBytesHexText policyId
+            <> "."
+            <> decodeUtf8 (Base16.encode assetName)
 
 --------------------------------------------------------------------------------
 -- Network Info ----------------------------------------------------------------
@@ -134,6 +139,15 @@ renderScriptStatus ∷ DeployScript.ScriptStatus → Text
 renderScriptStatus = \case
   DeployScript.ScriptStatusDeployInitiated → "deploy-initiated"
   DeployScript.ScriptStatusDeployCompleted → "deploy-completed"
+
+--------------------------------------------------------------------------------
+-- Minting ---------------------------------------------------------------------
+
+data AssetMint = AssetMint {policy ∷ PolicyId, tx ∷ TxId}
+  deriving stock (Eq, Show, Generic)
+
+instance ToJSON AssetMint where
+  toJSON AssetMint {policy, tx} = object ["policy" .= policy, "tx" .= tx]
 
 --------------------------------------------------------------------------------
 -- Transactions ----------------------------------------------------------------

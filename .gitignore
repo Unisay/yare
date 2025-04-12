@@ -9,3 +9,4 @@ result
 .vscode
 .direnv
 lmdb
+lmdb.backup
