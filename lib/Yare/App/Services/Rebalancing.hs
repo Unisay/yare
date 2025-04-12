@@ -3,7 +3,7 @@ module Yare.App.Services.Rebalancing
   , service
   ) where
 
-import Yare.Prelude hiding (toList)
+import Yare.Prelude
 
 import Cardano.Api (TxId, TxOut (TxOut), inAnyShelleyBasedEra, setTxIns)
 import Cardano.Api.Ledger.Lens (mkAdaValue)
@@ -13,6 +13,7 @@ import Cardano.Api.Shelley
   , BuildTx
   , BuildTxWith (..)
   , ConwayEraOnwards (..)
+  , CtxTx
   , KeyWitnessInCtx (KeyWitnessForSpending)
   , LedgerProtocolParameters (..)
   , Lovelace
@@ -23,8 +24,10 @@ import Cardano.Api.Shelley
   , TxInMode (..)
   , TxInsCollateral (..)
   , TxOutDatum (TxOutDatumNone)
+  , TxOutValue
   , UTxO
   , Witness (KeyWitness)
+  , calculateMinimumUTxO
   , constructBalancedTx
   , convert
   , defaultTxBodyContent
@@ -44,7 +47,7 @@ import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Except (Except)
 import Data.List (zipWith3)
 import Data.Map.Strict qualified as Map
-import GHC.IsList (IsList (..))
+import GHC.IsList qualified as GHC
 import Text.Pretty.Simple (pShow)
 import Yare.Address (AddressWithKey (..), Addresses (externalAddresses))
 import Yare.Address qualified as Address
@@ -109,12 +112,23 @@ rebalance env = do
       fromShelleyAddrIsSbe shelleyBasedEra . ledgerAddress $
         Address.useForChange addresses
 
+    minUtxoAda ∷ Lovelace =
+      calculateMinimumUTxO shelleyBasedEra dummyTxOut protocolParams
+     where
+      dummyTxOut ∷ TxOut CtxTx era =
+        TxOut changeAddress dummyBalance TxOutDatumNone ReferenceScriptNone
+      dummyBalance ∷ TxOutValue era =
+        lovelaceToTxOutValue shelleyBasedEra 10_000_000
+
+    expectedTotalFee ∷ Lovelace = 500_000
+    expectedTotalCollateral ∷ Lovelace = 600_000
+
   utxoEntryForFee ∷ Utxo.Entry ←
-    usingMonadState (Utxo.useInputFee addresses (0 ∷ Lovelace))
+    usingMonadState (Utxo.useInputFee addresses (minUtxoAda + expectedTotalFee))
       >>= maybe (throwError (RebalancingTxError NoFeeInputs)) pure
 
   utxoEntryForCollateral ∷ Utxo.Entry ←
-    usingMonadState (Utxo.useInputCollateral addresses (0 ∷ Lovelace))
+    usingMonadState (Utxo.useInputCollateral addresses (minUtxoAda + expectedTotalCollateral))
       >>= maybe (throwError (RebalancingTxError NoCollateralInputs)) pure
 
   totalLovelaceBalance ∷ Lovelace ←
@@ -144,7 +158,7 @@ rebalance env = do
             shelleyBasedEra
             (LedgerProtocolParameters protocolParams)
             (ledgerAddress address)
-            (mkAdaValue shelleyBasedEra (Coin 0))
+            (mkAdaValue shelleyBasedEra 0)
             TxOutDatumNone
             ReferenceScriptNone
 
@@ -165,9 +179,9 @@ rebalance env = do
     txOuts =
       zipWith3
         constructTxOut
-        (toList rebalancingAddresses)
+        (GHC.toList rebalancingAddresses)
         distributedLovelace
-        (toList minUtxoValues)
+        (GHC.toList minUtxoValues)
 
     bodyContent ∷ TxBodyContent BuildTx era =
       defaultTxBodyContent shelleyBasedEra
@@ -218,7 +232,7 @@ useInputsForRebalancing ∷ Addresses → Utxo → Maybe (Utxo, [Utxo.Entry])
 useInputsForRebalancing addresses utxo = do
   let entries = do
         (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
-        guard (length (toList value) == 1)
+        guard (length (GHC.toList value) == 1)
         pure case Addresses.asOwnAddress addresses outputAddr of
           Nothing → impossible "useInputsForRebalancing: UTxO entry address is not own"
           Just MkAddressWithKey {..} →
