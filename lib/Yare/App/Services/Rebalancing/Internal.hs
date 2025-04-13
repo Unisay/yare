@@ -5,7 +5,6 @@ module Yare.App.Services.Rebalancing.Internal where
 import Yare.Prelude
 
 import Cardano.Api (TxId, TxOut (TxOut), inAnyShelleyBasedEra, setTxIns)
-import Cardano.Api.Ledger.Lens (mkAdaValue)
 import Cardano.Api.Shelley
   ( AddressInEra
   , AlonzoEraOnwards (..)
@@ -46,7 +45,6 @@ import Control.Lens ((%~))
 import Control.Lens.Combinators (_last)
 import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Except (Except)
-import Data.List (zipWith3)
 import Data.Map.Strict qualified as Map
 import GHC.IsList qualified as GHC
 import Text.Pretty.Simple (pShow)
@@ -59,8 +57,7 @@ import Yare.Storage (StorageMgr (..), overDefaultStorage)
 import Yare.Submitter qualified as Submitter
 import Yare.Util.State (usingMonadState)
 import Yare.Util.Tx.Construction
-  ( minAdaValue
-  , mkCardanoApiUtxo
+  ( mkCardanoApiUtxo
   , witnessUtxoEntry
   )
 import Yare.Utxo (Entry (..), Utxo, spendableEntries)
@@ -125,12 +122,8 @@ rebalance env = do
       dummyBalance ∷ TxOutValue era =
         lovelaceToTxOutValue shelleyBasedEra 10_000_000
 
-    expectedTotalFee ∷ Lovelace = 500_000
-    expectedTotalCollateral ∷ Lovelace = 600_000
-
-  utxoEntryForFee ∷ Utxo.Entry ←
-    usingMonadState (Utxo.useInputFee addresses (minUtxoAda + expectedTotalFee))
-      >>= maybe (throwError (RebalancingTxError NoFeeInputs)) pure
+    expectedTotalFee ∷ Lovelace = 300_000
+    expectedTotalCollateral ∷ Lovelace = 450_000
 
   utxoEntryForCollateral ∷ Utxo.Entry ←
     usingMonadState
@@ -151,7 +144,7 @@ rebalance env = do
   let
     txIns =
       (,BuildTxWith (KeyWitness KeyWitnessForSpending)) . Utxo.utxoEntryInput
-        <$> utxoEntryForFee : rebalanceEntries
+        <$> rebalanceEntries
 
     txInsCollateral ∷ TxInsCollateral era =
       case era of
@@ -160,37 +153,28 @@ rebalance env = do
             AlonzoEraOnwardsConway
             [Utxo.utxoEntryInput utxoEntryForCollateral]
 
-    minUtxoValues ∷ NonEmpty Lovelace =
-      rebalancingAddresses
-        <&> \address →
-          minAdaValue
-            shelleyBasedEra
-            (LedgerProtocolParameters protocolParams)
-            (ledgerAddress address)
-            (mkAdaValue shelleyBasedEra 0)
-            TxOutDatumNone
-            ReferenceScriptNone
-
-    constructTxOut addr lovelace minUtxoValue =
-      TxOut
-        (fromShelleyAddrIsSbe shelleyBasedEra (Address.ledgerAddress addr))
-        (lovelaceToTxOutValue shelleyBasedEra (lovelace + minUtxoValue))
-        TxOutDatumNone
-        ReferenceScriptNone
+    minUtxoValuesSum ∷ Lovelace =
+      minUtxoAda * fromIntegral (length rebalanceEntries)
 
   distributedLovelace ←
     either (throwError . DistributionError) pure $
       exponentialDistribution
-        (totalLovelaceBalance - sum minUtxoValues)
+        (totalLovelaceBalance - minUtxoValuesSum - expectedTotalFee)
         (length rebalancingAddresses)
         (1.5 ∷ Double)
   let
     txOuts =
-      zipWith3
+      zipWith
         constructTxOut
         (GHC.toList rebalancingAddresses)
         distributedLovelace
-        (GHC.toList minUtxoValues)
+
+    constructTxOut addr lovelace =
+      TxOut
+        (fromShelleyAddrIsSbe shelleyBasedEra (Address.ledgerAddress addr))
+        (lovelaceToTxOutValue shelleyBasedEra (lovelace + minUtxoAda))
+        TxOutDatumNone
+        ReferenceScriptNone
 
     bodyContent ∷ TxBodyContent BuildTx era =
       defaultTxBodyContent shelleyBasedEra
@@ -201,11 +185,7 @@ rebalance env = do
           (BuildTxWith (Just (LedgerProtocolParameters protocolParams)))
 
     inputsForBalancing ∷ UTxO era =
-      mkCardanoApiUtxo
-        era
-        ( [utxoEntryForFee, utxoEntryForCollateral]
-            <> rebalanceEntries
-        )
+      mkCardanoApiUtxo era (utxoEntryForCollateral : rebalanceEntries)
 
     wrapError =
       RebalancingTxError
@@ -213,10 +193,8 @@ rebalance env = do
         . inAnyShelleyBasedEra shelleyBasedEra
 
     shelleyWitSigningKeys =
-      (witnessUtxoEntry <$> rebalanceEntries)
-        <> [ witnessUtxoEntry utxoEntryForFee
-           , witnessUtxoEntry utxoEntryForCollateral
-           ]
+      witnessUtxoEntry utxoEntryForCollateral
+        : (witnessUtxoEntry <$> rebalanceEntries)
 
   either (throwError . wrapError) pure do
     constructBalancedTx
