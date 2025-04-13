@@ -12,7 +12,6 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Set (member, notMember)
 import Fmt (pretty)
-import Spec.Tools (expectRight)
 import Test.Cardano.Ledger.Core.Arbitrary ()
 import Test.Cardano.Slotting.Arbitrary ()
 import Test.QuickCheck (counterexample, ioProperty, property, (===), (==>))
@@ -23,6 +22,7 @@ import Test.Syd
   , shouldBe
   , shouldSatisfy
   )
+import Tools (expectRight)
 import Yare.Utxo.Internal (Update (..), allEntries)
 import Yare.Utxo.Internal qualified as Utxo
 
