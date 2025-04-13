@@ -43,7 +43,7 @@ import Cardano.Api.Shelley
 import Cardano.Ledger.Coin (Coin (..))
 import Control.Exception (throwIO)
 import Control.Lens ((%~))
-import Control.Lens.Combinators
+import Control.Lens.Combinators (_last)
 import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Except (Except)
 import Data.List (zipWith3)
@@ -279,7 +279,7 @@ exponentialDistribution total n a
   distributedLovelace =
     weights <&> \w → floor (fromInteger (unCoin total) * (w / sum weights))
   finalDifference = total - sum distributedLovelace
-  assignExcess excess = _head %~ (+ excess)
+  assignExcess excess = _last %~ (+ excess)
 
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------
