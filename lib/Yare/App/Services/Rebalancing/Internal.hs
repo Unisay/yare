@@ -44,6 +44,7 @@ import Control.Exception (throwIO)
 import Control.Lens ((%~))
 import Control.Lens.Combinators (_last)
 import Control.Monad.Error.Class (MonadError (..))
+import Control.Monad.Error.Hoist ((<!?>))
 import Control.Monad.Except (Except)
 import Data.Map.Strict qualified as Map
 import GHC.IsList qualified as GHC
@@ -131,15 +132,15 @@ rebalance env = do
           addresses
           (minUtxoAda + expectedTotalCollateral)
       )
-      >>= maybe (throwError (RebalancingTxError NoCollateralInputs)) pure
+      <!?> RebalancingTxError NoCollateralInputs
 
   totalLovelaceBalance ∷ Lovelace ←
     usingMonadState (calculateTotalBalance rebalancingAddresses)
-      >>= maybe (throwError CalculateTotalBalanceError) pure
+      <!?> CalculateTotalBalanceError
 
   rebalanceEntries ∷ [Utxo.Entry] ←
     usingMonadState (useInputsForRebalancing addresses)
-      >>= maybe (impossible "useInputsForRebalancing resulted in Nothing") pure
+      <!?> impossible "useInputsForRebalancing resulted in Nothing" 
 
   let
     txIns =
@@ -194,7 +195,7 @@ rebalance env = do
 
     shelleyWitSigningKeys =
       witnessUtxoEntry utxoEntryForCollateral
-        : (witnessUtxoEntry <$> rebalanceEntries)
+        : map witnessUtxoEntry rebalanceEntries
 
   either (throwError . wrapError) pure do
     constructBalancedTx
@@ -219,7 +220,7 @@ calculateTotalBalance addresses utxo = Just (utxo, totalBalance)
     | addr `elem` (ledgerAddress <$> addresses) = acc <> value
     | otherwise = acc
 
-useInputsForRebalancing ∷ Addresses → Utxo → Maybe (Utxo, [Utxo.Entry])
+useInputsForRebalancing ∷ Addresses → Utxo → (Utxo, [Utxo.Entry])
 useInputsForRebalancing addresses utxo = do
   let entries = do
         (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)

@@ -103,6 +103,7 @@ library
     , fmt                            ^>=0.6.3
     , generics-sop                   ^>=0.5.1.4
     , HList                          ^>=0.5.3
+    , hoist-error                    ^>=0.3
     , http-api-data
     , int-cast                       ^>=0.2
     , io-classes                     ^>=1.5
