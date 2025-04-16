@@ -10,6 +10,7 @@ module Yare.Utxo
   , useInputFee
   , useInputCollateral
   , useInputLowestAdaOnly
+  , useSpendableInputs
   , updateUtxo
   , rollback
   , finalise

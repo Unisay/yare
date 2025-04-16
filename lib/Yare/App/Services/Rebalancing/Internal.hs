@@ -51,7 +51,6 @@ import GHC.IsList qualified as GHC
 import Text.Pretty.Simple (pShow)
 import Yare.Address (AddressWithKey (..), Addresses (externalAddresses))
 import Yare.Address qualified as Address
-import Yare.Address qualified as Addresses
 import Yare.App.Services.Error (TxConstructionError (..))
 import Yare.App.Types (NetworkInfo (..), StorageMode (..))
 import Yare.Storage (StorageMgr (..), overDefaultStorage)
@@ -67,7 +66,7 @@ import Yare.Utxo qualified as Utxo
 service
   ∷ ∀ era state env
    . ( [Addresses, Submitter.Q, NetworkInfo era, StorageMgr IO state] ∈∈ env
-     , '[Utxo] ∈∈ state
+     , Utxo ∈ state
      )
   ⇒ env
   → IO TxId
@@ -96,8 +95,8 @@ service env = do
 
 rebalance
   ∷ ∀ state env era
-   . ( '[NetworkInfo era, Addresses] ∈∈ env
-     , '[Utxo] ∈∈ state
+   . ( [NetworkInfo era, Addresses] ∈∈ env
+     , Utxo ∈ state
      )
   ⇒ env
   → StateT state (Except Error) (Tx era)
@@ -140,7 +139,7 @@ rebalance env = do
 
   rebalanceEntries ∷ [Utxo.Entry] ←
     usingMonadState (useInputsForRebalancing addresses)
-      <!?> impossible "useInputsForRebalancing resulted in Nothing" 
+      <!?> impossible "useInputsForRebalancing resulted in Nothing"
 
   let
     txIns =
@@ -220,23 +219,6 @@ calculateTotalBalance addresses utxo = Just (utxo, totalBalance)
     | addr `elem` (ledgerAddress <$> addresses) = acc <> value
     | otherwise = acc
 
-useInputsForRebalancing ∷ Addresses → Utxo → (Utxo, [Utxo.Entry])
-useInputsForRebalancing addresses utxo = do
-  let entries = do
-        (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
-        guard (length (GHC.toList value) == 1)
-        pure case Addresses.asOwnAddress addresses outputAddr of
-          Nothing →
-            impossible "useInputsForRebalancing: UTxO entry address is not own"
-          Just MkAddressWithKey {..} →
-            MkEntry
-              { utxoEntryInput = input
-              , utxoEntryValue = value
-              , utxoEntryKey = paymentKey
-              , utxoEntryAddress = ledgerAddress
-              }
-  pure (utxo, entries)
-
 exponentialDistribution
   ∷ ∀ a n
    . RealFrac a
@@ -259,6 +241,9 @@ exponentialDistribution total n a
     weights <&> \w → floor (fromInteger (unCoin total) * (w / sum weights))
   finalDifference = total - sum distributedLovelace
   assignExcess excess = _last %~ (+ excess)
+
+useInputsForRebalancing ∷ Addresses → Utxo → Maybe (Utxo, [Entry])
+useInputsForRebalancing = Utxo.useSpendableInputs
 
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------
