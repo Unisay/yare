@@ -26,6 +26,7 @@ import Yare.Address qualified as Address
 import Yare.App.Scripts qualified as Scripts
 import Yare.App.Services.DeployScript qualified as DeployScript
 import Yare.App.Services.Minting qualified as Minting
+import Yare.App.Services.Rebalancing qualified as Rebalancing
 import Yare.App.Types (NetworkInfo (..))
 import Yare.Chain.Types (BlockRef, ChainTip, LastIndexedBlock, LedgerAddress)
 import Yare.Storage (StorageMgr, readDefaultStorage)
@@ -98,7 +99,8 @@ mkServices env =
         lookTagged @"submitted" @(Set TxId) <$> readDefaultStorage @state env
     , requestMinting =
         Minting.service @era @state env
-    , requestRebalancing = $(todo "requestRebalancing")
+    , requestRebalancing =
+        Rebalancing.service @era @state env
     }
 
 scriptAddresses ∷ Network → [LedgerAddress]

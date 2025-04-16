@@ -1,8 +1,13 @@
-module UtxoSpec (spec) where
+module Spec.Utxo (spec) where
 
 import Yare.Prelude hiding (untag)
 
-import Arbitrary (NotEmpty (..), TwoSlots (..), WithoutScriptDeployments (..), untag)
+import Arbitrary
+  ( NotEmpty (..)
+  , TwoSlots (..)
+  , WithoutScriptDeployments (..)
+  , untag
+  )
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Set (member, notMember)
@@ -13,11 +18,11 @@ import Test.QuickCheck (counterexample, ioProperty, property, (===), (==>))
 import Test.Syd
   ( Spec
   , describe
-  , expectationFailure
   , it
   , shouldBe
   , shouldSatisfy
   )
+import Test.Syd.Expectation.Extended (expectRight)
 import Yare.Utxo.Internal (Update (..), allEntries)
 import Yare.Utxo.Internal qualified as Utxo
 
@@ -125,15 +130,3 @@ spec = describe "UTxO" do
         Utxo.updateUtxo slot updates utxo `shouldSatisfy` \case
           Left _updateErr → False
           Right _utxo → True
-
-{-
-expectJust ∷ String → Maybe a → IO a
-expectJust comment = \case
-  Just a → pure a
-  Nothing → expectationFailure $ "Expected Just, got Nothing: " <> comment
--}
-
-expectRight ∷ String → Either a b → IO b
-expectRight comment = \case
-  Right b → pure b
-  Left _ → expectationFailure $ "Expected Right, got Left: " <> comment

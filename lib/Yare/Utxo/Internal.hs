@@ -166,16 +166,35 @@ useInputWithAddressLowestAdaOnly utxo MkAddressWithKey {..} = do
   entry@MkEntry {utxoEntryInput} ←
     entryWithLowestAdaOnlyValue
       [ MkEntry
-          { utxoEntryInput = input
-          , utxoEntryValue = value
-          , utxoEntryKey = paymentKey
-          , utxoEntryAddress = outputAddr
-          }
+        { utxoEntryInput = input
+        , utxoEntryValue = value
+        , utxoEntryKey = paymentKey
+        , utxoEntryAddress = outputAddr
+        }
       | (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
       , ledgerAddress == outputAddr
       ]
 
   pure (utxo {usedInputs = Set.insert utxoEntryInput (usedInputs utxo)}, entry)
+
+useSpendableInputs ∷ Addresses → Utxo → Maybe (Utxo, [Entry])
+useSpendableInputs addresses utxo = do
+  let entries = do
+        (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
+        guard (length (GHC.toList value) == 1)
+        pure case Addresses.asOwnAddress addresses outputAddr of
+          Nothing →
+            impossible "useInputsForRebalancing: UTxO entry address is not own"
+          Just MkAddressWithKey {..} →
+            MkEntry
+              { utxoEntryInput = input
+              , utxoEntryValue = value
+              , utxoEntryKey = paymentKey
+              , utxoEntryAddress = ledgerAddress
+              }
+      newUsedInputs = Set.fromList (utxoEntryInput <$> entries)
+  pure (utxo {usedInputs = newUsedInputs <> usedInputs utxo}, entries)
+{-# INLINEABLE useSpendableInputs #-}
 
 useInputLowestAdaOnly
   ∷ HasCallStack
