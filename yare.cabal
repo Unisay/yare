@@ -284,4 +284,4 @@ test-suite yare-test
     Arbitrary
     Spec.Services
     Spec.Utxo
-    Tools
+    Test.Syd.Expectation.Extended

@@ -1,7 +1,11 @@
-module Tools (expectRight) where
+module Test.Syd.Expectation.Extended
+  ( module Test.Syd.Expectation
+  , expectRight
+  ) where
 
-import Test.Syd.Expectation (expectationFailure)
 import Yare.Prelude
+
+import Test.Syd.Expectation
 
 expectRight ∷ String → Either a b → IO b
 expectRight comment = \case

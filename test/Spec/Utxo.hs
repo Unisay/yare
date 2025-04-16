@@ -22,7 +22,7 @@ import Test.Syd
   , shouldBe
   , shouldSatisfy
   )
-import Tools (expectRight)
+import Test.Syd.Expectation.Extended (expectRight)
 import Yare.Utxo.Internal (Update (..), allEntries)
 import Yare.Utxo.Internal qualified as Utxo
 

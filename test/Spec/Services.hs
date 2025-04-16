@@ -17,7 +17,7 @@ import Test.QuickCheck.Property (Testable (property))
 import Test.Syd (it)
 import Test.Syd.Def (Spec, describe)
 import Test.Syd.Expectation (shouldBe, shouldSatisfy)
-import Tools (expectRight)
+import Test.Syd.Expectation.Extended (expectRight)
 import Yare.App.Services.Rebalancing.Internal qualified as Rebalancing
 
 spec ∷ HasCallStack ⇒ Spec
