@@ -1,16 +1,14 @@
-{-# OPTIONS_GHC -Wno-missing-local-signatures #-}
+module Spec.Yare.App.Services.Rebalancing where
 
-module Spec.Services (spec) where
-
+import Yare.App.Services.Rebalancing.Internal
 import Yare.Prelude hiding (untag)
 
 import Arbitrary (Tag (..), untag)
-import Cardano.Api.Ledger qualified as A
 import Cardano.Api.Shelley (Lovelace)
 import Data.List ((!!))
 import Test.Cardano.Ledger.Core.Arbitrary ()
 import Test.Cardano.Slotting.Arbitrary ()
-import Test.QuickCheck (Arbitrary)
+import Test.QuickCheck (Arbitrary, Positive (..))
 import Test.QuickCheck qualified as Gen
 import Test.QuickCheck.Arbitrary (arbitrary)
 import Test.QuickCheck.Property (Testable (property))
@@ -18,50 +16,49 @@ import Test.Syd (it)
 import Test.Syd.Def (Spec, describe)
 import Test.Syd.Expectation (shouldBe, shouldSatisfy)
 import Test.Syd.Expectation.Extended (expectRight)
-import Yare.App.Services.Rebalancing.Internal qualified as Rebalancing
 
-spec ∷ HasCallStack ⇒ Spec
-spec = describe "Services" do
+spec ∷ Spec
+spec =
   describe "Rebalancing" do
     --
     describe "Exponential Distribution" do
       --
       it "Total lovelace input equals the sum of the distributed lovelace" do
-        property \(ExponentialDistribution total n a) → do
+        property \(Positive total, Bins bins, Base a) → do
           distributedLovelace ∷ [Lovelace] ←
             expectRight "exponentialDistribution" $
-              Rebalancing.exponentialDistribution total n a
+              exponentialDistribution total bins a
           sum distributedLovelace `shouldSatisfy` (== total)
 
       it "The function is always positive" do
-        property \(ExponentialDistribution total n a) → do
+        property \(Positive total, Bins bins, Base a) → do
           distributedLovelace ∷ [Lovelace] ←
             expectRight "exponentialDistribution" $
-              Rebalancing.exponentialDistribution total n a
+              exponentialDistribution total bins a
           all (> 0) distributedLovelace `shouldBe` True
 
       it "The function is strictly increasing" do
         property \(untag @"ExpDistributionWithTwoIdxs" → untaggedPair) → do
-          let ExponentialDistribution total n a = fst untaggedPair
+          let (Positive total, Bins bins, Base a) = fst untaggedPair
               TwoIntegers lesserInt greaterInt = snd untaggedPair
           distributedLovelace ∷ [Lovelace] ←
             expectRight "exponentialDistribution" $
-              Rebalancing.exponentialDistribution total n a
+              exponentialDistribution total bins a
           let lesserLovelace = distributedLovelace !! fromInteger lesserInt
               greaterLovelace = distributedLovelace !! fromInteger greaterInt
           (greaterLovelace - lesserLovelace) `shouldSatisfy` (> 0)
 
       it "The distribution is superlinear" do
-        property \(ExponentialDistribution total n a) → do
+        property \(Positive total, Bins bins, Base a) → do
           distributedLovelace ∷ [Lovelace] ←
             expectRight "exponentialDistribution" $
-              Rebalancing.exponentialDistribution total n a
+              exponentialDistribution total bins a
           let
             getGreaterLovelace lovelaceList = (lovelaceList !!) . snd
             getLesserLovelace lovelaceList = (lovelaceList !!) . fst
 
-            neighbourIdxs = [(x, x + 1) | x ← [0 .. fromInteger n - 2]]
-            neighbourIdxs' = [(x, x + 1) | x ← [0 .. fromInteger n - 3]]
+            neighbourIdxs = [(x, x + 1) | x ← [0 .. fromInteger bins - 2]]
+            neighbourIdxs' = [(x, x + 1) | x ← [0 .. fromInteger bins - 3]]
 
             neighbourDifferences =
               zipWith
@@ -79,19 +76,20 @@ spec = describe "Services" do
 --------------------------------------------------------------------------------
 -- Types  ----------------------------------------------------------------------
 
-data ExponentialDistribution = ExponentialDistribution
-  { total ∷ Lovelace
-  , n ∷ Integer
-  , a ∷ Double
-  }
+newtype Total = Total {unTotal ∷ Lovelace}
   deriving stock (Eq, Show)
 
-instance Arbitrary ExponentialDistribution where
-  arbitrary = do
-    total ← A.Coin <$> Gen.choose (1_000_000, 1_000_000_000_000)
-    n ← Gen.chooseInteger (2, 20)
-    a ← Gen.choose (1.0, 1.8)
-    pure $ ExponentialDistribution total n a
+newtype Bins = Bins {unBins ∷ Integer}
+  deriving stock (Eq, Show)
+
+newtype Base = Base {unBase ∷ Double}
+  deriving stock (Eq, Show)
+
+instance Arbitrary Bins where
+  arbitrary = Bins <$> Gen.chooseInteger (2, 20)
+
+instance Arbitrary Base where
+  arbitrary = Base <$> Gen.choose (1.0, 1.8)
 
 data TwoIntegers = TwoIntegers
   { lesserInt ∷ Integer
@@ -103,13 +101,13 @@ instance
   Arbitrary
     ( Tag
         "ExpDistributionWithTwoIdxs"
-        (ExponentialDistribution, TwoIntegers)
+        ((Positive Lovelace, Bins, Base), TwoIntegers)
     )
   where
   arbitrary = do
-    expDistribution@(ExponentialDistribution _ n _) ← arbitrary
-    lesserInteger ← Gen.chooseInteger (0, n - 2)
-    greaterInteger ← Gen.chooseInteger (lesserInteger + 1, n - 1)
+    expDistribution@(_total, Bins bins, _base) ← arbitrary
+    lesserInteger ← Gen.chooseInteger (0, bins - 2)
+    greaterInteger ← Gen.chooseInteger (lesserInteger + 1, bins - 1)
     pure $
       Tag
         ( expDistribution

@@ -264,7 +264,9 @@ test-suite yare-test
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Spec.hs
-  ghc-options:    -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:
+    -threaded -rtsopts -with-rtsopts=-N -Wno-missing-local-signatures
+
   build-depends:
     , cardano-api
     , cardano-crypto-class
@@ -282,6 +284,6 @@ test-suite yare-test
 
   other-modules:
     Arbitrary
-    Spec.Services
     Spec.Utxo
+    Spec.Yare.App.Services.Rebalancing
     Test.Syd.Expectation.Extended

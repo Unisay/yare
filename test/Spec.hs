@@ -1,16 +1,16 @@
 module Main where
 
-import Test.Syd (sydTest)
-
-import Spec.Services qualified as Services
-import Spec.Utxo qualified as Utxo
-import Test.Syd.Def (Spec)
 import Yare.Prelude
+
+import Spec.Utxo qualified as Utxo
+import Spec.Yare.App.Services.Rebalancing qualified as Rebalancing
+import Test.Syd (sydTest)
+import Test.Syd.Def (Spec)
 
 main ∷ IO ()
 main = sydTest spec
 
-spec ∷ HasCallStack ⇒ Spec
+spec ∷ Spec
 spec = do
   Utxo.spec
-  Services.spec
+  Rebalancing.spec

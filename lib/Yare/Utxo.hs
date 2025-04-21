@@ -23,6 +23,7 @@ module Yare.Utxo
   , spendableEntries
   , spendableTxInputs
   , totalValue
+  , totalAddressesValue
   ) where
 
 import Yare.Utxo.Internal

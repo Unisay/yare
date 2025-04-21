@@ -46,8 +46,6 @@ import Control.Lens.Combinators (_last)
 import Control.Monad.Error.Class (MonadError (..))
 import Control.Monad.Error.Hoist ((<!?>))
 import Control.Monad.Except (Except)
-import Data.Map.Strict qualified as Map
-import GHC.IsList qualified as GHC
 import Text.Pretty.Simple (pShow)
 import Yare.Address (AddressWithKey (..), Addresses (externalAddresses))
 import Yare.Address qualified as Address
@@ -60,7 +58,7 @@ import Yare.Util.Tx.Construction
   ( mkCardanoApiUtxo
   , witnessUtxoEntry
   )
-import Yare.Utxo (Entry (..), Utxo, spendableEntries)
+import Yare.Utxo (Utxo)
 import Yare.Utxo qualified as Utxo
 
 service
@@ -134,11 +132,11 @@ rebalance env = do
       <!?> RebalancingTxError NoCollateralInputs
 
   totalLovelaceBalance ∷ Lovelace ←
-    usingMonadState (calculateTotalBalance rebalancingAddresses)
-      <!?> CalculateTotalBalanceError
+    let addrs = toList (ledgerAddress <$> rebalancingAddresses)
+     in selectLovelace . Utxo.totalAddressesValue addrs <$> gets look
 
   rebalanceEntries ∷ [Utxo.Entry] ←
-    usingMonadState (useInputsForRebalancing addresses)
+    usingMonadState (Just . Utxo.useSpendableInputs addresses)
       <!?> impossible "useInputsForRebalancing resulted in Nothing"
 
   let
@@ -156,7 +154,7 @@ rebalance env = do
     minUtxoValuesSum ∷ Lovelace =
       minUtxoAda * fromIntegral (length rebalanceEntries)
 
-  distributedLovelace ←
+  distributedLovelace ∷ [Lovelace] ←
     either (throwError . DistributionError) pure $
       exponentialDistribution
         (totalLovelaceBalance - minUtxoValuesSum - expectedTotalFee)
@@ -166,15 +164,15 @@ rebalance env = do
     txOuts =
       zipWith
         constructTxOut
-        (GHC.toList rebalancingAddresses)
+        [addr | MkAddressWithKey addr _key ← toList rebalancingAddresses]
         distributedLovelace
-
-    constructTxOut addr lovelace =
-      TxOut
-        (fromShelleyAddrIsSbe shelleyBasedEra (Address.ledgerAddress addr))
-        (lovelaceToTxOutValue shelleyBasedEra (lovelace + minUtxoAda))
-        TxOutDatumNone
-        ReferenceScriptNone
+     where
+      constructTxOut addr lovelace =
+        TxOut
+          (fromShelleyAddrIsSbe shelleyBasedEra addr)
+          (lovelaceToTxOutValue shelleyBasedEra (lovelace + minUtxoAda))
+          TxOutDatumNone
+          ReferenceScriptNone
 
     bodyContent ∷ TxBodyContent BuildTx era =
       defaultTxBodyContent shelleyBasedEra
@@ -211,14 +209,6 @@ rebalance env = do
       mempty {- rewards          -}
       shelleyWitSigningKeys
 
-calculateTotalBalance ∷ NonEmpty AddressWithKey → Utxo → Maybe (Utxo, Lovelace)
-calculateTotalBalance addresses utxo = Just (utxo, totalBalance)
- where
-  totalBalance = selectLovelace $ Map.foldr' f mempty (spendableEntries utxo)
-  f (addr, value) acc
-    | addr `elem` (ledgerAddress <$> addresses) = acc <> value
-    | otherwise = acc
-
 exponentialDistribution
   ∷ ∀ a n
    . RealFrac a
@@ -241,9 +231,6 @@ exponentialDistribution total n a
     weights <&> \w → floor (fromInteger (unCoin total) * (w / sum weights))
   finalDifference = total - sum distributedLovelace
   assignExcess excess = _last %~ (+ excess)
-
-useInputsForRebalancing ∷ Addresses → Utxo → Maybe (Utxo, [Entry])
-useInputsForRebalancing = Utxo.useSpendableInputs
 
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------
