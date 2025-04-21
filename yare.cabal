@@ -61,7 +61,7 @@ common opts
     -Wno-missing-import-lists -Wno-missing-export-lists
     -fprint-explicit-foralls -Wno-missing-kind-signatures
     -Werror=missing-fields -fprint-expanded-synonyms
-    -Wno-all-missed-specialisations
+    -Wno-all-missed-specialisations -Wno-missed-specialisations
 
   build-depends:
     , base    ^>=4.18
@@ -103,6 +103,7 @@ library
     , fmt                            ^>=0.6.3
     , generics-sop                   ^>=0.5.1.4
     , HList                          ^>=0.5.3
+    , hoist-error                    ^>=0.3
     , http-api-data
     , int-cast                       ^>=0.2
     , io-classes                     ^>=1.5
@@ -166,6 +167,8 @@ library
     Yare.App.Services.DeployScript
     Yare.App.Services.Error
     Yare.App.Services.Minting
+    Yare.App.Services.Rebalancing
+    Yare.App.Services.Rebalancing.Internal
     Yare.App.State
     Yare.App.Types
     Yare.Chain.Block
@@ -257,12 +260,13 @@ executable yare-onchain
     , yare
 
 test-suite yare-test
-  import:             opts
-  type:               exitcode-stdio-1.0
-  hs-source-dirs:     test
-  main-is:            Spec.hs
-  build-tool-depends: sydtest-discover:sydtest-discover
-  ghc-options:        -threaded -rtsopts -with-rtsopts=-N
+  import:         opts
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Spec.hs
+  ghc-options:
+    -threaded -rtsopts -with-rtsopts=-N -Wno-missing-local-signatures
+
   build-depends:
     , cardano-api
     , cardano-crypto-class
@@ -276,9 +280,10 @@ test-suite yare-test
     , fmt
     , QuickCheck                   ^>=2.15
     , sydtest                      ^>=0.17
-    , sydtest-discover             ^>=0.0.0.4
     , yare
 
   other-modules:
     Arbitrary
-    UtxoSpec
+    Spec.Utxo
+    Spec.Yare.App.Services.Rebalancing
+    Test.Syd.Expectation.Extended

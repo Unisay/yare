@@ -174,8 +174,25 @@ useInputWithAddressLowestAdaOnly utxo MkAddressWithKey {..} = do
       | (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
       , ledgerAddress == outputAddr
       ]
+  Just (utxo {usedInputs = Set.insert utxoEntryInput (usedInputs utxo)}, entry)
 
-  pure (utxo {usedInputs = Set.insert utxoEntryInput (usedInputs utxo)}, entry)
+useSpendableInputs ∷ HasCallStack ⇒ Addresses → Utxo → (Utxo, [Entry])
+useSpendableInputs addresses utxo =
+  (utxo {usedInputs = newUsedInputs <> usedInputs utxo}, entries)
+ where
+  entries ∷ [Entry] = do
+    (input, (outputAddr, value)) ← Map.toList (spendableEntries utxo)
+    guard (length (GHC.toList value) == 1)
+    pure case Addresses.asOwnAddress addresses outputAddr of
+      Nothing → impossible "UTxO entry address is not own"
+      Just MkAddressWithKey {..} →
+        MkEntry
+          { utxoEntryInput = input
+          , utxoEntryValue = value
+          , utxoEntryKey = paymentKey
+          , utxoEntryAddress = ledgerAddress
+          }
+  newUsedInputs = Set.fromList (utxoEntryInput <$> entries)
 
 useInputLowestAdaOnly
   ∷ HasCallStack
@@ -310,8 +327,19 @@ spendableTxInputs ∷ Utxo → Set TxIn
 spendableTxInputs = Map.keysSet . spendableEntries
 
 totalValue ∷ Utxo → Value
-totalValue =
-  Map.foldr' (\(_addr, value) acc → value <> acc) mempty . spendableEntries
+totalValue = totalAddressesValue []
+
+{- | Total value of the UTxO set for a given list of addresses.
+If the list is empty, it returns the total value of all UTxO entries.
+-}
+totalAddressesValue ∷ [LedgerAddress] → Utxo → Value
+totalAddressesValue addresses utxo =
+  Map.foldr' f mempty (spendableEntries utxo)
+ where
+  f (addr, value) acc
+    | null addresses = acc <> value
+    | addr `elem` addresses = acc <> value
+    | otherwise = acc
 
 -- | Converts a list of UTxO updates to a map of UTxO entries.
 updatesToEntries

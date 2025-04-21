@@ -10,6 +10,7 @@ module Yare.Utxo
   , useInputFee
   , useInputCollateral
   , useInputLowestAdaOnly
+  , useSpendableInputs
   , updateUtxo
   , rollback
   , finalise
@@ -22,6 +23,7 @@ module Yare.Utxo
   , spendableEntries
   , spendableTxInputs
   , totalValue
+  , totalAddressesValue
   ) where
 
 import Yare.Utxo.Internal
