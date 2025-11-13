@@ -92,7 +92,7 @@ library
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-ledger-shelley
-    , cardano-lmdb-simple            ^>=0.7
+    , cardano-lmdb-simple            >=0.8      && <1
     , cardano-slotting
     , cardano-strict-containers
     , cborg                          ^>=0.2.10
@@ -105,11 +105,11 @@ library
     , HList                          ^>=0.5.3
     , http-api-data
     , int-cast                       ^>=0.2
-    , io-classes                     ^>=1.5
+    , io-classes                     >=1.5      && <2
     , lens                           ^>=5.3.2
     , mmorph                         ^>=1.2
     , mtl                            ^>=2.3.1
-    , network-mux                    ^>=0.6
+    , network-mux                    >=0.6      && <1
     , nothunks                       ^>=0.2.1
     , oops                           ^>=0.2.0.1
     , ouroboros-consensus
