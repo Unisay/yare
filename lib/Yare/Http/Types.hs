@@ -13,7 +13,7 @@ module Yare.Http.Types
 import Yare.Prelude
 
 import Cardano.Api qualified as CA
-import Cardano.Api.Shelley (PolicyId, ScriptHash, TxId, TxIn (..))
+import Cardano.Api (PolicyId, ScriptHash, TxId, TxIn (..))
 import Data.Aeson (ToJSON (..), object, pairs, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Encoding (pairStr)
@@ -48,7 +48,7 @@ instance ToJSON Utxo where
     assetIdToJSON =
       Aeson.String . \case
         CA.AdaAssetId → "lovelace"
-        CA.AssetId policyId (CA.AssetName assetName) →
+        CA.AssetId policyId (CA.UnsafeAssetName assetName) →
           CA.serialiseToRawBytesHexText policyId
             <> "."
             <> decodeUtf8 (Base16.encode assetName)

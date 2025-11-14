@@ -2,7 +2,7 @@ module Yare.Utxo.Internal where
 
 import Yare.Prelude hiding (update)
 
-import Cardano.Api.Shelley
+import Cardano.Api
   ( AssetId (AdaAssetId)
   , Lovelace
   , ScriptHash

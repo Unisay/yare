@@ -10,7 +10,7 @@ module Yare.App.Scripts.Test
 import Plutus.Prelude qualified as P
 import Relude
 
-import Cardano.Api.Shelley
+import Cardano.Api
   ( PlutusScript (..)
   , PlutusScriptV3
   , PlutusScriptVersion (PlutusScriptV3)

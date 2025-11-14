@@ -8,7 +8,7 @@ module Yare.Util.Tx.Construction
 import Yare.Prelude
 
 import Cardano.Api.Ledger qualified as Ledger
-import Cardano.Api.Shelley
+import Cardano.Api
   ( BabbageEraOnwards
   , Convert (convert)
   , ConwayEraOnwards
@@ -68,13 +68,13 @@ minAdaValue
 minAdaValue era protocolParameters addr value datum refScript =
   calculateMinimumUTxO
     era
+    (unLedgerProtocolParameters protocolParameters)
     ( TxOut
         (fromShelleyAddrIsSbe era addr)
         (shelleyBasedEraConstraints era (TxOutValueShelleyBased era value))
         datum
         refScript
     )
-    (unLedgerProtocolParameters protocolParameters)
 {-# INLINEABLE minAdaValue #-}
 
 {- | Convert a list of inputs with their corresponding addresses and values

@@ -2,7 +2,7 @@ module Yare.Node.Subscription (start) where
 
 import Yare.Prelude
 
-import Cardano.Api.Shelley (NetworkMagic, TxId)
+import Cardano.Api (NetworkMagic, TxId)
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.Client.Subscription
   ( SubscriptionTrace

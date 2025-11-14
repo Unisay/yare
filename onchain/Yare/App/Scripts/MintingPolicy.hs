@@ -9,7 +9,7 @@ module Yare.App.Scripts.MintingPolicy
 
 import Plutus.Prelude
 
-import Cardano.Api.Shelley qualified as CA
+import Cardano.Api qualified as CA
 import Data.ByteString (ByteString)
 import GHC.Generics (Generic)
 import PlutusTx qualified

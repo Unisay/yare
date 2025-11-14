@@ -2,7 +2,7 @@ module Yare.App.Services.Minting where
 
 import Yare.Prelude hiding (show)
 
-import Cardano.Api.Shelley
+import Cardano.Api
   ( AddressInEra
   , AlonzoEraOnwards (..)
   , AssetId (..)
@@ -24,6 +24,7 @@ import Cardano.Api.Shelley
   , PlutusScriptOrReferenceInput (PScript)
   , PlutusScriptV3
   , PlutusScriptVersion (PlutusScriptV3)
+  , PolicyAssets (..)
   , PolicyId (..)
   , Quantity (..)
   , ReferenceScript (..)
@@ -153,7 +154,7 @@ mint env asset = do
     -- the 'constructBalancedTx' function with a value that is less than the
     -- minimum UTxO value.
     minUtxoAda ∷ Lovelace =
-      calculateMinimumUTxO shelleyBasedEra dummyTxOut protocolParams
+      calculateMinimumUTxO shelleyBasedEra protocolParams dummyTxOut
      where
       dummyTxOut ∷ TxOut CtxTx era =
         TxOut changeAddress dummyBalance TxOutDatumNone ReferenceScriptNone
@@ -259,7 +260,7 @@ mint env asset = do
           case era of
             ConwayEraOnwardsConway →
               TxMintValue MaryEraOnwardsConway $
-                Map.singleton policy [(asset, quantity, wit)]
+                Map.singleton policy (PolicyAssets (Map.singleton asset quantity), wit)
 
       bodyContent ∷ TxBodyContent BuildTx era =
         defaultTxBodyContent shelleyBasedEra

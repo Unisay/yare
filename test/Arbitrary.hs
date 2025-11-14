@@ -7,8 +7,8 @@ module Arbitrary where
 import Yare.Prelude hiding (untag)
 
 import Cardano.Api.Ledger qualified as L
-import Cardano.Api.Shelley (ScriptHash, ShelleyLedgerEra, SlotNo (..))
-import Cardano.Api.Shelley qualified as A
+import Cardano.Api (ScriptHash, ShelleyLedgerEra, SlotNo (..))
+import Cardano.Api qualified as A
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map

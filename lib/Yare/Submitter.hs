@@ -8,8 +8,8 @@ module Yare.Submitter
 
 import Yare.Prelude hiding (atomically)
 
-import Cardano.Api.Shelley (TxInMode)
-import Cardano.Api.Shelley qualified as Api
+import Cardano.Api (TxInMode)
+import Cardano.Api qualified as Api
 import Control.Concurrent.Class.MonadSTM (TQueue, readTQueue, writeTQueue)
 import Control.Exception (throwIO)
 import Control.Monad.Class.MonadSTM (MonadSTM (atomically))

@@ -4,7 +4,7 @@ module Yare.Compat.Plutus where
 import Yare.Prelude
 
 import Cardano.Api.Ledger (hashToBytes)
-import Cardano.Api.Shelley
+import Cardano.Api
   ( Hash (PaymentKeyHash)
   , PaymentKey
   , TxId (..)

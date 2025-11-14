@@ -8,14 +8,14 @@ module Yare.App.Services.DeployScript
 import Yare.Prelude hiding (show)
 
 import Cardano.Api.Ledger (Coin (..), Credential, KeyRole (DRepRole))
-import Cardano.Api.Ledger.Lens (mkAdaValue)
-import Cardano.Api.Shelley
+import Cardano.Api
   ( AddressInEra
   , AlonzoEraOnwards (..)
   , BabbageEraOnwards (..)
   , BuildTx
   , BuildTxWith (BuildTxWith)
   , ConwayEraOnwards (..)
+  , MaryEraOnwards (..)
   , CtxTx
   , KeyWitnessInCtx (KeyWitnessForSpending)
   , LedgerProtocolParameters (..)
@@ -45,14 +45,16 @@ import Cardano.Api.Shelley
   , getTxBody
   , getTxId
   , inAnyShelleyBasedEra
+  , lovelaceToValue
   , runExcept
+  , toLedgerValue
+  , toMaryValue
   , setTxIns
   , setTxInsCollateral
   , setTxProtocolParams
   , toScriptInAnyLang
   , toShelleyScriptHash
   )
-import Cardano.Ledger.Crypto (StandardCrypto)
 import Control.Exception (throwIO)
 import Control.Monad.Except (Except, throwError)
 import Data.Map.Strict qualified as Map
@@ -167,6 +169,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
 
     shelleyBasedEra ∷ ShelleyBasedEra era = convert currentEra
     babbageEraOnwards ∷ BabbageEraOnwards era = convert currentEra
+    maryEraOnwards ∷ MaryEraOnwards era = convert babbageEraOnwards
 
   utxoEntryForFee ∷ Utxo.Entry ←
     usingMonadState (Utxo.useInputFee addresses (0 ∷ Lovelace))
@@ -194,7 +197,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
       delegations ∷ Map StakeCredential Lovelace =
         Map.empty
 
-      rewards ∷ Map (Credential DRepRole StandardCrypto) Lovelace =
+      rewards ∷ Map (Credential DRepRole) Lovelace =
         Map.empty
 
       changeAddress ∷ AddressInEra era =
@@ -206,7 +209,7 @@ constructTx addresses networkInfo scriptHash plutusScript = do
           shelleyBasedEra
           (LedgerProtocolParameters protocolParameters)
           (Address.forScript network (toShelleyScriptHash scriptHash))
-          (mkAdaValue shelleyBasedEra (Coin 0))
+          (toLedgerValue maryEraOnwards $ lovelaceToValue 0)
           TxOutDatumNone
           (ReferenceScript babbageEraOnwards (toScriptInAnyLang plutusScript))
 

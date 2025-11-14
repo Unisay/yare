@@ -21,11 +21,10 @@ module Yare.Chain.Tx
 
 import Yare.Prelude
 
-import Cardano.Api (TxId, TxIn)
+import Cardano.Api (TxId, TxIn, fromMaryValue, lovelaceToValue)
 import Cardano.Api qualified as CA
 import Cardano.Api.Byron qualified as CAB
-import Cardano.Api.Shelley (fromMaryValue, lovelaceToValue)
-import Cardano.Api.Shelley qualified as CAS
+import Cardano.Api qualified as CAS
 import Cardano.Chain.Block (ABlockOrBoundary (..), blockTxPayload)
 import Cardano.Chain.Common (unsafeGetLovelace)
 import Cardano.Chain.UTxO (unTxPayload)
@@ -79,7 +78,6 @@ import Ouroboros.Consensus.Shelley.Eras
   , ConwayEra
   , MaryEra
   , ShelleyEra
-  , StandardCrypto
   )
 import Ouroboros.Consensus.Shelley.Ledger.Block (shelleyBlockRaw)
 import Ouroboros.Consensus.Shelley.Ledger.Mempool qualified as CS
@@ -100,12 +98,12 @@ import Yare.Chain.Types (LedgerAddress)
 type TxInEra ∷ Era → Type
 type family TxInEra era ∷ Type where
   TxInEra Byron = Byron.TxAux
-  TxInEra Shelley = ShelleyTx (ShelleyEra StandardCrypto)
-  TxInEra Allegra = ShelleyTx (AllegraEra StandardCrypto)
-  TxInEra Mary = ShelleyTx (MaryEra StandardCrypto)
-  TxInEra Alonzo = AlonzoTx (AlonzoEra StandardCrypto)
-  TxInEra Babbage = AlonzoTx (BabbageEra StandardCrypto)
-  TxInEra Conway = AlonzoTx (ConwayEra StandardCrypto)
+  TxInEra Shelley = ShelleyTx ShelleyEra
+  TxInEra Allegra = ShelleyTx AllegraEra
+  TxInEra Mary = ShelleyTx MaryEra
+  TxInEra Alonzo = AlonzoTx AlonzoEra
+  TxInEra Babbage = AlonzoTx BabbageEra
+  TxInEra Conway = AlonzoTx ConwayEra
 
 -- Newtype wrapper around the TxInEra type family to allow partial application,
 -- as type families cannot be partially applied.
@@ -137,12 +135,12 @@ byEraConway = InEraConway . Tx
 
 type family TxBodyForEra (era ∷ Era) ∷ Type where
   TxBodyForEra Byron = Byron.TxAux
-  TxBodyForEra Shelley = ShelleyTxBody (ShelleyEra StandardCrypto)
-  TxBodyForEra Allegra = AllegraTxBody (AllegraEra StandardCrypto)
-  TxBodyForEra Mary = MaryTxBody (MaryEra StandardCrypto)
-  TxBodyForEra Alonzo = AlonzoTxBody (AlonzoEra StandardCrypto)
-  TxBodyForEra Babbage = BabbageTxBody (BabbageEra StandardCrypto)
-  TxBodyForEra Conway = ConwayTxBody (ConwayEra StandardCrypto)
+  TxBodyForEra Shelley = ShelleyTxBody ShelleyEra
+  TxBodyForEra Allegra = AllegraTxBody AllegraEra
+  TxBodyForEra Mary = MaryTxBody MaryEra
+  TxBodyForEra Alonzo = AlonzoTxBody AlonzoEra
+  TxBodyForEra Babbage = BabbageTxBody BabbageEra
+  TxBodyForEra Conway = ConwayTxBody ConwayEra
 
 newtype TxBody (era ∷ Era) = TxBody (TxBodyForEra era)
 
@@ -151,12 +149,12 @@ newtype TxBody (era ∷ Era) = TxBody (TxBodyForEra era)
 
 type family TxOutForEra (era ∷ Era) ∷ Type where
   TxOutForEra Byron = Byron.TxOut
-  TxOutForEra Shelley = ShelleyTxOut (ShelleyEra StandardCrypto)
-  TxOutForEra Allegra = ShelleyTxOut (AllegraEra StandardCrypto)
-  TxOutForEra Mary = ShelleyTxOut (MaryEra StandardCrypto)
-  TxOutForEra Alonzo = AlonzoTxOut (AlonzoEra StandardCrypto)
-  TxOutForEra Babbage = BabbageTxOut (BabbageEra StandardCrypto)
-  TxOutForEra Conway = BabbageTxOut (ConwayEra StandardCrypto)
+  TxOutForEra Shelley = ShelleyTxOut ShelleyEra
+  TxOutForEra Allegra = ShelleyTxOut AllegraEra
+  TxOutForEra Mary = ShelleyTxOut MaryEra
+  TxOutForEra Alonzo = AlonzoTxOut AlonzoEra
+  TxOutForEra Babbage = BabbageTxOut BabbageEra
+  TxOutForEra Conway = BabbageTxOut ConwayEra
 
 data TxOut (era ∷ Era) = TxOut
   { txOutIndex ∷ CA.TxIx

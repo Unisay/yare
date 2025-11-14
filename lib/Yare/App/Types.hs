@@ -9,7 +9,7 @@ module Yare.App.Types
 import Yare.Prelude
 
 import Cardano.Api.Ledger (Network, PParams, StrictMaybe)
-import Cardano.Api.Shelley
+import Cardano.Api
   ( ConwayEraOnwards
   , LedgerEpochInfo
   , ShelleyLedgerEra

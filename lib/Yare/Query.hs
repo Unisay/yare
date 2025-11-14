@@ -21,7 +21,7 @@ module Yare.Query
 
 import Yare.Prelude hiding (atomically)
 
-import Cardano.Api.Shelley
+import Cardano.Api
   ( AnyCardanoEra (..)
   , AnyShelleyBasedEra
   , CardanoEra (..)
@@ -39,6 +39,7 @@ import Control.Monad.Class.MonadSTM (MonadSTM (atomically))
 import Control.Monad.Morph (MFunctor (..), hoist)
 import Control.Monad.Oops (CouldBe, Variant)
 import Control.Monad.Zip (MonadZip (..))
+import Data.Singletons (SingI)
 import Data.Variant qualified as Variant
 import Ouroboros.Consensus.Cardano.Block
   ( BlockQuery (..)
@@ -55,7 +56,10 @@ import Ouroboros.Consensus.HardFork.Combinator.Ledger.Query
   ( QueryHardFork (..)
   )
 import Ouroboros.Consensus.HardFork.History qualified as History
-import Ouroboros.Consensus.Ledger.Query (Query (BlockQuery, GetSystemStart))
+import Ouroboros.Consensus.Ledger.Query
+  ( Query (BlockQuery, GetSystemStart)
+  , QueryFootprint (QFNoTables)
+  )
 import Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
 import Ouroboros.Consensus.Shelley.Ledger.Query (BlockQuery (GetCurrentPParams))
 import Ouroboros.Consensus.Shelley.Ledger.Query qualified as Shelley
@@ -187,8 +191,8 @@ instance Monad m ⇒ MonadZip (LsqM m) where
   mzip = liftM2 (,)
 
 fromBlockQuery
-  ∷ (Monad m, e `CouldBe` EraMismatch)
-  ⇒ BlockQuery StdCardanoBlock (CardanoQueryResult StandardCrypto a)
+  ∷ (Monad m, e `CouldBe` EraMismatch, SingI footprint)
+  ⇒ BlockQuery StdCardanoBlock footprint (CardanoQueryResult StandardCrypto a)
   → LsqM m (Either (Variant e) a)
 fromBlockQuery q =
   LsqQuery (BlockQuery q) <&> \case
@@ -266,7 +270,7 @@ queryLedgerTip =
     AnyCardanoEra ConwayEra →
       IxedByBlockConway <<$>> fromBlockQuery (QueryIfCurrentConway qry)
  where
-  qry ∷ BlockQuery (ShelleyBlock proto era) (Point (ShelleyBlock proto era))
+  qry ∷ BlockQuery (ShelleyBlock proto era) QFNoTables (Point (ShelleyBlock proto era))
   qry = Shelley.GetLedgerTip
 
 --------------------------------------------------------------------------------
@@ -280,8 +284,9 @@ submit
 submit queryQ lsq = do
   var ← newEmptyMVar
   -- Submission thread
-  atomically . writeTQueue queryQ $
-    QueryCont lsq \case
+  atomically
+    . writeTQueue queryQ
+    $ QueryCont lsq \case
       Left acquireFailure → do
         -- Callback runs in the thread of the local state query client
         putMVar var (Left (Variant.throw acquireFailure))

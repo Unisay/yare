@@ -18,11 +18,10 @@ package cardano-crypto-class
   flags: -external-libsodium-vrf
 
 constraints:
-  cardano-lmdb-simple >= 0.8
+  cardano-lmdb-simple >= 0.8,
+  plutus-core == 1.45.0.0,
+  plutus-ledger-api == 1.45.0.0,
+  plutus-tx == 1.45.0.0,
+  plutus-tx-plugin == 1.45.0.0
 
-source-repository-package
-  type: git
-  location: https://github.com/IntersectMBO/cardano-addresses.git
-  tag: b170724d92549a69fc3074b5f9b3f1871701aaab
-  --sha256: sha256-ldr7lEdME4XUjtgARPDBMMzeg3i2UojlW03ab3Pv0T0=
-  subdir: core
+-- Using Plinth 1.45.0.0 (compatible with cardano-node 10.5.1)

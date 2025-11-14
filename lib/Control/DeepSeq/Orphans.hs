@@ -4,7 +4,7 @@ module Control.DeepSeq.Orphans () where
 
 import Yare.Prelude
 
-import Cardano.Api.Shelley qualified as CApi
+import Cardano.Api qualified as CApi
 import Cardano.Slotting.Slot ()
 import GHC.Generics.Orphans ()
 import Ouroboros.Consensus.HardFork.Combinator.AcrossEras (OneEraHash (..))

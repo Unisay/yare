@@ -21,7 +21,7 @@ import Cardano.Address (NetworkTag)
 import Cardano.Address.Style.Shelley (shelleyMainnet, shelleyTestnet)
 import Cardano.Api.Ledger qualified as Ledger
 import Cardano.Crypto.Wallet qualified as Crypto
-import Cardano.Ledger.Api (Addr (..), StandardCrypto)
+import Cardano.Ledger.Api (Addr (..))
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Credential (PaymentCredential)
 import Cardano.Mnemonic (MkMnemonicError)
@@ -48,7 +48,7 @@ data Addresses = Addresses
   { network ∷ !Ledger.Network
   , externalAddresses ∷ !(NonEmpty AddressWithKey)
   , internalAddresses ∷ !(NonEmpty AddressWithKey)
-  , paymentCredentials ∷ !(Map (PaymentCredential StandardCrypto) Crypto.XPrv)
+  , paymentCredentials ∷ !(Map PaymentCredential Crypto.XPrv)
   -- ^ Payment credentials of the external addresses cached for faster lookups.
   }
   deriving stock (Generic)
@@ -141,7 +141,7 @@ useForMinting Addresses {externalAddresses} =
 
 forScript
   ∷ Ledger.Network
-  → Ledger.ScriptHash Ledger.StandardCrypto
+  → Ledger.ScriptHash
   → LedgerAddress
 forScript network scriptHash =
   Ledger.Addr network (Ledger.ScriptHashObj scriptHash) Ledger.StakeRefNull

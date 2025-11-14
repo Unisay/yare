@@ -10,7 +10,7 @@ module Yare.Chain.Follower
 
 import Yare.Prelude
 
-import Cardano.Api.Shelley (TxId)
+import Cardano.Api (TxId)
 import Cardano.Slotting.Slot (SlotNo, fromWithOrigin)
 import Control.Monad.Class.MonadThrow (throwIO)
 import Control.Tracer.Extended (Tracer, traceWith)

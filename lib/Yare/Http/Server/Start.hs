@@ -2,7 +2,7 @@ module Yare.Http.Server.Start (start) where
 
 import Yare.Prelude hiding (atomically)
 
-import Cardano.Api.Shelley
+import Cardano.Api
   ( AnyShelleyBasedEra (..)
   , ConwayEraOnwards (..)
   , EraHistory (..)

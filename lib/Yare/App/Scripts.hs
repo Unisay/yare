@@ -2,7 +2,7 @@ module Yare.App.Scripts where
 
 import Yare.Prelude
 
-import Cardano.Api.Shelley
+import Cardano.Api
   ( PlutusScriptV3
   , Script
   , ScriptHash (..)

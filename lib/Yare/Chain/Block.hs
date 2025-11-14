@@ -51,17 +51,17 @@ type family BlockInEra (era ∷ Era) where
   BlockInEra Byron =
     ByronBlock
   BlockInEra Shelley =
-    ShelleyBlock (TPraos StandardCrypto) (ShelleyEra StandardCrypto)
+    ShelleyBlock (TPraos StandardCrypto) ShelleyEra
   BlockInEra Allegra =
-    ShelleyBlock (TPraos StandardCrypto) (AllegraEra StandardCrypto)
+    ShelleyBlock (TPraos StandardCrypto) AllegraEra
   BlockInEra Mary =
-    ShelleyBlock (TPraos StandardCrypto) (MaryEra StandardCrypto)
+    ShelleyBlock (TPraos StandardCrypto) MaryEra
   BlockInEra Alonzo =
-    ShelleyBlock (TPraos StandardCrypto) (AlonzoEra StandardCrypto)
+    ShelleyBlock (TPraos StandardCrypto) AlonzoEra
   BlockInEra Babbage =
-    ShelleyBlock (Praos StandardCrypto) (BabbageEra StandardCrypto)
+    ShelleyBlock (Praos StandardCrypto) BabbageEra
   BlockInEra Conway =
-    ShelleyBlock (Praos StandardCrypto) (ConwayEra StandardCrypto)
+    ShelleyBlock (Praos StandardCrypto) ConwayEra
 
 -- Newtype wrapper around the type family to allow partial application,
 -- as type families cannot be partially applied.

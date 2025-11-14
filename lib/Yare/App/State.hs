@@ -7,7 +7,7 @@ module Yare.App.State
 
 import Yare.Prelude hiding (State)
 
-import Cardano.Api.Shelley (TxId)
+import Cardano.Api (TxId)
 import Control.DeepSeq.Orphans ()
 import Data.Maybe.Strict (StrictMaybe (SNothing))
 import Data.Set qualified as Set

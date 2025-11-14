@@ -7,7 +7,7 @@ module Yare.Http.Server
 
 import Yare.Prelude
 
-import Cardano.Api.Shelley
+import Cardano.Api
   ( AssetName
   , Lovelace
   , PlutusScript (..)

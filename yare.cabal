@@ -77,7 +77,7 @@ library
     , base16-bytestring              ^>=1.0.2
     , bytestring
     , cardano-addresses
-    , cardano-api                    ^>=10.10
+    , cardano-api                    >=10.10
     , cardano-client
     , cardano-crypto
     , cardano-crypto-class
@@ -129,6 +129,7 @@ library
     , servant                        ^>=0.20.1
     , servant-server                 ^>=0.20
     , si-timers
+    , singletons
     , stm                            ^>=2.5.1
     , strict                         ^>=0.5.1
     , strict-sop-core                ^>=0.1.1

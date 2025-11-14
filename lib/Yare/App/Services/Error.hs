@@ -2,7 +2,7 @@ module Yare.App.Services.Error where
 
 import Yare.Prelude hiding (show)
 
-import Cardano.Api.Shelley
+import Cardano.Api
   ( InAnyShelleyBasedEra (..)
   , TxBodyErrorAutoBalance
   )

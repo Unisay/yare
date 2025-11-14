@@ -5,7 +5,7 @@ module Fmt.Orphans () where
 import Yare.Prelude
 
 import Cardano.Api.Ledger (Coin (..))
-import Cardano.Api.Shelley
+import Cardano.Api
   ( AssetId (..)
   , AssetName
   , PolicyId (..)
@@ -19,7 +19,6 @@ import Cardano.Api.Shelley
   , selectLovelace
   , serialiseToRawBytesHexText
   )
-import Cardano.Ledger.Api (StandardCrypto)
 import Cardano.Ledger.Credential (PaymentCredential, credToText)
 import Cardano.Slotting.Slot (WithOrigin, withOrigin)
 import Fmt (Buildable (..), nameF, (+|))
@@ -87,5 +86,5 @@ instance Buildable (Point StdCardanoBlock) where
 instance Buildable LedgerAddress where
   build = build . ledgerAddressToText
 
-instance Buildable (PaymentCredential StandardCrypto) where
+instance Buildable PaymentCredential where
   build = build . credToText
